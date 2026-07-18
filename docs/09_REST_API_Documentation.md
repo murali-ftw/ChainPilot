@@ -14,7 +14,7 @@ This document specifies every REST endpoint exposed by the API Gateway (Document
 
 ## 2. Scope
 
-All endpoints are versioned under `/api/v1/`. Phase 1 endpoints cover auth, entity CRUD/read, and predictions. Phase 2 endpoints add chat, simulation, recommendations, approvals, alerts, and audit of approval/action events.
+All endpoints are versioned under `/api/v1/`. Phase 1 endpoints cover auth, entity CRUD/read, predictions (incl. `scoring_method`, `confidence`, `risk_category`), customers, and evaluation/architecture-comparison/model-governance. Phase 2 endpoints add chat, simulation, recommendations, decision intelligence (routing/decision-trace), optimization (safety-stock, PO-split, customer allocation), approvals, alerts, and audit of approval/action events.
 
 ## 3. Assumptions
 
@@ -137,7 +137,7 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
       "country": "IN",
       "lead_time_days": 21,
       "reliability_history": 0.82,
-      "risk": { "delay_probability": 0.78, "impact_score": 0.71 }
+      "risk": { "delay_probability": 0.78, "impact_score": 0.71, "confidence": 0.86, "risk_category": "high" }
     }
   ],
   "page": 1, "page_size": 20, "total": 4
@@ -156,12 +156,70 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
   "lead_time_days": 21,
   "reliability_history": 0.82,
   "components": [{ "id": "c1...", "name": "Capacitor 10uF", "component_type": "electronic" }],
-  "risk": { "delay_probability": 0.78, "impact_score": 0.71, "scored_at": "2026-07-10T08:00:00Z" }
+  "risk": { "delay_probability": 0.78, "impact_score": 0.71, "confidence": 0.86, "risk_category": "high", "scoring_method": "weighted_formula", "model_version": "hgt-v1", "architecture": "heterogeneous_graph_transformer", "scored_at": "2026-07-10T08:00:00Z" }
 }
 ```
 **Errors:** `404 NOT_FOUND`.
 
-### 8.3 Document Upload (Graph Construction — FR-GC-05)
+### 8.3 Customers
+
+**`GET /api/v1/customers?priority_tier=strategic&page=1&page_size=20`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (any role) |
+
+**Response `200 OK`:**
+```json
+{
+  "items": [
+    { "id": "cu1...", "name": "Nova Retail Group", "priority_tier": "strategic", "is_active": true }
+  ],
+  "page": 1, "page_size": 20, "total": 6
+}
+```
+
+**`POST /api/v1/customers`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (`analyst`, `admin`) |
+
+**Request:** `{ "name": "Nova Retail Group", "priority_tier": "strategic", "contract_terms": { "sla_days": 5, "penalty_pct": 2.5 } }`
+**Response `201 Created`:** `{ "id": "cu1...", "name": "Nova Retail Group", "priority_tier": "strategic", "is_active": true }`
+**Errors:** `422 VALIDATION_ERROR` (invalid `priority_tier`).
+
+**`GET /api/v1/customers/{id}`** — customer detail incl. linked orders. **`PATCH /api/v1/customers/{id}`** (`admin`) — update tier/contract terms. **Errors:** `404 NOT_FOUND`.
+**Delivery Phase:** Phase 1 (FR-CUST-01)
+
+### 8.4 Customer Allocation (OR-Tools Optimization)
+
+**`GET /api/v1/customers/allocations/{product_id}`**
+
+Reads-facing endpoint over the Decision Intelligence → Optimization pipeline (Document 4, Section 20): the Customer Service supplies customer/order inputs, the Decision Intelligence Service assembles the constraint set, and the Optimization Service (`POST /api/v1/optimize/customer-allocation`, Section 12.2) solves it; this endpoint returns the result read-model.
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (`analyst`, `approver`, `admin`) |
+
+**Response `200 OK`:**
+```json
+{
+  "product_id": "p1...",
+  "available_stock": 320,
+  "objective_value": 41250.0,
+  "optimal": true,
+  "allocations": [
+    { "order_id": "o1...", "customer_id": "cu1...", "priority_tier": "strategic", "order_value": 48000, "sla_penalty_pct": 2.5, "allocated_qty": 200 },
+    { "order_id": "o2...", "customer_id": "cu2...", "priority_tier": "low", "order_value": 6000, "sla_penalty_pct": 0, "allocated_qty": 0 }
+  ],
+  "constraints_applied": { "inventory": 320, "supplier_capacity": 500, "warehouse_capacity": 800, "lead_time_days": 14 }
+}
+```
+**Errors:** `404 NOT_FOUND` (no shortage flagged for this product), `422 VALIDATION_ERROR`.
+**Delivery Phase:** Phase 2 (FR-CUST-02) — approving a proposed allocation creates an `action_requests` row with `source='optimizer'`, `entity_type='order'`, and a populated `decision_trace`, via the Approval Endpoints (Section 13).
+
+### 8.5 Document Upload (Graph Construction — FR-GC-05)
 
 **`POST /api/v1/documents`**
 
@@ -192,7 +250,9 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
     {
       "entity_type": "supplier", "entity_id": "a1b2...",
       "delay_probability": 0.78, "shortage_risk": null, "impact_score": 0.71,
-      "affected_orders": ["o1...", "o2..."], "model_version": "gnn-transformer-v1.3",
+      "confidence": 0.86, "risk_category": "high",
+      "scoring_method": "weighted_formula",
+      "affected_orders": ["o1...", "o2..."], "model_version": "hgt-v1", "architecture": "heterogeneous_graph_transformer",
       "scored_at": "2026-07-10T08:00:00Z"
     }
   ],
@@ -217,6 +277,66 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
 
 **Response `200 OK`:** `{ "entity_id": "a1b2...", "points": [{ "scored_at": "2026-06-01T00:00:00Z", "impact_score": 0.40 }, { "scored_at": "2026-07-10T08:00:00Z", "impact_score": 0.71 }] }`
 **Delivery Phase:** Phase 2 (US-TREND-01) — endpoint reads the Phase 1 `risk_scores` table, so no backend change is needed at Phase 2 activation beyond exposing this route.
+
+### 9.4 Evaluation & Architecture Comparison Endpoints (FR-EVAL-01/02, FR-ABL-02)
+
+**`GET /api/v1/models/evaluation-runs?architecture=hgt&metric_name=roc_auc`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (any role) |
+
+**Response `200 OK`:**
+```json
+{
+  "items": [
+    { "model_version": "hgt-v1", "architecture": "heterogeneous_graph_transformer", "metric_name": "roc_auc", "metric_value": 0.847, "dataset_split": "test", "evaluated_at": "2026-09-12T10:00:00Z" }
+  ],
+  "page": 1, "page_size": 20, "total": 21
+}
+```
+
+**`GET /api/v1/models/comparison`** — returns the latest `test`-split metrics for each of `graphsage`, `gat`, `heterogeneous_graph_transformer` side by side, backing the ablation comparison (FR-ABL-02).
+
+**Response `200 OK`:**
+```json
+{
+  "architectures": [
+    { "architecture": "graphsage", "model_version": "graphsage-v1", "metrics": { "roc_auc": 0.71, "f1": 0.62 } },
+    { "architecture": "gat", "model_version": "gat-v1", "metrics": { "roc_auc": 0.79, "f1": 0.69 } },
+    { "architecture": "heterogeneous_graph_transformer", "model_version": "hgt-v1", "metrics": { "roc_auc": 0.847, "f1": 0.76 } }
+  ]
+}
+```
+**Errors:** `422 VALIDATION_ERROR` (unknown `architecture`/`metric_name` value).
+**Delivery Phase:** Phase 1
+
+### 9.5 Model Registry / Governance Endpoints (FR-GOV-01/02)
+
+**`GET /api/v1/models/registry?status=active`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (any role) |
+
+**Response `200 OK`:**
+```json
+{
+  "items": [
+    {
+      "model_version": "hgt-v1", "architecture": "heterogeneous_graph_transformer",
+      "training_dataset": "supply_chain_snapshot_2026-09-01", "training_timestamp": "2026-09-12T06:00:00Z",
+      "experiment_id": "exp-hgt-014", "git_commit": "a1b2c3d", "hyperparameters": { "lr": 0.001, "layers": 3 },
+      "parameter_count": 482300, "status": "active"
+    }
+  ],
+  "page": 1, "page_size": 20, "total": 3
+}
+```
+
+**`GET /api/v1/models/active`** — shortcut for the single currently `active` model version (used by the Model Metadata panel, Document 3, Section 6.19).
+**Errors:** `404 NOT_FOUND` (no model currently `active`), `422 VALIDATION_ERROR` (invalid `status` filter).
+**Delivery Phase:** Phase 1
 
 ## 10. Chatbot Endpoints (Phase 2)
 
@@ -264,7 +384,7 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
 ```
 **Errors:** `422 VALIDATION_ERROR` (feature value out of allowed range, e.g., negative lead time).
 
-## 12. Recommendation Endpoints (Phase 2)
+## 12. Recommendation & Optimization Endpoints (Phase 2)
 
 ### 12.1 `GET /api/v1/recommendations/suppliers/{supplier_id}`
 
@@ -279,14 +399,61 @@ Common query parameters: `?risk_level=high,medium&search=&page=&page_size=`.
 ```
 **Errors:** `404 NOT_FOUND`, `422 VALIDATION_ERROR` (no component type resolvable for supplier).
 
+### 12.2 Optimization Endpoints (OR-Tools, FR-OPT-01/02/03)
+
+All three endpoints below are invoked by the Decision Intelligence Service once it determines a flagged entity's response is a closed-form decision type (FR-DEC-01); none is ever computed by the LLM.
+
+**`POST /api/v1/optimize/safety-stock`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (`analyst`, `approver`, `admin`) |
+
+**Request:** `{ "product_id": "p1...", "warehouse_id": "w1...", "service_level": 0.95 }`
+**Response `200 OK`:**
+```json
+{ "optimal": true, "recommended_reorder_threshold": 180, "objective_value": 180.0, "rationale": "lead-time and demand-variance constrained optimal solution" }
+```
+
+**`POST /api/v1/optimize/po-split`**
+
+**Request:** `{ "product_id": "p1...", "required_qty": 500, "candidate_supplier_ids": ["s1...", "s2..."] }`
+**Response `200 OK`:**
+```json
+{ "optimal": true, "split": [{ "supplier_id": "s1...", "qty": 200 }, { "supplier_id": "s2...", "qty": 300 }], "rationale": "lead-time-constrained optimal split" }
+```
+
+**`POST /api/v1/optimize/customer-allocation`**
+
+**Request:** `{ "product_id": "p1...", "constraint_set": { "inventory": 320, "supplier_capacity": 500, "warehouse_capacity": 800, "lead_time_days": 14 } }` — `constraint_set` is assembled by the Decision Intelligence Service (Document 4, Section 20), not supplied ad hoc by the caller.
+**Response `200 OK`:** same shape as `GET /api/v1/customers/allocations/{product_id}` (Section 8.4).
+
+**Errors (all three):** `422 VALIDATION_ERROR` (no optimal/feasible solution — surfaced as `{ "optimal": false, "reason": "..." }` in a `200 OK`, not forced into a recommendation, per NFR-20).
+**Delivery Phase:** Phase 2 — approving any result creates an `action_requests` row with `source='optimizer'` and a populated `decision_trace` via the Approval Endpoints (Section 13).
+
 ## 13. Approval Endpoints (Phase 2)
 
 | Method | URL | Auth | Purpose |
 |---|---|---|---|
 | GET | `/api/v1/approvals?status=pending` | `analyst`,`approver`,`admin` | List action requests |
-| GET | `/api/v1/approvals/{id}` | `analyst`,`approver`,`admin` | Detail incl. evidence/action payload |
+| GET | `/api/v1/approvals/{id}` | `analyst`,`approver`,`admin` | Detail incl. evidence/action payload/decision trace |
+| GET | `/api/v1/approvals/{id}/decision-trace` | `analyst`,`approver`,`admin` | Decision trace only (FR-DEC-03) |
 | POST | `/api/v1/approvals/{id}/approve` | `approver`,`admin` | Approve (FR-MCP-03) |
 | POST | `/api/v1/approvals/{id}/reject` | `approver`,`admin` | Reject with reason (FR-MCP-04) |
+
+**`GET /api/v1/approvals/{id}` response `200 OK` (excerpt):**
+```json
+{
+  "id": "ar1...", "source": "optimizer", "status": "pending",
+  "action_payload": { "action": "safety_stock_adjustment", "recommended_reorder_threshold": 180 },
+  "decision_trace": {
+    "risk_intelligence": { "risk_category": "high", "confidence": 0.86, "scoring_method": "weighted_formula" },
+    "decision_intelligence": { "routed_to": "optimizer", "policy_checks_passed": true },
+    "optimization": { "objective_value": 180.0, "optimal": true },
+    "llm": null
+  }
+}
+```
 
 **`POST /api/v1/approvals/{id}/reject` request:**
 ```json
@@ -342,6 +509,8 @@ All endpoints are subject to a per-user rate limit (default 100 requests/minute)
 | API-01 | Six near-identical entity endpoint families (Section 8.1) risk drifting out of sync if changed independently | Shared controller/service base pattern in Document 8; contract tests in Document 13 run against all six | Phase 1 |
 | API-02 | Streaming chat endpoint (WebSocket) is harder to test/document than plain REST | Non-streaming fallback documented (Section 10.2) as the contract-testable baseline | Phase 2 |
 | API-03 | Approval endpoints are a high-stakes surface (trigger real ERP actions downstream) | `409 CONFLICT` guard against double-decision; full audit trail (Section 15) | Phase 2 |
+| API-04 | Optimizer/allocation endpoints (Sections 8.4, 12.2) could return an infeasible result that gets surfaced as if it were a valid recommendation | Infeasible solver results return `{ "optimal": false, ... }` explicitly rather than a partial/forced recommendation (NFR-20) | Phase 2 |
+| API-05 | `GET /api/v1/approvals/{id}` returns a `null`/empty `decision_trace` for an approved request, breaking audit coverage | Controller-level contract test asserts `decision_trace` is non-null for every `approved`/`rejected` row (NFR-23) | Phase 2 |
 
 ## 18. Future Extension
 

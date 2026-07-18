@@ -14,7 +14,7 @@ Source of Truth: `docs/problem_statement.md`
 
 This Product Requirement Document defines what the Graph Neural Network (GNN) and Generative AI-based Supply Chain Risk Prediction System must do, for whom, and to what standard, across its two delivery phases. It translates the problem statement's six-layer architecture and six extended decision-support features into functional requirements, non-functional requirements, user personas, user stories, and success metrics that all downstream documents (Technical Specification, UI/UX, Database Design, API Documentation, AI/ML Documentation, etc.) must remain consistent with.
 
-This document is the product-level contract between the project's stakeholders (evaluators, end users, and the development team acting as sole implementer) and the system being built. No requirement in this document introduces a feature beyond what is described in `docs/problem_statement.md`; every requirement is a direct, implementation-level expansion of an existing statement in that document.
+This document is the product-level contract between the project's stakeholders (evaluators, end users, and the five-person development team implementing the system) and the system being built. No requirement in this document introduces a feature beyond what is described in `docs/problem_statement.md`; every requirement is a direct, implementation-level expansion of an existing statement in that document.
 
 ## 2. Scope
 
@@ -33,6 +33,11 @@ Phase 1 delivers a fully working research prototype that proves the core hypothe
 | 7 | REST APIs exposing graph, prediction, and auth operations | Layer 6, Section 9 |
 | 8 | React dashboard shell | Layer 6 |
 | 9 | Graph visualization (D3-based, risk-colored) | Layer 6, Section 9 |
+| 10 | Architecture ablation (GraphSAGE → GAT → HGT) with a documented research rationale per stage, each logged under a distinct `model_version` | Layer 2, Section 4 |
+| 11 | Risk Intelligence Layer: confidence estimation, business aggregation (weighted formula as alternative to GNN-native score), threshold evaluation, risk categorization, `scoring_method`/`confidence`/`risk_category` recorded per row | Risk Intelligence Layer, Section 4 |
+| 12 | Persisted evaluation metrics (classification + regression) and model-governance metadata (dataset, timestamp, experiment ID, git commit, hyperparameters, status) per training run, exposed via REST | Layer 2, Section 4 |
+| 13 | `customers` table as a first-class entity, replacing free-text `orders.customer_name` | Section 5.8 — schema only; allocation optimization logic is Phase 2 |
+| 14 | Decision Intelligence Layer foundation: business-rule/policy validation hooks, decision-trace schema | Decision Intelligence Layer, Section 4 — full recommendation-path routing is Phase 2 |
 
 ### 2.2 Out of Scope — Phase 1 (Deferred to Phase 2)
 
@@ -65,6 +70,9 @@ Phase 2 **extends** Phase 1 without redesigning it. It adds Layers 3, 4, and 5 o
 | 10 | ERP / procurement integration | Layer 5 |
 | 11 | Notifications (Slack / email) | Section 5.6 |
 | 12 | Proactive alerts | Section 5.6 |
+| 13 | OR-Tools optimization engine (safety-stock sizing, PO splitting, customer allocation) | Section 5.7 |
+| 14 | Customer allocation under shortage, solved as a constrained optimization problem via the OR-Tools engine, approval integration | Section 5.8 |
+| 15 | Decision Intelligence Layer: recommendation-path routing (optimizer vs. LLM), full policy validation, decision-trace population | Decision Intelligence Layer, Section 4 |
 
 ### 2.4 Delivery Phase Tagging
 
@@ -95,6 +103,13 @@ Directly sourced from `docs/problem_statement.md`, Section 3, mapped to delivery
 | Track and display risk trends over time | Phase 2 |
 | Proactively notify relevant stakeholders when risk crosses a threshold | Phase 2 |
 | Execute approved recommendations directly in ERP/procurement systems via MCP, with human-in-the-loop approval | Phase 2 |
+| Demonstrate the final GNN architecture through a progressive, evidence-based ablation (GraphSAGE → GAT → HGT), each stage justified by a documented limitation of the prior one, with persisted, comparable metrics | Phase 1 |
+| Persist standard classification/regression evaluation metrics and model-governance metadata (dataset, timestamp, experiment ID, git commit, hyperparameters, status) per training run, exposed via REST | Phase 1 |
+| Transform raw GNN output into business-ready intelligence via a Risk Intelligence Layer: confidence estimation, business aggregation (weighted formula as an inspectable alternative to the GNN-native score), threshold evaluation, risk categorization | Phase 1 |
+| Route flagged entities through a Decision Intelligence Layer that applies business rules/policy checks and selects between optimizer-solvable and LLM-explained recommendation paths | Phase 1 (foundation/schema), Phase 2 (full routing) |
+| Generate optimal safety-stock, PO-split, and customer-allocation decisions using a constraint solver (OR-Tools), never delegating numeric optimization to the LLM | Phase 2 |
+| Solve customer allocation under shortage as a constrained optimization problem maximizing protected customer value subject to inventory/capacity/lead-time constraints | Phase 1 (schema), Phase 2 (optimization logic) |
+| Expose confidence, architecture, model version, scoring method, and decision provenance across predictions, recommendations, and audit records | Phase 1 (prediction-level), Phase 2 (decision/chatbot-level) |
 | Provide an interactive dashboard tying all of the above together | Phase 1 (shell + graph view), extended in Phase 2 |
 
 ## 5. Business Goals
@@ -112,11 +127,12 @@ Directly sourced from `docs/problem_statement.md`, Section 3, mapped to delivery
 
 | Stakeholder | Role in Project | Primary Interest |
 |---|---|---|
-| Project Student / Developer | Sole implementer across all layers (architecture, ML, backend, frontend, DevOps, security) | Deliver a working, well-documented, evaluable system on schedule |
+| Project Team (5 students / developers) | Joint implementers across all layers (architecture, ML, backend, frontend, DevOps, security), one owner per layer per `docs/team_plan.md` | Deliver a working, well-documented, evaluable system on schedule |
 | Academic Supervisor / Guide | Oversees project direction, evaluates milestones | Technical soundness, novelty, adherence to scope, demonstrable results |
 | Evaluation Panel / Examiners | Assesses the final deliverable at project review | Correctness, completeness of Phase 1 MVP, quality of explanation and demo |
 | End User — Supply Chain Analyst (simulated/prototype user) | Primary user of the dashboard and (Phase 2) chatbot | Fast, trustworthy risk visibility and explanations |
 | End User — Procurement / Operations Manager (simulated/prototype user) | Consumer of recommendations and approver of actions (Phase 2) | Actionable, low-friction recommendations with clear evidence |
+| End User — Customer Operations Manager (simulated/prototype user) | Owns outbound fulfillment commitments; decides allocation when supply can't cover all open orders (Phase 2) | Defensible, evidence-backed allocation decisions during shortages |
 | Data Source Owners (simulated via datasets) | Represent supplier, order, shipment, inventory record sources | Data integrity flowing into the graph |
 
 ```mermaid
@@ -126,11 +142,12 @@ flowchart LR
         EVAL["Evaluation Panel"]
     end
     subgraph Delivery
-        DEV["Project Student / Developer"]
+        DEV["Project Team\n(5 students / developers)"]
     end
     subgraph Users
         ANALYST["Supply Chain Analyst"]
         PROC["Procurement / Operations Manager"]
+        CUSTOPS["Customer Operations Manager"]
     end
     subgraph Data
         SRC["Data Source Owners\n(supplier, order, shipment, inventory records)"]
@@ -140,9 +157,11 @@ flowchart LR
     DEV -->|delivers milestones| EVAL
     DEV -->|builds for| ANALYST
     DEV -->|builds for| PROC
+    DEV -->|builds for| CUSTOPS
     SRC -->|structured + lightly parsed data| DEV
     ANALYST -->|feedback| DEV
     PROC -->|feedback| DEV
+    CUSTOPS -->|feedback| DEV
 ```
 
 ## 7. User Personas
@@ -195,6 +214,14 @@ flowchart LR
 - **Pain points today:** N/A (new system) — driven by the risk of ungoverned automation.
 - **Relevant features:** Approval Workflow (Phase 2), Audit screen, Security Documentation controls.
 
+### 7.7 Neha — Customer Operations Manager
+
+- **Role:** Owns customer-facing fulfillment commitments; decides who gets served first when supply can't cover all open orders for a product.
+- **Technical proficiency:** Business/operational user; needs allocation reasoning in business terms (contract tier, order value, penalty exposure), not model internals — same proficiency profile as Rahul and Meera.
+- **Goals:** Protect strategic-tier customer relationships and contractual SLAs during a shortage; make defensible, evidence-backed allocation calls instead of ad hoc judgment calls under time pressure; avoid unnecessary penalty exposure from breached contracts.
+- **Pain points today:** Allocation decisions during a shortage are currently made manually and inconsistently, without a systematic view of which orders carry the most contractual or relationship risk if under-served; a decision made for one order is not checked against the full set of orders competing for the same constrained stock.
+- **Relevant features:** Customer Allocation Recommendation (Phase 2), Approval Workflow (Phase 2), Orders/Customers screens.
+
 ```mermaid
 flowchart TD
     P["Priya\nSupply Chain Analyst"] --> D["Risk Dashboard"]
@@ -206,6 +233,8 @@ flowchart TD
     E["Devika\nExecutive Stakeholder"] --> SUM["Dashboard Summary / Trend Timeline (P2)"]
     K["Karan\nCompliance Officer"] --> AUD["Audit Log"]
     K --> APP
+    N["Neha\nCustomer Operations Manager"] --> ALLOC["Customer Allocation Recommendation (P2)"]
+    N --> APP
 ```
 
 ## 8. Functional Requirements
@@ -264,8 +293,8 @@ Each requirement has a unique ID, description, and mandatory **Delivery Phase** 
 | ID | Requirement | Delivery Phase |
 |---|---|---|
 | FR-LLM-01 | The system shall combine the risk score, explanation subgraph, and retrieved evidence into a plain-language explanation. | Phase 2 |
-| FR-LLM-02 | The system shall generate a recommended action alongside every explanation. | Phase 2 |
-| FR-LLM-03 | The system shall validate LLM-proposed actions against business rules before surfacing them for approval. | Phase 2 |
+| FR-LLM-02 | The system shall generate a qualitative recommended action alongside every explanation for which the Decision Intelligence Layer (FR-DEC-01) determines no closed-form optimizer path applies; the LLM shall never compute the numeric decision itself for optimizer-eligible cases. | Phase 2 |
+| FR-LLM-03 | The system shall validate LLM-proposed actions against business rules before surfacing them for approval, as part of the Decision Intelligence Layer's validation (FR-DEC-02). | Phase 2 |
 | FR-LLM-04 | The system shall cite the retrieved evidence supporting each explanation, so claims are traceable to source records. | Phase 2 |
 
 ### 8.6 Interactive Chatbot
@@ -336,6 +365,73 @@ Each requirement has a unique ID, description, and mandatory **Delivery Phase** 
 | FR-DASH-07 | The system shall provide an Admin screen for user, role, and threshold management. | Phase 1 (user/role management), Phase 2 (threshold management) |
 | FR-DASH-08 | The system shall provide an Audit screen listing authentication events, approvals, and executed actions. | Phase 1 (authentication events), Phase 2 (approvals and executed actions) |
 
+### 8.13 Architecture Ablation (Layer 2)
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-ABL-01 | The system shall train and evaluate GraphSAGE, GAT, and the Heterogeneous Graph Transformer on the same held-out test set, logging each under a distinct `model_version`. | Phase 1 |
+| FR-ABL-02 | The system shall present a side-by-side comparison of the three architectures' metrics (Section 8.15) to justify the final architecture selection. | Phase 1 |
+
+### 8.14 Transparent Weighted Risk Formula (Layer 2)
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-RISK-01 | The system shall compute `impact_score` using a documented, fixed-weight formula over component risk signals (0.30 Supplier Risk + 0.25 Shipment Delay + 0.20 Inventory Risk + 0.15 Demand Spike + 0.10 Financial Risk), as an alternative to an opaque model output. | Phase 1 |
+| FR-RISK-02 | The system shall record which computation method (`gnn_native` or `weighted_formula`) produced a given `impact_score` row, so the two are never conflated. | Phase 1 |
+
+### 8.15 Model Evaluation Persistence
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-EVAL-01 | The system shall persist evaluation metrics (classification: Precision, Recall, F1, ROC-AUC; regression: MAE, RMSE, MAPE, if applicable) for every training run, keyed by model version and architecture. | Phase 1 |
+| FR-EVAL-02 | The system shall expose evaluation history via the REST API for dashboard/report consumption, supporting the architecture comparison in FR-ABL-02. | Phase 1 |
+
+### 8.16 Optimization Engine (Layer 5)
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-OPT-01 | The system shall generate an optimal action decision (PO split, safety-stock adjustment, or customer allocation) using a constraint solver (OR-Tools), given the constraint set assembled by the Decision Intelligence Layer from current inventory, lead time, demand, and capacity signals. | Phase 2 |
+| FR-OPT-02 | The system shall route optimizer-generated decisions through the same approval workflow as LLM-generated ones (FR-MCP-03), tagged `action_requests.source = 'optimizer'`. | Phase 2 |
+| FR-OPT-03 | The system shall never delegate numeric optimization to the LLM; the LLM's role is limited to explaining an optimizer-generated decision in plain language (FR-DEC-01). | Phase 2 |
+
+### 8.17 Customer Allocation Under Shortage
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-CUST-01 | The system shall model customers as first-class entities with priority tier and contract attributes, replacing the free-text `customer_name` field. | Phase 1 (schema), Phase 2 (allocation logic) |
+| FR-CUST-02 | Given a shortage-flagged product with insufficient stock to fulfill all competing orders, the system shall solve customer allocation as a constrained optimization problem via the OR-Tools engine (FR-OPT-01), maximizing protected customer value (strategic importance, SLA compliance, revenue protection, penalty avoidance) subject to inventory, supplier capacity, warehouse capacity, lead time, and production capacity constraints. | Phase 2 |
+| FR-CUST-03 | The system shall route allocation decisions through the same approval workflow as other recommended actions (FR-MCP-03). | Phase 2 |
+
+### 8.18 Risk Intelligence Layer
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-RISKINT-01 | The system shall compute and persist a confidence score for every GNN prediction, alongside `impact_score`. | Phase 1 |
+| FR-RISKINT-02 | The system shall categorize every scored entity into a `risk_category` (`low`/`medium`/`high`/`critical`) derived from `impact_score` against configurable thresholds. | Phase 1 |
+| FR-RISKINT-03 | The system shall expose `scoring_method`, `confidence`, `risk_category`, `model_version`, and `architecture` together as a single business-ready risk-intelligence record on every prediction response. | Phase 1 |
+
+### 8.19 Decision Intelligence Layer
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-DEC-01 | The system shall determine, for a flagged entity, whether its response is a closed-form decision type (safety-stock, PO-split, customer allocation) eligible for the OR-Tools optimizer (FR-OPT-01), or requires an LLM-generated qualitative recommendation (FR-LLM-02), and route accordingly. | Phase 2 |
+| FR-DEC-02 | The system shall validate every candidate recommendation — LLM-generated or optimizer-generated — against business rules and policy constraints before it becomes eligible for the approval workflow, extending the validation already required of LLM proposals (FR-LLM-03) to optimizer output. | Phase 2 |
+| FR-DEC-03 | The system shall record a decision trace identifying which layer(s) (Risk Intelligence, Decision Intelligence, Optimization, LLM) contributed to a given recommendation, retrievable alongside the approval detail. | Phase 2 |
+
+### 8.20 Confidence & Model Metadata
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-CONF-01 | The system shall expose confidence, architecture, model version, and scoring method on every prediction API response and dashboard view. | Phase 1 |
+| FR-CONF-02 | The system shall expose evidence source (RAG citation) and explanation source (GNNExplainer-derived vs. LLM-generated) alongside every chatbot/LLM-generated explanation. | Phase 2 |
+
+### 8.21 Model Governance
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-GOV-01 | The system shall persist, per trained model, its `model_version`, architecture, training dataset reference, training timestamp, experiment identifier, git commit, hyperparameters, and parameter count. | Phase 1 |
+| FR-GOV-02 | The system shall track a lifecycle `status` (`training`/`evaluating`/`candidate`/`active`/`archived`) per model version, and expose the currently `active` model via the REST API. | Phase 1 |
+
 ## 9. Non-Functional Requirements
 
 | ID | Category | Requirement | Delivery Phase |
@@ -358,6 +454,12 @@ Each requirement has a unique ID, description, and mandatory **Delivery Phase** 
 | NFR-16 | Portability | The system shall be deployable via containerized services (Docker) to support consistent environments across development and demo. | Phase 1 |
 | NFR-17 | Data Quality | Prediction accuracy is dependent on completeness of source records; the system shall surface data-quality warnings rather than silently degrading. | Phase 1 |
 | NFR-18 | Alert Quality | Proactive alert thresholds shall be tunable to avoid alert fatigue from false positives. | Phase 2 |
+| NFR-19 | Auditability | `model_evaluation_runs` rows shall be immutable and append-only, so architecture comparisons (FR-ABL-02) are never retroactively altered. | Phase 1 |
+| NFR-20 | Reliability | Optimizer-generated recommendations (FR-OPT-01) shall only be surfaced for approval if the solver returns a feasible solution; an infeasible result shall not be forced into a recommendation. | Phase 2 |
+| NFR-21 | Data Quality | Customer allocation optimization (FR-CUST-02) shall degrade to a documented default (e.g., FIFO by order date) if priority/contract data is missing for a given customer, rather than failing the allocation. | Phase 2 |
+| NFR-22 | Transparency | Every prediction API response and dashboard risk view shall include a confidence score; no risk score shall be displayed without it (FR-RISKINT-01, FR-CONF-01). | Phase 1 |
+| NFR-23 | Auditability | Every approved or rejected `action_requests` row shall carry a non-empty decision trace (FR-DEC-03) identifying the layer(s) that produced the recommendation. | Phase 2 |
+| NFR-24 | Governance | `model_registry` rows shall be immutable once a model's `status` reaches `active`; only `status` transitions (e.g., `active` → `archived`) may be updated thereafter. | Phase 1 |
 
 ## 10. User Stories
 
@@ -457,7 +559,39 @@ Format: `US-<area>-<seq>` — *As a [persona], I want [capability], so that [ben
 | US-DASH-06 | As any user, I want clear loading, error, and empty states on every screen, so that I always understand what the system is doing. | Every screen defines and displays all three states per Document 3 (UI/UX). | Phase 1 |
 | US-DASH-07 | As any user, I want the dashboard to work on a standard laptop screen and scale reasonably to smaller windows, so that it's usable in a demo or office setting. | Layout responds without breaking down to at least tablet-width viewports. | Phase 1 |
 
-**Total user stories: 55**, spanning all in-scope Phase 1 and Phase 2 capabilities.
+### 10.11 Architecture Ablation, Evaluation & Risk Formula (Persona: Devika, Priya, Arjun)
+
+| ID | Story | Acceptance Criteria | Delivery Phase |
+|---|---|---|---|
+| US-ABL-01 | As Devika, I want to see a side-by-side comparison of GraphSAGE, GAT, and the final Heterogeneous Graph Transformer, so that I trust the final architecture was chosen on evidence, not assertion. | Comparison view/report shows each architecture's persisted metrics (Precision, Recall, F1, ROC-AUC) on the same held-out test set. | Phase 1 |
+| US-EVAL-01 | As Arjun, I want every training run's evaluation metrics persisted and queryable, so that model performance is auditable over time rather than only visible in training logs. | `model_evaluation_runs` rows are created per run and retrievable via the REST API, keyed by `model_version` and `architecture`. | Phase 1 |
+| US-RISK-01 | As Priya, I want to see whether a risk score came from the GNN or from the documented weighted formula, so that I know how to interpret and explain it. | Risk Dashboard/Supplier detail displays `scoring_method` alongside `impact_score`; formula-derived scores show the component breakdown. | Phase 1 |
+
+### 10.12 Optimization Engine (Persona: Rahul, Meera)
+
+| ID | Story | Acceptance Criteria | Delivery Phase |
+|---|---|---|---|
+| US-OPT-01 | As Meera, I want a safety-stock recommendation that is guaranteed feasible under current lead time and demand constraints, so that I'm not acting on a plausible-sounding but impractical suggestion. | Optimizer returns a recommendation only when the constraint solver finds a feasible solution; infeasible cases are surfaced as such, not forced. | Phase 2 |
+| US-OPT-02 | As Rahul, I want a purchase-order split across suppliers proposed by a constraint solver, so that I can act on a recommendation with a stated feasibility guarantee rather than only an LLM's free-text suggestion. | PO-split recommendation is created as an `action_request` with `source='optimizer'` and routes through the standard approval workflow. | Phase 2 |
+
+### 10.13 Customer Allocation Under Shortage (Persona: Neha)
+
+| ID | Story | Acceptance Criteria | Delivery Phase |
+|---|---|---|---|
+| US-CUST-01 | As Neha, I want to see a ranked allocation recommendation across all orders competing for the same shortage-affected product, so that I can make one consistent decision instead of handling orders one at a time. | Allocation view shows all competing orders for a flagged product, ranked by priority tier, order value, and SLA penalty, with a proposed quantity split. | Phase 2 |
+| US-CUST-02 | As Neha, I want to approve or adjust a proposed allocation before it's finalized, so that I retain judgment over edge cases the formula doesn't capture. | Approval screen allows editing allocated quantities per order before submission; adjusted decision is recorded distinctly from the system's original proposal. | Phase 2 |
+| US-CUST-03 | As Neha, I want every allocation decision logged with its rationale, so that I can explain to an under-served customer why they weren't prioritized. | `action_requests` entry for an allocation decision includes the ranking inputs (priority tier, order value, SLA penalty) and the OR-Tools objective/constraint values in `action_payload`. | Phase 2 |
+
+### 10.14 Risk & Decision Intelligence (Persona: Priya, Arjun, Rahul)
+
+| ID | Story | Acceptance Criteria | Delivery Phase |
+|---|---|---|---|
+| US-RISKINT-01 | As Priya, I want to see a confidence score next to every risk prediction, so that I can tell a well-supported flag apart from a borderline one. | Every prediction shown on the Risk Dashboard/Supplier detail displays a confidence value alongside `impact_score`. | Phase 1 |
+| US-RISKINT-02 | As Priya, I want flagged entities categorized as low/medium/high/critical, so that I can triage without reading raw scores. | Risk Dashboard filters and sorts by `risk_category`, derived from configurable thresholds. | Phase 1 |
+| US-DEC-01 | As Arjun, I want to see which layer (Risk Intelligence, Decision Intelligence, Optimizer, or LLM) actually produced a given recommendation, so that I can audit automated decisions instead of trusting a single opaque output. | Approval detail view shows a decision trace naming each contributing layer. | Phase 2 |
+| US-DEC-02 | As Rahul, I want the system to use the OR-Tools optimizer instead of the LLM whenever a decision type has a closed-form solution, so that I'm approving a provably optimal number, not a plausible-sounding guess. | Safety-stock, PO-split, and customer-allocation recommendations are always tagged `source='optimizer'`, never LLM-generated free text. | Phase 2 |
+
+**Total user stories: 67**, spanning all in-scope Phase 1 and Phase 2 capabilities.
 
 ## 11. Success Metrics
 
@@ -473,16 +607,27 @@ Format: `US-<area>-<seq>` — *As a [persona], I want [capability], so that [ben
 | Approval-gate integrity | 0 actions executed without a recorded human approval | Phase 2 |
 | Alert precision (post threshold tuning) | ≤ 10% false-positive rate on proactive alerts in test scenarios | Phase 2 |
 | Recommendation usefulness (manual eval) | ≥ 80% of alternative-supplier recommendations judged plausible by evaluator | Phase 2 |
+| Ablation comparability | Persisted evaluation metrics available for 100% of GraphSAGE/GAT/HGT runs on the same held-out split | Phase 1 |
+| Optimizer feasibility | 100% of surfaced optimizer recommendations are feasible/optimal-solver outputs (0 forced/infeasible recommendations) | Phase 2 |
+| Allocation defensibility (manual eval) | ≥ 80% of customer allocation decisions judged defensible (objective/constraints correctly applied) by evaluator | Phase 2 |
+| Confidence coverage | 100% of prediction API responses and dashboard risk views include a confidence score | Phase 1 |
+| Decision trace coverage | 100% of approved/rejected `action_requests` rows carry a non-empty decision trace | Phase 2 |
+| Numeric-optimization delegation | 0 optimizer-eligible decisions (safety-stock, PO-split, allocation) ever surfaced as LLM-generated free text | Phase 2 |
 
 ## 12. Assumptions
 
 - The volume and structure of source datasets (supplier, order, shipment, inventory) used for Phase 1 will be sufficient in scale and quality to train a GNN with meaningful discriminative power, per problem statement Section 8 (Limitations).
 - Unstructured documents (invoices, POs) will remain a small share of total data throughout Phase 1, consistent with the problem statement's framing; the lightweight parsing step is not designed to scale to bulk unstructured ingestion.
-- A single developer will implement all layers; scope and timeline are set accordingly (15 weeks for Phase 1).
+- A five-person team will implement the system, one owner per architectural layer (`docs/team_plan.md` Section 2); scope and timeline are set accordingly (15 weeks for Phase 1).
 - ERP/procurement system integration in Phase 2 will be against either a sandbox/test instance or a mocked interface satisfying the same contract, since production ERP access is not guaranteed for an academic project.
 - LLM and embedding model access (API-based) will be available and budgeted for during Phase 2 development and evaluation.
 - Evaluation and demo environments are single-tenant; multi-tenant SaaS concerns are out of scope for both phases.
 - "Prototype-scale" data volumes (referenced in NFR-01, NFR-02) means dataset and graph sizes appropriate for an academic MVP, not enterprise production scale.
+- The weighted risk formula's illustrative starting weights (FR-RISK-01) will be tuned against validation data before being finalized, not shipped as a permanently fixed set.
+- Customer priority, order value, and SLA penalty data (FR-CUST-02) either exist in the project's dataset or can be credibly synthesized; if not, `contract_terms` is scoped down to the fields actually available rather than left aspirational.
+- Supplier/warehouse/factory capacity fields already in the Phase 1 schema (`capacity_score`, `capacity_units`, `capacity_units_per_day`) are sufficient as OR-Tools constraint inputs for customer allocation (FR-CUST-02); no additional capacity data collection is required.
+- Model governance (FR-GOV-01/02) is intentionally lightweight — a version, dataset reference, experiment ID, git commit, and hyperparameters per run — not a full MLOps model registry with automated promotion/rollback.
+- Confidence scores (FR-RISKINT-01) are a relative, comparative signal for triage, not a calibrated probability of ground-truth correctness.
 
 ## 13. Dependencies
 
@@ -500,19 +645,26 @@ Format: `US-<area>-<seq>` — *As a [persona], I want [capability], so that [ben
 | MCP server implementations | Action execution, alerts | Phase 2 |
 | ERP/procurement sandbox or mock | Action execution target | Phase 2 |
 | Slack/email API access | Proactive notifications | Phase 2 |
+| Google OR-Tools | Constraint-based safety-stock/PO-split optimization (FR-OPT-01) | Phase 2 |
 
 ## 14. Risks
 
 | ID | Risk | Likelihood | Impact | Mitigation | Delivery Phase |
 |---|---|---|---|---|---|
 | R-01 | Insufficient historical data volume/quality limits GNN accuracy | Medium | High | Use synthetic/augmented data where real data is thin; set realistic success-metric targets (Section 11) | Phase 1 |
-| R-02 | 15-week timeline is tight for a solo developer covering ML + backend + frontend | High | Medium | Strict Phase 1/Phase 2 scope discipline (Section 2.2); no Phase 2 feature work until Phase 1 MVP is stable | Phase 1 |
+| R-02 | 15-week timeline is tight even split across a five-person team covering ML + backend + frontend, given cross-team handoff dependencies | High | Medium | Strict Phase 1/Phase 2 scope discipline (Section 2.2); no Phase 2 feature work until Phase 1 MVP is stable | Phase 1 |
 | R-03 | LLM hallucination undermines trust in explanations | Medium | High | Mandatory RAG grounding (FR-LLM-01/04); evidence citation required | Phase 2 |
 | R-04 | Ungoverned agentic execution causes unintended ERP/procurement changes | Low | Critical | Hard approval gate (FR-MCP-03); no auto-execution path exists in the design | Phase 2 |
 | R-05 | Real ERP/procurement integration unavailable for an academic project | Medium | Medium | Design MCP execution against a documented sandbox/mock contract (Section 12 assumption) | Phase 2 |
 | R-06 | Alert threshold misconfiguration causes alert fatigue | Medium | Medium | Configurable, admin-tunable thresholds (FR-MCP-06); tuning during test scenarios before demo | Phase 2 |
 | R-07 | Graph size growth degrades dashboard render performance | Low | Medium | Performance target capped at prototype scale (NFR-02); revisit if scale grows in Phase 2 | Phase 1 |
 | R-08 | Scope creep — Phase 2 features pulled forward before Phase 1 is complete | Medium | High | Explicit Delivery Phase tagging enforced on every requirement (Section 2.4) | Both |
+| R-09 | `impact_score` computation method (FR-RISK-02) gets conflated in downstream code that assumes a single source | `scoring_method` column enforced as NOT NULL from day one; API responses surface it explicitly | Phase 1 |
+| R-10 | Customer priority/SLA data (FR-CUST-02) does not exist in the available dataset | Confirm data availability before implementation; scope `contract_terms` to only fields actually present | Phase 2 |
+| R-11 | `orders.customer_name` drop (Document 5 migration step 6) breaks a code path that wasn't updated | Sequence as a separate, later migration; grep codebase for direct `customer_name` reads before dropping | Phase 1/2 |
+| R-12 | Optimization engine (FR-OPT-01) scope expands beyond PO-splitting/safety-stock/allocation into general solver territory | Explicit "out of scope" list (routing, scheduling, vehicle routing, general multi-objective optimization); revisit only after Phase 2 core is stable | Phase 2 |
+| R-13 | Decision Intelligence Layer's optimizer-vs-LLM routing (FR-DEC-01) misclassifies a decision type, sending an optimizer-eligible case to the LLM (or vice versa) | Routing rules are explicit and reviewed against the closed "three decision types" list (safety-stock, PO-split, allocation); anything not on that list always routes to the LLM by default | Phase 2 |
+| R-14 | Model governance metadata (FR-GOV-01) becomes stale or incomplete if a training run is not run through the standard pipeline | Governance fields are written by the same training pipeline that produces `model_evaluation_runs`, not entered manually | Phase 1 |
 
 ## 15. Future Scope (Beyond Phase 2)
 

@@ -10,7 +10,7 @@ Consistent with: Documents 1–10
 
 ## 1. Purpose
 
-This document specifies how the system is actually built and shipped by a solo developer: development environment setup, dependency management, Docker configuration, environment variables, CI/CD, Git/branch strategy, testing gates, deployment procedure, and rollback. It operationalizes Documents 2 and 8 into a repeatable engineering workflow.
+This document specifies how the system is actually built and shipped by a five-person engineering team: development environment setup, dependency management, Docker configuration, environment variables, CI/CD, Git/branch strategy, testing gates, deployment procedure, and rollback. It operationalizes Documents 2 and 8 into a repeatable engineering workflow.
 
 ## 2. Scope
 
@@ -18,9 +18,9 @@ Covers the full 15-week Phase 1 build and the Phase 2 extension workflow through
 
 ## 3. Assumptions
 
-- Solo developer (Document 1, Section 6 stakeholder table); Git strategy is simplified accordingly (Section 8) rather than assuming a multi-contributor team process.
+- Five-person engineering team, one owner per architectural layer (Document 1, Section 6 stakeholder table; `docs/team_plan.md` Section 2); Git strategy (Section 8) assumes a multi-contributor team process with per-person feature branches and cross-team PR review.
 - GitHub is the source host, with GitHub Actions for CI/CD, consistent with Document 2, Section 5.
-- Local development happens on the developer's machine using Docker Compose (Document 2, Section 6.1); no cloud development environment is required for Phase 1.
+- Local development happens on each team member's machine using Docker Compose (Document 2, Section 6.1); no cloud development environment is required for Phase 1.
 
 ## 4. Dependencies
 
@@ -47,6 +47,7 @@ Document 2 (technology stack, deployment model), Document 8 (folder structure), 
 | Frontend core | `react`, `typescript`, `d3`, `react-router`, `axios`/`fetch` wrapper | Phase 1 |
 | Testing | `pytest`, `pytest-asyncio`, `httpx` (API tests), `vitest`/`jest` + `react-testing-library` (frontend) | Phase 1 |
 | RAG/LLM | `langgraph`, LLM provider SDK, embedding client, `pgvector` Python bindings or `weaviate-client` | Phase 2 |
+| Optimization | `ortools` (Google OR-Tools) | Phase 2 |
 | MCP | MCP server/client SDK | Phase 2 |
 | Notifications | Slack SDK, email client (SMTP or provider SDK) | Phase 2 |
 | Caching/Queue | `redis`, `redis`-backed task queue client | Phase 2 |
@@ -91,7 +92,8 @@ Phase 2 adds `vector-db` (if Weaviate is chosen over pgvector), `redis`, and the
 |---|---|---|
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` | Database connection | Phase 1 |
 | `JWT_SECRET_KEY`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | Auth token signing/expiry (Document 8, Section 12) | Phase 1 |
-| `MODEL_ARTIFACT_PATH` | Path to the trained GNN model artifact served by the Inference Service | Phase 1 |
+| `MODEL_ARTIFACT_PATH` | Path to the trained GNN model artifact served by the Inference Service; resolved against the `model_registry` row with `status='active'` (Document 5, Section 6.25) | Phase 1 |
+| `RISK_CATEGORY_THRESHOLDS` | Default low/medium/high/critical threshold config consumed by the Risk Intelligence Service (FR-RISKINT-02) | Phase 1 |
 | `CORS_ALLOWED_ORIGINS` | Frontend origin allowlist | Phase 1 |
 | `VECTOR_DB_URL` | pgvector connection string or Weaviate endpoint | Phase 2 |
 | `LLM_API_KEY`, `LLM_MODEL_NAME` | LLM provider credentials/model selection | Phase 2 |
@@ -121,7 +123,7 @@ flowchart LR
 
 ## 10. Git Strategy
 
-- **Trunk-based with short-lived feature branches**, appropriate for a solo developer: `main` is always demoable; work happens on `feature/<short-description>` branches merged via PR (self-reviewed, CI-gated) to keep history readable and CI honest even without a second reviewer.
+- **Trunk-based with short-lived feature branches**, appropriate for a five-person team: `main` is always demoable; work happens on `feature/<short-description>` branches merged via PR (peer-reviewed by another team member, CI-gated) to keep history readable and CI honest.
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`) to keep the log traceable against Document 1 requirement IDs where relevant (e.g., `feat(auth): implement FR-AUTH-05 account lockout`).
 
 ## 11. Branch Strategy
@@ -163,9 +165,11 @@ Because the schema strategy (Document 5, Section 7) is additive-only, rollback r
 
 | ID | Risk | Mitigation | Delivery Phase |
 |---|---|---|---|
-| IG-01 | Solo developer + no second reviewer weakens the PR-review safety net | CI gate (Section 9) is mandatory and non-bypassable (no `--no-verify`/skipped checks) as a substitute control | Phase 1 |
+| IG-01 | Cross-team PR review could be rushed under sprint deadline pressure, weakening the review safety net | CI gate (Section 9) is mandatory and non-bypassable (no `--no-verify`/skipped checks) as a backstop alongside mandatory peer review | Phase 1 |
 | IG-02 | Phase 2 dependency additions (Section 6) could destabilize a working Phase 1 build if not isolated | Additive `docker-compose.phase2.yml` and dependency additions only after Phase 1 sign-off gate (Section 12) | Phase 2 |
 | IG-03 | Manual deployment steps (Section 13) are error-prone without a dedicated ops team | Steps scripted (`Makefile`/shell scripts) rather than run ad hoc, reducing manual-step risk | Phase 1 |
+| IG-04 | Enhancement Addendum schema changes (Document 5, Section 7.1) — `customers`, `model_evaluation_runs`, `scoring_method`, `orders.customer_id` backfill — are additive but sequence-sensitive | Migration order enforced exactly as Document 5, Section 7.1 lists it; `orders.customer_name` drop (step 6) run only as a separate, later migration after backfill verification | Phase 1 |
+| IG-05 | `model_registry`, `confidence`/`risk_category` on `risk_scores`, and `decision_trace` on `action_requests` (Document 5, Section 7) are new/additive but easy to miss if the training pipeline or Decision Intelligence Service isn't updated in lockstep with the migration | Migration and the code path that populates the new columns land in the same PR, gated by the CI build/test check (Section 9) — a migration without a populating code path fails integration tests (Document 13) | Phase 1 (schema), Phase 2 (`decision_trace`) |
 
 ## 16. Future Extension
 

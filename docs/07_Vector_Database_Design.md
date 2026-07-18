@@ -12,6 +12,8 @@ Consistent with: Documents 1–6
 
 This document defines the vector database design backing the RAG layer (Layer 3): collections, metadata schema, chunking strategy, embedding model, hybrid search, ranking, and filtering. It is entirely a **Phase 2** capability, per Document 1, Section 2.3, and implements the RAG Flow defined in Document 4, Section 8.
 
+**RAG never predicts risk and never makes a decision.** Prediction is exclusively the GNN's job (Document 10); numeric optimization is exclusively OR-Tools' job (Document 10, Section 17); RAG's only role is retrieving evidence for the LLM to explain with, whether the subject being explained is a raw risk score or a Decision Intelligence/Optimization decision (`problem_statement.md`, Section 4, Layer 3).
+
 ## 2. Scope
 
 Covers the evidence corpus referenced in the problem statement (Section 3, Layer 3): past incident reports, contract clauses, and supplier history. Does not cover the structured relational data (Document 5) or the graph representation (Document 6) — only the small unstructured/semi-structured evidence corpus that RAG retrieves over.
@@ -24,14 +26,14 @@ Covers the evidence corpus referenced in the problem statement (Section 3, Layer
 
 ## 4. Dependencies
 
-Document 2 Section 5 (vector DB technology choice), Document 4 Section 8 (RAG Flow), Document 5 (`suppliers`, `orders`, `shipments` IDs used as metadata foreign references), Document 10 (embedding model detail), Document 12 (RAG security — prompt injection via retrieved content).
+Document 2 Section 5 (vector DB technology choice), Document 4 Section 8 (RAG Flow), Document 5 (`suppliers`, `orders`, `shipments`, `customers` IDs used as metadata foreign references), Document 10 (embedding model detail), Document 12 (RAG security — prompt injection via retrieved content).
 
 ## 5. Collections
 
 | Collection | Contents | Delivery Phase |
 |---|---|---|
 | `evidence_incidents` | Past incident reports (e.g., prior delay/shortage write-ups) | Phase 2 |
-| `evidence_contracts` | Contract clauses relevant to supplier obligations, SLAs, penalties | Phase 2 |
+| `evidence_contracts` | Contract clauses relevant to supplier obligations, SLAs, penalties — including customer SLA/penalty clauses referenced by the allocation recommender's rationale (FR-CUST-03) | Phase 2 |
 | `evidence_supplier_history` | Narrative supplier history/performance notes | Phase 2 |
 
 A single logical `evidence_chunks` table (pgvector) or class (Weaviate) holds all three, distinguished by a `collection` metadata field, so cross-collection hybrid search (Section 9) queries one index rather than fanning out across three.
@@ -46,6 +48,7 @@ A single logical `evidence_chunks` table (pgvector) or class (Weaviate) holds al
 | `supplier_id` | UUID (nullable) | Metadata filter key — FK-equivalent to `suppliers.id` |
 | `order_id` | UUID (nullable) | Metadata filter key — FK-equivalent to `orders.id` |
 | `shipment_id` | UUID (nullable) | Metadata filter key — FK-equivalent to `shipments.id` |
+| `customer_id` | UUID (nullable) | Metadata filter key — FK-equivalent to `customers.id` (Document 5, Section 6.24); scopes evidence (e.g., contract clauses) to the customer under evaluation for allocation rationale (FR-CUST-03) |
 | `chunk_text` | TEXT | The chunk content |
 | `chunk_index` | INTEGER | Position of this chunk within its source document |
 | `embedding` | VECTOR(d) | Dense embedding, dimension `d` per chosen embedding model (Document 10) |
