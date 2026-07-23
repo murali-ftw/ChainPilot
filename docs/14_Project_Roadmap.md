@@ -166,42 +166,31 @@ gantt
 
 Chatbot UI, Explainability Overlay, Simulator, Recommender, Decision Intelligence, Optimizer, Customer Allocation, and Trend Timeline (Sprints 13–15) run **off** the critical path in parallel with/around it, since none of them blocks the Approval → MCP → ERP chain that gates M11 — but all must still complete before M11 sign-off per Document 1's Phase 2 scope. The architecture ablation, Risk Intelligence (confidence/weighted formula/categorization), and evaluation/governance persistence (Sprints S4–S5) sit **on** the Phase 1 critical path since Dashboard (S6) and M6 sign-off depend on the trained model being available, but add no new critical-path stage of their own — they extend the existing "GNN Training" / "Inference API" stages rather than following them.
 
-## Timeline (Low-Level)
+## 10. Milestone Timeline
 
-The most stripped-down view: only the sprints that directly deliver a milestone from Section 5 (one bar each), with the milestone marked immediately after. Sprints that don't land a milestone (S2, S7, S9, S10, S12, S14, S16 — see Section 6 for their deliverables) are omitted here to keep this chart readable; they still appear in the High-Level timeline (Section 10) and the Sprint Plan table.
+The most stripped-down view: only when each milestone from Section 5 lands, with no sprint bars at all. For the sprint-by-sprint breakdown, see the Sprint Timeline (Section 11) or the Sprint Plan table (Section 6).
 
 ```mermaid
 %%{init: {'gantt': {'useMaxWidth': false, 'axisFormat': '%m/%y', 'tickInterval': '1month', 'topPadding': 50, 'leftPadding': 40, 'rightPadding': 50, 'barHeight': 22, 'barGap': 8, 'fontSize': 13, 'sectionFontSize': 13}}}%%
 gantt
-    title Sprint Timeline (Low-Level, Simplified)
+    title Milestone Timeline
     dateFormat YYYY-MM-DD
     section  
-    S1 Foundations                              :2026-07-20, 14d
     M1 Foundations Ready                        :milestone, 2026-08-02, 0d
-    S3 Graph Construction                       :2026-08-17, 14d
     M2 Graph Live                                :milestone, 2026-08-30, 0d
-    S4 Model Development                        :2026-08-31, 14d
     M3 Model Trained                             :milestone, 2026-09-13, 0d
-    S5 Inference + Risk Intelligence             :2026-09-14, 14d
     M4 Prediction API Live                       :milestone, 2026-09-27, 0d
-    S6 Dashboard                                 :2026-09-28, 14d
     M5 Dashboard Complete                        :milestone, 2026-10-11, 0d
-    S8 UAT + Sign-off                            :2026-10-26, 7d
     M6 Phase 1 MVP Sign-off                      :milestone, 2026-11-01, 0d
     section   
-    S11 LLM Orchestration                        :2026-11-30, 14d
     M7 RAG + LLM Live                            :milestone, 2026-12-13, 0d
-    S13 Chatbot                                  :2026-12-28, 14d
-    M8 Chatbot Live                               :milestone, 2027-01-10, 0d
-    S15 Decision Intel. + Optimizer + Alloc.     :2027-01-25, 14d
+    M8 Chatbot Live                              :milestone, 2027-01-10, 0d
     M9 Simulator/Recommender/DI/Opt/Alloc Live   :milestone, 2027-02-07, 0d
-    S17 Alerts + Notifications                   :2027-02-22, 14d
-    M10 Agentic Layer Live                        :milestone, 2027-03-07, 0d
-    S18 UAT + Sign-off                           :2027-03-08, 14d
-    M11 Phase 2 Sign-off                          :milestone, 2027-03-21, 0d
+    M10 Agentic Layer Live                       :milestone, 2027-03-07, 0d
+    M11 Phase 2 Sign-off                         :milestone, 2027-03-21, 0d
 ```
 
-## 10. Timeline (High-Level)
+## 11. Project Timeline
 
 ```mermaid
 %%{init: {'gantt': {'useMaxWidth': false, 'axisFormat': '%m/%y', 'tickInterval': '1month', 'topPadding': 50, 'leftPadding': 40, 'rightPadding': 50, 'barHeight': 22, 'barGap': 8, 'fontSize': 13, 'sectionFontSize': 13}}}%%
@@ -232,7 +221,7 @@ gantt
     Phase 2 Sign-off (M11)                       :milestone, 2027-03-21, 0d
 ```
 
-## 11. Risk Register
+## 12. Risk Register
 
 Consolidates and extends the risk entries from Documents 1–13 with schedule impact.
 
@@ -249,15 +238,15 @@ Consolidates and extends the risk entries from Documents 1–13 with schedule im
 | RM-09 | Risk Intelligence Service (S5) and Decision Intelligence Service (S15–S16) are new services that could be under-scoped as "just formatting" rather than real integration work | Both appear as explicit sprint deliverables with their own requirement IDs (FR-RISKINT-*, FR-DEC-*) below, not folded silently into Prediction/Approval line items | Absorbed in S5 / S15–S16 | Phase 1 / Phase 2                                                                                                                                                         |                        |                |
 | RM-10 | Customer allocation's reframe from ranking to OR-Tools optimization (S15) requires supplier/warehouse/factory capacity data to already be populated and correct                | Capacity fields (`capacity_score`, `capacity_units`, `capacity_units_per_day`) are Phase 1 schema (Document 5), seeded and validated well before S15           | Absorbed in S15           | Phase 2                                                                                                                                                                   |                        |                |
 
-## 12. Assumptions Recap
+## 13. Assumptions Recap
 
 Timeline assumes: consistent five-person team effort, no major architecture pivots after M3 (Model Trained), and ERP/LLM/vector-DB external dependencies (Document 1, Section 13) remain available throughout Phase 2.
 
-## 13. Risks
+## 14. Risks
 
 See Section 11 (Risk Register) — this section is folded into Section 11 per this document's roadmap-specific format, which ties each risk to schedule impact rather than listing it separately.
 
-## 14. Future Extension
+## 15. Future Extension
 
 Any Future Scope item from Document 1, Section 15 (multi-tenancy, streaming ingestion, MLOps pipeline, mobile client) would be scheduled as a Phase 3 roadmap extension appended after M11, following the same milestone/sprint/critical-path format established in this document.
 
