@@ -60,20 +60,23 @@ This project addresses that gap by combining a Graph Neural Network for relation
 The system is organized into six named layers that together form a closed loop: structured records (supplemented by a small amount of lightly parsed document data) are assembled into a graph, the graph is used to predict risk, the prediction is turned into business-ready risk and decision intelligence, grounded with evidence and explained in plain language, and — once approved — the recommended or optimized action is executed and fed back into the system. Between Layer 2 (prediction) and Layer 5 (action), two intelligence stages — the **Risk Intelligence Layer** and the **Decision Intelligence Layer** — do the work of turning a raw model output into a governed business decision; they are described alongside the six numbered layers below because they are genuine architectural stages, not UI formatting. The interactive chatbot and the seven extended features (Section 5) sit on top of this pipeline, drawing on what each layer already produces rather than requiring new modeling work.
 
 ### Layer 1: Making the Graph — Graph Construction
+
 Structured records (supplier, shipment, order, inventory data) are merged, cleaned, and normalized. Where a small amount of unstructured source material exists — an occasional invoice or purchase-order PDF — a lightweight parsing step (a single extraction call, not a standing agent) converts it into the same structured format. Node types (suppliers, components, products, factories, warehouses, shipments, orders, customers) and edge types (supplies, used-in, ships-to, placed-by, and others) are defined and assembled into a heterogeneous graph, then converted into the tensor format required for model training.
 
 ### Layer 2: Predicting Risk — GNN x Transformer (Graph Intelligence)
+
 A Graph Neural Network combined with a Transformer architecture learns from the graph to predict delay probability, shortage risk, and overall disruption impact — the system's **Graph Intelligence**. This architecture is arrived at through a progressive, evidence-based ablation, each stage chosen for a specific, documented reason rather than assumed:
 
-| Stage | Architecture | Why this stage | Documented limitation |
-|---|---|---|---|
-| 1 | GraphSAGE | Establishes the baseline: proves neighborhood aggregation over the supply-chain graph captures more signal than row-by-row models, using simple mean/pooling aggregation | No attention mechanism — every neighbor is weighted equally, so it cannot express that one supplier's delay matters more than another's to a given product |
-| 2 | GAT (Graph Attention Network) | Adds attention so the model learns *which* neighbors matter for a given prediction, directly improving explainability over GraphSAGE | Still treats the graph as effectively homogeneous — it does not natively distinguish a `SUPPLIES` edge from a `SHIPS_TO` edge or a `Supplier` node from a `Warehouse` node |
-| 3 | Heterogeneous Graph Transformer (HGT) — **final** | Chosen because the supply chain graph is natively multi-typed (7+ node types, 8+ edge types); HGT's type-aware attention is the first stage that models "this is a supplier-to-component relationship, weighted differently than a shipment-to-warehouse relationship" directly, rather than approximating it | Highest computational cost of the three; justified only because the earlier two stages demonstrate it is needed, not assumed up front |
+| Stage | Architecture                                            | Why this stage                                                                                                                                                                                                                                                                                                | Documented limitation                                                                                                                                                              |
+| ----- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | GraphSAGE                                               | Establishes the baseline: proves neighborhood aggregation over the supply-chain graph captures more signal than row-by-row models, using simple mean/pooling aggregation                                                                                                                                      | No attention mechanism — every neighbor is weighted equally, so it cannot express that one supplier's delay matters more than another's to a given product                        |
+| 2     | GAT (Graph Attention Network)                           | Adds attention so the model learns*which* neighbors matter for a given prediction, directly improving explainability over GraphSAGE                                                                                                                                                                         | Still treats the graph as effectively homogeneous — it does not natively distinguish a`SUPPLIES` edge from a `SHIPS_TO` edge or a `Supplier` node from a `Warehouse` node |
+| 3     | Heterogeneous Graph Transformer (HGT) —**final** | Chosen because the supply chain graph is natively multi-typed (7+ node types, 8+ edge types); HGT's type-aware attention is the first stage that models "this is a supplier-to-component relationship, weighted differently than a shipment-to-warehouse relationship" directly, rather than approximating it | Highest computational cost of the three; justified only because the earlier two stages demonstrate it is needed, not assumed up front                                              |
 
 All three stages are trained and evaluated on the same held-out test set under a distinct `model_version` each, with metrics and governance metadata (training dataset, timestamp, experiment ID, git commit, hyperparameters, parameter count) persisted per run (Section 5.7), so the final architecture choice is demonstrated by comparison rather than asserted. The layer traces which products and orders are affected, produces an explanation subgraph identifying the specific entities driving each prediction, and learns entity embeddings that are reused by the alternative-supplier recommender (Section 5.4) and the optimization engine (Section 5.7).
 
 ### Risk Intelligence Layer — Turning a Prediction into Business Intelligence
+
 Layer 2 produces a raw model output — probabilities and embeddings. The Risk Intelligence Layer is the architectural stage that turns that output into something a business user or downstream decision can act on, and it sits immediately after Layer 2 in every prediction path:
 
 - **Confidence estimation** — a confidence score for every prediction, so a user can distinguish a well-supported flag from a borderline one.
@@ -84,6 +87,7 @@ Layer 2 produces a raw model output — probabilities and embeddings. The Risk I
 Nothing here retrains or replaces the GNN; this layer is a deterministic, auditable transformation of Layer 2's output into governed business intelligence.
 
 ### Decision Intelligence Layer — Deciding What Kind of Response a Risk Warrants
+
 Once an entity has a risk-intelligence record (score, confidence, category), the Decision Intelligence Layer decides what happens next:
 
 - **Business rules and policy validation** — every candidate recommendation, however it is generated, is checked against business rules before it can reach a human approver.
@@ -94,18 +98,40 @@ Once an entity has a risk-intelligence record (score, confidence, category), the
 The Large Language Model never performs this layer's job: it explains a decision, evidence, or risk in plain language — it does not compute optimal quantities. Numeric optimization is exclusively the OR-Tools engine's responsibility (Section 5.7).
 
 ### Layer 3: Fetching Evidence — RAG
+
 Whenever an explanation is generated — of a risk score, or of a Decision Intelligence / OR-Tools decision — this layer retrieves supporting evidence — past incident reports, contract clauses, supplier history — from a vector database, so the system's reasoning is grounded in real records rather than generated from memory alone. RAG never predicts risk and never makes a decision; it only retrieves evidence for Layer 4 to explain with.
 
 ### Layer 4: Explaining Results — LLM
+
 A Large Language Model combines the risk-intelligence record, the explanation subgraph, the retrieved evidence, and — where one exists — the Decision Intelligence / OR-Tools decision, into a plain-language explanation. Where no optimizer decision applies, it also proposes a qualitative recommended action, always subject to Decision Intelligence's business-rule validation before reaching approval. This layer directly powers the interactive chatbot (Section 5), so users can ask follow-up questions in natural language rather than only reading a static explanation. The LLM explains; it never optimizes numerically.
 
 ### Layer 5: Taking Action — MCP Servers
+
 Once a recommended or optimized action is approved by a human reviewer, this layer carries it out directly in connected business systems — such as raising a purchase order with an alternative supplier or updating a shipment route — through MCP server connections, and logs the result. Recommended actions may originate from the LLM, the alternative-supplier recommender, the OR-Tools optimization engine (Section 5.7, covering safety-stock, PO-splitting, and customer allocation), or the Decision Intelligence Layer directly — all route through the same human-approval gate before execution. This layer also carries proactive alerts (Section 5.5) once risk crosses a set threshold.
 
 ### Layer 6: Showing Results — Frontend Dashboard
+
 An interactive dashboard displays the supply chain graph colored by risk, a table of at-risk suppliers and orders, model metadata and confidence panels, the architecture-comparison and decision-trace views, the chatbot panel, what-if simulation controls, the explainability overlay, the risk trend timeline, and approve/reject controls for pending agent actions.
 
-### 4.1 System Flow
+### 4.1 Low-Level System Flow
+
+A simplified view of just the layers themselves and how they connect — no branching, no extended features, one path in, one path out.
+
+```mermaid
+flowchart TD
+    L1["Layer 1: Graph Construction\nBuild the supply-chain graph"] --> L2["Layer 2: Graph Intelligence\nGNN x Transformer predicts risk"]
+    L2 --> RI["Risk Intelligence\nScore, confidence, category"]
+    RI --> DI["Decision Intelligence\nRoute and validate the response"]
+    DI --> L3["Layer 3: RAG\nFetch supporting evidence"]
+    L3 --> L4["Layer 4: LLM\nExplain in plain language"]
+    L4 --> L5["Layer 5: MCP Servers\nApprove, then execute"]
+    L5 --> L6["Layer 6: Frontend Dashboard\nShow results to the user"]
+    L6 -.feedback loop.-> L1
+```
+
+*Figure 1: The eight architectural stages (six numbered layers plus the Risk Intelligence and Decision Intelligence stages) as a single pipeline, closed by one feedback loop from the dashboard back to graph construction. For what each stage does, see Section 4 above; for the full picture including the optimizer branch and every extended feature, see Section 4.2.*
+
+### 4.2 High-Level System Flow
 
 ```mermaid
 flowchart TD
@@ -130,7 +156,7 @@ flowchart TD
     OPT -. feasible/optimal action .-> APPR
 ```
 
-*Figure 1: The six-layer pipeline (solid arrows), with the Risk Intelligence and Decision Intelligence stages shown explicitly between Layer 2 and Layer 3/5, the feedback loop (dashed), and the interactive chatbot plus seven extended features (dashed) shown as consumers of pipeline output — no new modeling layer is required for any of the extended features themselves.*
+*Figure 2: The six-layer pipeline (solid arrows), with the Risk Intelligence and Decision Intelligence stages shown explicitly between Layer 2 and Layer 3/5, the feedback loop (dashed), and the interactive chatbot plus seven extended features (dashed) shown as consumers of pipeline output — no new modeling layer is required for any of the extended features themselves.*
 
 ---
 
@@ -139,6 +165,7 @@ flowchart TD
 These eight additions are deliberately **not** new architectural layers. Each one reuses an output that a layer already produces, so they add usability and demo strength without adding modeling risk.
 
 ### 5.1 Interactive Chatbot
+
 Lets a user ask questions like *"Why is Supplier X flagged as high risk?"* in plain language.
 
 - **Draws on:** Layer 2's risk score and explanation subgraph, Layer 3's retrieved evidence, and Layer 5's action log.
@@ -147,6 +174,7 @@ Lets a user ask questions like *"Why is Supplier X flagged as high risk?"* in pl
 - **Scope note:** a simple retrieve-then-generate pipeline (pull the relevant record + evidence + explanation text → prompt template → LLM response) is sufficient; a fully autonomous tool-calling agent isn't needed here and would add risk for little demo value. Save agentic tool-calling for Layer 5, where it is actually taking action.
 
 ### 5.2 What-If Scenario Simulator
+
 Lets a user perturb the graph — e.g. *"what if Supplier X's lead time doubles?"* — and re-run inference on the already-trained GNN to see which downstream products/orders shift into higher risk, without retraining.
 
 - **Draws on:** the trained Layer 2 model, applied to a temporarily edited copy of the graph.
@@ -154,6 +182,7 @@ Lets a user perturb the graph — e.g. *"what if Supplier X's lead time doubles?
 - **Effort:** moderate — requires a way to temporarily edit graph features and re-score; no new model or layer needed.
 
 ### 5.3 Visual Explainability Overlay
+
 Renders Layer 2's explanation subgraph directly on the dashboard's graph view, highlighting the nodes/edges that drove a given risk score in the color of that risk level.
 
 - **Draws on:** GNNExplainer output already produced by Layer 2.
@@ -161,6 +190,7 @@ Renders Layer 2's explanation subgraph directly on the dashboard's graph view, h
 - **Effort:** low — this is wiring existing explanation data to the existing D3 graph visualization, not new computation.
 
 ### 5.4 Alternative-Supplier Recommender
+
 When a supplier is flagged, ranks plausible replacements using graph similarity — same component type, similar capacity/location in the embedding space the GNN already learns — instead of only raising an alert.
 
 - **Draws on:** entity embeddings already produced by Layer 2.
@@ -168,6 +198,7 @@ When a supplier is flagged, ranks plausible replacements using graph similarity 
 - **Value:** adds a recommendation-engine angle to the evaluation section largely for free, since it reuses embeddings the GNN already produces.
 
 ### 5.5 Risk Trend Timeline
+
 A time-series view of how a supplier or product's risk score has moved over recent history, rather than only a snapshot.
 
 - **Draws on:** risk scores logged from each Layer 2 run over time.
@@ -175,6 +206,7 @@ A time-series view of how a supplier or product's risk score has moved over rece
 - **Effort:** low — mostly logging and a chart component.
 
 ### 5.6 Proactive Alerts via MCP
+
 Instead of only responding to manual dashboard checks or chat queries, the system proactively pushes a notification (e.g. Slack or email, still routed through MCP) once a risk score crosses a set threshold.
 
 - **Draws on:** Layer 2's risk scores and Layer 5's existing MCP connection.
@@ -182,6 +214,7 @@ Instead of only responding to manual dashboard checks or chat queries, the syste
 - **Effort:** small addition to the existing MCP layer; no new infrastructure category.
 
 ### 5.7 OR-Tools Optimization Engine
+
 For three well-defined decision types — safety-stock sizing, purchase-order splitting across suppliers, and customer allocation under shortage (Section 5.8) — a constraint solver (OR-Tools) generates a decision that is provably optimal (not merely plausible) under real business constraints, prepared by the Decision Intelligence Layer and never computed by the LLM.
 
 - **Draws on:** the same inventory, lead-time, and demand signals already flowing into Layer 1/2, plus supplier/warehouse/factory capacity fields, as solver constraints; the Decision Intelligence Layer assembles the exact constraint set for each request.
@@ -190,6 +223,7 @@ For three well-defined decision types — safety-stock sizing, purchase-order sp
 - **Value:** adds an optimality/feasibility guarantee the LLM's free-text recommendations cannot offer, for the decision types where a closed-form constraint model applies.
 
 ### 5.8 Customer Allocation Under Shortage
+
 When a shortage-flagged product cannot fulfill every open order competing for it, this feature solves customer allocation as a constrained optimization problem via the OR-Tools engine (Section 5.7), instead of leaving the allocation decision to ad hoc manual judgment or a simple sort.
 
 - **Objective:** maximize protected customer value — a weighted combination of strategic importance (customer priority tier), SLA compliance, revenue protection (order value), and penalty avoidance (contract penalty exposure).
@@ -202,18 +236,18 @@ When a shortage-flagged product cannot fulfill every open order competing for it
 
 ## 6. Inputs and Outputs of Each Layer
 
-| Layer | Input | Output |
-|---|---|---|
-| 1. Graph Construction | Structured records (supplier, shipment, order, customer data) plus a small amount of lightly parsed document data | Heterogeneous supply chain graph with typed nodes and edges, ready for model training |
-| 2. GNN x Transformer (Graph Intelligence) | Supply chain graph with node and edge features | Delay/shortage probabilities, affected orders, disruption impact, explanation subgraph, entity embeddings |
-| Risk Intelligence Layer | Layer 2's raw scores and embeddings | Confidence score, `impact_score` (via `gnn_native` or `weighted_formula`), `risk_category`, threshold evaluation |
-| Decision Intelligence Layer | Risk-intelligence record for a flagged entity | Recommendation-path decision (optimizer vs. LLM), assembled solver constraints, business-rule validation result, decision trace |
-| 3. RAG | Risk prediction, decision, and/or user query | Retrieved supporting evidence: past incidents, contract clauses, supplier history |
-| 4. LLM | Risk-intelligence record, explanation subgraph, retrieved evidence, optimizer decision (if any) | Plain-language explanation; qualitative recommended action where no optimizer path applies; chatbot responses |
-| 5. MCP Servers | Human-approved recommended/optimized action; threshold-crossing risk scores | Action executed in ERP/procurement system (e.g. new PO, updated route) and logged; proactive alerts sent |
-| 6. Frontend Dashboard | Risk scores, confidence, model metadata, explanations, recommendations, decision traces, action logs, embeddings, historical scores | Interactive graph view with explainability overlay, risk table, confidence/model-metadata panels, decision trace view, chatbot panel, what-if controls, trend timeline, and approval controls |
-| Architecture Ablation & Model Governance | GraphSAGE, GAT, and HGT trained on the same graph/held-out split | Per-architecture classification/regression metrics plus governance metadata (dataset, timestamp, experiment ID, git commit, hyperparameters), persisted and compared |
-| OR-Tools Optimization Engine | Inventory, lead-time, demand, and capacity signals; a safety-stock, PO-split, or customer-allocation decision request from Decision Intelligence | An optimal action decision (quantities/splits/allocation) with a feasibility guarantee, routed into Layer 5's approval workflow |
+| Layer                                     | Input                                                                                                                                            | Output                                                                                                                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Graph Construction                     | Structured records (supplier, shipment, order, customer data) plus a small amount of lightly parsed document data                                | Heterogeneous supply chain graph with typed nodes and edges, ready for model training                                                                                                         |
+| 2. GNN x Transformer (Graph Intelligence) | Supply chain graph with node and edge features                                                                                                   | Delay/shortage probabilities, affected orders, disruption impact, explanation subgraph, entity embeddings                                                                                     |
+| Risk Intelligence Layer                   | Layer 2's raw scores and embeddings                                                                                                              | Confidence score,`impact_score` (via `gnn_native` or `weighted_formula`), `risk_category`, threshold evaluation                                                                       |
+| Decision Intelligence Layer               | Risk-intelligence record for a flagged entity                                                                                                    | Recommendation-path decision (optimizer vs. LLM), assembled solver constraints, business-rule validation result, decision trace                                                               |
+| 3. RAG                                    | Risk prediction, decision, and/or user query                                                                                                     | Retrieved supporting evidence: past incidents, contract clauses, supplier history                                                                                                             |
+| 4. LLM                                    | Risk-intelligence record, explanation subgraph, retrieved evidence, optimizer decision (if any)                                                  | Plain-language explanation; qualitative recommended action where no optimizer path applies; chatbot responses                                                                                 |
+| 5. MCP Servers                            | Human-approved recommended/optimized action; threshold-crossing risk scores                                                                      | Action executed in ERP/procurement system (e.g. new PO, updated route) and logged; proactive alerts sent                                                                                      |
+| 6. Frontend Dashboard                     | Risk scores, confidence, model metadata, explanations, recommendations, decision traces, action logs, embeddings, historical scores              | Interactive graph view with explainability overlay, risk table, confidence/model-metadata panels, decision trace view, chatbot panel, what-if controls, trend timeline, and approval controls |
+| Architecture Ablation & Model Governance  | GraphSAGE, GAT, and HGT trained on the same graph/held-out split                                                                                 | Per-architecture classification/regression metrics plus governance metadata (dataset, timestamp, experiment ID, git commit, hyperparameters), persisted and compared                          |
+| OR-Tools Optimization Engine              | Inventory, lead-time, demand, and capacity signals; a safety-stock, PO-split, or customer-allocation decision request from Decision Intelligence | An optimal action decision (quantities/splits/allocation) with a feasibility guarantee, routed into Layer 5's approval workflow                                                               |
 
 ---
 
@@ -264,23 +298,23 @@ When a shortage-flagged product cannot fulfill every open order competing for it
 
 ## 9. Technologies Used
 
-| Component | Technologies |
-|---|---|
-| Graph Construction | Pandas, Scikit-learn, NetworkX, PyTorch Geometric (HeteroData), Neo4j (optional); LLM API for lightweight document field extraction where needed |
-| GNN x Transformer | PyTorch, PyTorch Geometric, GraphSAGE / GAT baseline, Heterogeneous Graph Transformer, GNNExplainer, Monte Carlo simulation |
-| RAG | Embedding model, vector database (pgvector / Weaviate), LangGraph retriever node, Text-to-SQL / Text-to-Cypher |
-| LLM | Large Language Model API, LangGraph orchestration, prompt templates, business-rule validation |
-| Interactive Chatbot | Same LLM API, retrieval-then-generate prompt pipeline, chat UI component |
-| What-If Simulator | Trained GNN inference endpoint, temporary graph-feature editing utility |
-| Explainability Overlay | GNNExplainer output, D3 graph visualization |
-| Supplier Recommender | GNN entity embeddings, similarity search (cosine / nearest-neighbor) |
-| Risk Trend Timeline | Time-series logging store, charting library (e.g. Recharts/D3) |
-| MCP Servers & Alerts | MCP protocol servers, LangGraph agent loop, approval-gate UI, ERP/procurement API integration, Slack/email notification API |
+| Component                                            | Technologies                                                                                                                                                                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Graph Construction                                   | Pandas, Scikit-learn, NetworkX, PyTorch Geometric (HeteroData), Neo4j (optional); LLM API for lightweight document field extraction where needed                                                                          |
+| GNN x Transformer                                    | PyTorch, PyTorch Geometric, GraphSAGE / GAT baseline, Heterogeneous Graph Transformer, GNNExplainer, Monte Carlo simulation                                                                                               |
+| RAG                                                  | Embedding model, vector database (pgvector / Weaviate), LangGraph retriever node, Text-to-SQL / Text-to-Cypher                                                                                                            |
+| LLM                                                  | Large Language Model API, LangGraph orchestration, prompt templates, business-rule validation                                                                                                                             |
+| Interactive Chatbot                                  | Same LLM API, retrieval-then-generate prompt pipeline, chat UI component                                                                                                                                                  |
+| What-If Simulator                                    | Trained GNN inference endpoint, temporary graph-feature editing utility                                                                                                                                                   |
+| Explainability Overlay                               | GNNExplainer output, D3 graph visualization                                                                                                                                                                               |
+| Supplier Recommender                                 | GNN entity embeddings, similarity search (cosine / nearest-neighbor)                                                                                                                                                      |
+| Risk Trend Timeline                                  | Time-series logging store, charting library (e.g. Recharts/D3)                                                                                                                                                            |
+| MCP Servers & Alerts                                 | MCP protocol servers, LangGraph agent loop, approval-gate UI, ERP/procurement API integration, Slack/email notification API                                                                                               |
 | Architecture Ablation, Evaluation & Model Governance | Persisted evaluation-run store, model registry (version/dataset/experiment/git commit/hyperparameters/status), scikit-learn metrics (precision/recall/F1/ROC-AUC, MAE/RMSE/MAPE), inference-time/parameter-count tracking |
-| Risk Intelligence Layer | Confidence estimation utilities, weighted-formula aggregation, threshold evaluation, risk categorization |
-| Decision Intelligence Layer | Business-rule/policy validation, constraint-preparation logic, recommendation-path routing, decision-trace logging |
-| OR-Tools Optimization Engine | Google OR-Tools constraint solver (safety-stock, PO-split, customer allocation) |
-| Frontend | React / Angular, D3 graph visualization, FastAPI, Spring Boot |
+| Risk Intelligence Layer                              | Confidence estimation utilities, weighted-formula aggregation, threshold evaluation, risk categorization                                                                                                                  |
+| Decision Intelligence Layer                          | Business-rule/policy validation, constraint-preparation logic, recommendation-path routing, decision-trace logging                                                                                                        |
+| OR-Tools Optimization Engine                         | Google OR-Tools constraint solver (safety-stock, PO-split, customer allocation)                                                                                                                                           |
+| Frontend                                             | React / Angular, D3 graph visualization, FastAPI, Spring Boot                                                                                                                                                             |
 
 ---
 
