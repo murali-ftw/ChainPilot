@@ -14,7 +14,7 @@ This document specifies the end-to-end operational flows that tie the components
 
 ## 2. Scope
 
-Ten flows, tagged by Delivery Phase:
+Thirteen flows, tagged by Delivery Phase:
 
 | Flow | Delivery Phase |
 |---|---|
@@ -28,6 +28,12 @@ Ten flows, tagged by Delivery Phase:
 | MCP Flow | Phase 2 |
 | ERP Flow | Phase 2 |
 | Notification Flow | Phase 2 |
+| Evaluation Flow (Section 18) | Phase 1 |
+| Optimizer Flow (Section 19) | Phase 2 |
+| Customer Allocation Flow (Section 20) | Phase 2 |
+| Decision Intelligence Flow (Section 21) | Phase 2 |
+
+Risk Intelligence (confidence, business aggregation, categorization) is not a separate flow — it is an explicit step inside the Prediction Flow (Section 7), since it runs synchronously on every prediction request rather than being independently triggered.
 
 ## 3. Assumptions
 
@@ -111,22 +117,27 @@ flowchart TD
 sequenceDiagram
     participant FE as React Dashboard
     participant GW as API Gateway
-    participant GNN as GNN Inference Service
+    participant GNN as GNN Inference Service\n(Graph Intelligence)
     participant GS as Graph Store
+    participant RISKINT as Risk Intelligence Service
 
     FE->>GW: GET /api/v1/predictions?filter=...
     GW->>GNN: Forward request
     GNN->>GS: Load current graph snapshot
     GS-->>GNN: Graph tensors
-    GNN->>GNN: Run GNN-Transformer forward pass
-    GNN->>GNN: Compute delay probability, shortage risk, impact score
+    GNN->>GNN: Run GNN-Transformer forward pass (model_version per active architecture)
+    GNN->>GNN: Compute delay probability, shortage risk, raw confidence signal
     GNN->>GNN: Run GNNExplainer for flagged entities
-    GNN-->>GW: Scores + affected entities + explanation subgraph + embeddings
+    GNN-->>RISKINT: Raw scores + confidence signal + explanation subgraph + embeddings
+    RISKINT->>RISKINT: Select scoring_method (gnn_native or weighted_formula, FR-RISK-01)
+    RISKINT->>RISKINT: Normalize confidence (FR-RISKINT-01)
+    RISKINT->>RISKINT: Evaluate thresholds, assign risk_category (FR-RISKINT-02)
+    RISKINT-->>GW: impact_score + confidence + risk_category + scoring_method + affected entities + explanation subgraph + embeddings
     GW-->>FE: 200 OK (prediction payload)
-    FE->>FE: Render Risk Dashboard / Graph view
+    FE->>FE: Render Risk Dashboard / Graph view (incl. Confidence Panel)
 ```
 
-- **Steps:** request → load graph snapshot → forward pass → derive delay/shortage/impact scores → identify affected products/orders (FR-GNN-04) → generate explanation subgraph (FR-GNN-05) → return embeddings for downstream reuse (FR-GNN-06).
+- **Steps:** request → load graph snapshot → forward pass (under the active `model_version`, per the architecture ablation, Section 18) → GNN produces raw delay/shortage/confidence-signal/explanation/embeddings → **Risk Intelligence Service** takes over: computes `impact_score` via the selected `scoring_method` (FR-RISK-01/02), normalizes confidence (FR-RISKINT-01), evaluates thresholds and assigns `risk_category` (FR-RISKINT-02) → identify affected products/orders (FR-GNN-04) → return embeddings for downstream reuse (FR-GNN-06).
 - **Failure handling:** inference failure returns a retryable error consumed by the Risk Dashboard's error state (Document 3, Section 6.4).
 - **Delivery Phase:** Phase 1
 
@@ -192,11 +203,11 @@ sequenceDiagram
 
 ## 10. Approval Flow
 
-**Trigger:** A recommended action is generated (from LLM explanation, Recommendation screen, or Chatbot) and requires human sign-off before execution (FR-MCP-03).
+**Trigger:** A recommended or optimized action is generated — always via the Decision Intelligence Flow (Section 21), which routes to either the Optimizer Flow (Section 19)/Customer Allocation Flow (Section 20) or the LLM explanation path — and requires human sign-off before execution (FR-MCP-03).
 
 ```mermaid
 sequenceDiagram
-    participant SRC as Action Source\n(LLM / Recommendation / Chatbot)
+    participant SRC as Action Source\n(LLM / Recommendation / Chatbot / Optimizer / Allocation)
     participant GW as API Gateway
     participant PG as PostgreSQL (action_request)
     actor K as Approver
@@ -321,13 +332,22 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     AUTH["Authentication Flow"] -.gate.-> ALL["All other flows"]
-    GC["Graph Construction Flow"] --> PRED["Prediction Flow"]
+    GC["Graph Construction Flow"] --> PRED["Prediction Flow\n(incl. Risk Intelligence step)"]
+    PRED --> EVALF["Evaluation Flow"]
     PRED --> RAGF["RAG Flow"]
     PRED --> ALERTF["Alert Flow"]
+    PRED --> DECF["Decision Intelligence Flow"]
     RAGF --> CHATF["Chatbot Flow"]
     PRED --> CHATF
+    DECF -->|optimizer-eligible| OPTF["Optimizer Flow"]
+    DECF -->|optimizer-eligible| ALLOCF["Customer Allocation Flow"]
+    DECF -->|needs LLM judgment| RAGF
+    OPTF --> RAGF
+    ALLOCF --> RAGF
     CHATF --> APPR["Approval Flow"]
     ALERTF --> APPR
+    OPTF --> APPR
+    ALLOCF --> APPR
     ALERTF --> NOTIF["Notification Flow"]
     APPR --> MCPF["MCP Flow"]
     MCPF --> ERPF["ERP Flow"]
@@ -341,14 +361,141 @@ flowchart LR
 | AF-01 | Chatbot and Alert flows both depend on Prediction Flow output; a slow inference run delays both | Prediction results are cached per graph snapshot rather than recomputed per request | Phase 2 |
 | AF-02 | MCP/ERP Flow failure could leave an action_request stuck in an ambiguous state | Explicit terminal states (`approved`, `executed`, `failed`, `rejected`) enforced in schema (Document 5) | Phase 2 |
 | AF-03 | Notification delivery failures could silently suppress an important alert | Delivery outcome logged and surfaced in-app (Section 14) so absence of a Slack/email is not the only signal | Phase 2 |
+| AF-04 | Decision Intelligence Flow (Section 21) routes an ambiguous decision type incorrectly between the optimizer and LLM paths | Routing table is a closed, three-item list (FR-DEC-01); anything not clearly matching defaults to the LLM path, consistent with Document 1, Risk R-13 | Phase 2 |
 
 ## 17. Future Extension
 
 Streaming/event-driven variants of the Graph Construction and Prediction flows (vs. today's request/incremental-update model) are noted as Future Scope per Document 1, Section 15, and would replace the trigger mechanism in Sections 6–7 without changing downstream flow steps.
 
+## 18. Evaluation Flow
+
+**Trigger:** A training run completes for any architecture in the ablation (GraphSAGE, GAT, or HGT).
+
+```mermaid
+sequenceDiagram
+    participant TRAIN as Training Pipeline (Document 10 §8)
+    participant EVAL as Evaluation Service
+    participant PG as PostgreSQL (model_evaluation_runs)
+    participant FE as Model Comparison Screen
+
+    TRAIN->>TRAIN: Train architecture under this run's model_version
+    TRAIN->>TRAIN: Compute metrics on held-out test set (Precision, Recall, F1, ROC-AUC; MAE/RMSE/MAPE if applicable)
+    TRAIN->>EVAL: Submit metrics (model_version, architecture, metric_name, metric_value, dataset_split)
+    EVAL->>PG: Insert model_evaluation_runs row(s) (append-only)
+    FE->>EVAL: GET /api/v1/models/comparison
+    EVAL->>PG: Query latest test-split metrics per architecture
+    PG-->>EVAL: Rows
+    EVAL-->>FE: Side-by-side architecture comparison (FR-ABL-02)
+```
+
+- **Steps:** training run completes → metrics computed on the held-out split → persisted as one row per (`model_version`, `metric_name`, `dataset_split`) (FR-EVAL-01) → Model Comparison screen queries the comparison endpoint to justify the final architecture choice (FR-ABL-02).
+- **Failure handling:** a failed metric submission does not block the training pipeline from completing; the run is flagged incomplete in the Model Comparison view rather than silently missing.
+- **Delivery Phase:** Phase 1
+
+## 19. Optimizer Flow
+
+**Trigger:** The Decision Intelligence Flow (Section 21) determines a flagged entity's response is safety-stock or PO-splitting (FR-DEC-01) and invokes this flow with an assembled constraint set; the Recommendation screen (Document 3, Section 6.13) then renders the result. This flow is never triggered directly by free-text LLM output.
+
+```mermaid
+sequenceDiagram
+    participant DECISION as Decision Intelligence Service
+    participant GW as API Gateway
+    participant OPT as Optimization Service
+    participant PG as PostgreSQL (inventory, shipments, orders)
+    participant FE as Recommendation Screen
+
+    DECISION->>GW: POST /api/v1/optimize/safety-stock or /po-split (constraint_set)
+    GW->>OPT: Forward request
+    OPT->>PG: Load inventory, lead-time, demand constraints (as assembled by Decision Intelligence)
+    OPT->>OPT: Run OR-Tools constraint solver
+    alt Optimal solution found
+        OPT-->>GW: { optimal: true, recommendation, objective_value, rationale }
+        GW-->>DECISION: Optimal decision
+        DECISION->>DECISION: Record decision_trace (FR-DEC-03), route to Approval Flow
+        GW-->>FE: Render decision with optimal badge
+    else No feasible solution
+        OPT-->>GW: { optimal: false, reason }
+        GW-->>FE: Render "no feasible decision" state (NFR-20)
+    end
+```
+
+- **Steps:** Decision Intelligence assembles the constraint set and invokes this flow → solve (FR-OPT-01) → if optimal, surface for approval, tagged `source='optimizer'` with a populated `decision_trace` (FR-OPT-02, FR-DEC-03); if infeasible, surface explicitly rather than forcing a recommendation (NFR-20).
+- **Failure handling:** an infeasible result is a valid, expected outcome (not an error) and is rendered as a distinct UI state, not conflated with a service failure.
+- **Delivery Phase:** Phase 2
+
+## 20. Customer Allocation Flow
+
+**Trigger:** A product is flagged as shortage-risk (Prediction Flow, Section 7) with multiple open orders competing for insufficient stock; the Decision Intelligence Flow (Section 21) routes this to the Optimization Service as one of its three closed-form decision types (FR-DEC-01).
+
+```mermaid
+sequenceDiagram
+    actor N as Neha (Customer Operations Manager)
+    participant FE as Allocation Screen
+    participant GW as API Gateway
+    participant CUST as Customer Service
+    participant DECISION as Decision Intelligence Service
+    participant OPT as Optimization Service
+    participant PG as PostgreSQL (customers, orders, inventory, suppliers, warehouses, factories)
+
+    FE->>GW: GET /api/v1/customers/allocations/{product_id}
+    GW->>CUST: Fetch competing open orders + customer priority/contract data
+    CUST->>PG: Load orders, customers
+    PG-->>CUST: Order/customer data
+    CUST-->>GW: Order/customer inputs
+    GW->>DECISION: Assemble constraint set for this product
+    DECISION->>PG: Load inventory, supplier/warehouse/factory capacity, lead time
+    PG-->>DECISION: Constraint values
+    DECISION->>OPT: POST /api/v1/optimize/customer-allocation (constraint_set)
+    OPT->>OPT: Maximize protected customer value (priority tier, SLA compliance,\norder value, penalty avoidance) subject to inventory/capacity/lead-time constraints
+    OPT-->>DECISION: Optimal allocation + objective_value
+    DECISION->>DECISION: Record decision_trace (FR-DEC-03)
+    DECISION-->>GW: Allocation decision
+    GW-->>FE: Render ranked table with proposed quantities + objective value
+    N->>FE: Review, optionally adjust quantities (US-CUST-02)
+    N->>FE: Approve allocation
+    FE->>GW: Create action_request (entity_type='order', source='optimizer', action_payload + decision_trace)
+    GW->>GW: Route into Approval Flow (Section 10)
+```
+
+- **Steps:** shortage flag on a product → Customer Service supplies competing orders + customer priority/contract data → Decision Intelligence assembles the constraint set (inventory, supplier/warehouse/production capacity, lead time) → Optimization Service solves the allocation as a constrained maximization problem (FR-CUST-02) → proposed optimal split surfaced for review → Neha may adjust before approving (US-CUST-02) → approved allocation is created as an `action_requests` row with the objective/constraint values and decision trace recorded for rationale (US-CUST-03) → routes into the standard Approval Flow.
+- **Failure handling:** if priority/contract data is missing for a competing customer, the constraint set falls back to a documented default (e.g., FIFO by order date, NFR-21) rather than failing the whole allocation.
+- **Delivery Phase:** Phase 2
+
+## 21. Decision Intelligence Flow
+
+**Trigger:** A risk-intelligence record (Prediction Flow, Section 7) for a flagged entity needs a response, and no response yet exists.
+
+```mermaid
+sequenceDiagram
+    participant RISKINT as Risk Intelligence Service
+    participant DECISION as Decision Intelligence Service
+    participant OPT as Optimization Service
+    participant LLM as LLM Orchestration Service
+    participant PG as PostgreSQL (action_requests)
+
+    RISKINT->>DECISION: Risk-intelligence record (impact_score, confidence, risk_category)
+    DECISION->>DECISION: Is this a closed-form decision type?\n(safety-stock, PO-split, customer allocation — FR-DEC-01)
+    alt Closed-form decision type
+        DECISION->>OPT: Assembled constraint set (Optimizer Flow §19 / Allocation Flow §20)
+        OPT-->>DECISION: Optimal decision
+        DECISION->>LLM: Explain this decision in plain language
+    else Not closed-form
+        DECISION->>LLM: Generate qualitative recommendation (FR-LLM-02)
+    end
+    LLM-->>DECISION: Plain-language explanation (+ recommendation, if qualitative)
+    DECISION->>DECISION: Validate against business rules/policy (FR-DEC-02)
+    DECISION->>DECISION: Compose decision_trace (FR-DEC-03)
+    DECISION->>PG: Create action_request (decision_trace populated)
+    DECISION->>DECISION: Route into Approval Flow (Section 10)
+```
+
+- **Steps:** risk-intelligence record arrives → Decision Intelligence checks it against the closed, three-item routing table (FR-DEC-01) → routes to Optimization (Sections 19–20) or directly to the LLM for a qualitative recommendation → LLM always explains the outcome, regardless of path, but never computes it for the optimizer-routed case (FR-OPT-03) → every candidate is validated against business rules/policy before proceeding (FR-DEC-02) → a decision trace is composed recording which layers contributed (FR-DEC-03) → the resulting `action_requests` row enters the standard Approval Flow.
+- **Failure handling:** an ambiguous decision type that doesn't clearly match one of the three closed-form types defaults to the LLM path rather than being forced into the optimizer (Document 1, Risk R-13); a missing `decision_trace` blocks the row from being marked ready for approval (NFR-23).
+- **Delivery Phase:** Phase 2
+
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 16. **Future Extension:** Section 17.
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 16. **Future Extension:** Section 17. **Evaluation Flow:** Section 18. **Optimizer Flow:** Section 19. **Customer Allocation Flow:** Section 20. **Decision Intelligence Flow:** Section 21.
 - Baseline for Document 8 (Backend Design) and Document 9 (REST API Documentation).

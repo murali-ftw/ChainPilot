@@ -36,7 +36,8 @@ Document 5 (source tables), Document 4 Section 6 (Graph Construction Flow), Docu
 | `Factory` | `factories` | `id`, `location`, `capacity_units_per_day` | Phase 1 |
 | `Warehouse` | `warehouses` | `id`, `location`, `capacity_units` | Phase 1 |
 | `Shipment` | `shipments` | `id`, `status`, `eta`, `carrier` | Phase 1 |
-| `Order` | `orders` | `id`, `status`, `due_at` | Phase 1 |
+| `Order` | `orders` | `id`, `status`, `due_at`, `order_value` | Phase 1 |
+| `Customer` | `customers` | `id`, `priority_tier` | Phase 1 (node), Phase 2 (consumed by allocation ranking) |
 
 All node types additionally carry a `risk_embedding` vector property populated after each GNN inference run (Section 9).
 
@@ -52,6 +53,7 @@ All node types additionally carry a `risk_embedding` vector property populated a
 | `SHIPS_TO` | `Shipment → Warehouse` | `shipments.warehouse_id` | `eta`, `status` | Phase 1 |
 | `FULFILLS` | `Shipment → Order` | `shipments.order_id` | — | Phase 1 |
 | `ORDERED` | `Order → Product` | `order_items` | `quantity` | Phase 1 |
+| `PLACED_BY` | `Order → Customer` | `orders.customer_id` | — | Phase 1 |
 | `SIMILAR_TO` | `Supplier → Supplier` | derived at inference time from embedding cosine similarity (not persisted from PostgreSQL) | `similarity_score` | Phase 2 (Alternative-Supplier Recommender) |
 
 ```mermaid
@@ -65,6 +67,7 @@ flowchart LR
     SHIP -->|SHIPS_TO| WH
     SHIP -->|FULFILLS| ORD["Order"]
     ORD -->|ORDERED| PROD
+    ORD -->|PLACED_BY| CUST["Customer"]
     SUP -.SIMILAR_TO\nPhase 2.-> SUP
 ```
 
@@ -80,7 +83,8 @@ For the PyTorch Geometric `HeteroData` representation, each node type has a feat
 | `Factory` | `[capacity_units_per_day (scaled), one-hot location bucket]` |
 | `Warehouse` | `[capacity_units (scaled), one-hot location bucket]` |
 | `Shipment` | `[days_to_eta, one-hot status]` |
-| `Order` | `[days_to_due, one-hot status]` |
+| `Order` | `[days_to_due, one-hot status, order_value (scaled)]` |
+| `Customer` | `[one-hot priority_tier]` |
 
 Edge feature encodings (`edge_attr`) follow the same normalization principle for numeric properties (e.g., `quantity_required`, `stock_level`). Full feature engineering detail is in Document 10 (AI/ML Documentation), Section 5.
 
@@ -124,7 +128,7 @@ LIMIT 5;
 | Representation | Index | Purpose | Delivery Phase |
 |---|---|---|---|
 | Neo4j | `CREATE INDEX supplier_id_idx FOR (s:Supplier) ON (s.id)` | Fast node lookup by source-of-truth ID | Phase 1 |
-| Neo4j | Composite index per node type on `id` (all 7 node types) | Fast node lookup across all entity types | Phase 1 |
+| Neo4j | Composite index per node type on `id` (all 8 node types) | Fast node lookup across all entity types | Phase 1 |
 | Neo4j | Vector index on `risk_embedding` (Neo4j vector index or GDS similarity graph projection) | Similarity search for Alternative-Supplier Recommender | Phase 2 |
 | `HeteroData` (tensor) | Node ID → tensor-row mapping dictionary maintained per node type during graph assembly | O(1) lookup from PostgreSQL UUID to tensor row for inference/explanation mapping | Phase 1 |
 
@@ -163,14 +167,31 @@ sequenceDiagram
 | GD-01 | Maintaining two graph representations (tensor + optional Neo4j) risks drift between them | Both are derived from the same PostgreSQL source via the same Graph Construction Service; Neo4j is documented as optional and non-authoritative | Phase 1 |
 | GD-02 | `MANUFACTURED_AT` edge is inferred rather than directly foreign-keyed in PostgreSQL, risking incorrect inference on ambiguous data | Restrict inference to shipments with an unambiguous factory-to-product link; flag ambiguous cases as a data-quality warning (NFR-17) | Phase 1 |
 | GD-03 | `SIMILAR_TO` edges are computed at query time, not persisted, which could be slow at larger scale | Acceptable at prototype scale (NFR-02); Neo4j vector index (Section 10) mitigates cost if adopted | Phase 2 |
+| GD-04 | `Customer` node carries only `priority_tier` as a learned feature; richer `contract_terms` (Document 5, Section 6.24) are not encoded into the tensor representation | The OR-Tools customer-allocation optimizer (FR-CUST-02) reads `contract_terms` directly from PostgreSQL rather than through the graph, so this is a scope choice, not a gap — the GNN does not need contract detail to predict shortage risk | Phase 2 |
 
 ## 13. Future Extension
 
-If unstructured document volume grows (Document 1, Section 15), additional node/edge types (e.g., a `Contract` node linked to `Supplier`) could be introduced following the same node-property/edge-derivation pattern established in Sections 5–6, without altering the existing seven node types.
+If unstructured document volume grows (Document 1, Section 15), additional node/edge types (e.g., a `Contract` node linked to `Supplier`) could be introduced following the same node-property/edge-derivation pattern established in Sections 5–6, without altering the existing eight node types.
+
+## 14. Optimization Constraint Inputs (Decision Intelligence / OR-Tools)
+
+The OR-Tools optimization engine (Document 1, Section 8.16; `problem_statement.md`, Section 5.7) does not query the graph or GNN embeddings directly — the Decision Intelligence Service (Document 2, Section 4) assembles its constraint set from the same PostgreSQL source-of-truth properties already listed as node properties in Section 5, read directly rather than through the tensor/Neo4j representation:
+
+| Constraint | Source Node Property (Section 5) | Used By |
+|---|---|---|
+| Inventory availability | `Product`/`Warehouse` via `inventory.stock_level` (Document 5, Section 6.8) | Safety-stock, PO-split, customer allocation |
+| Supplier capacity | `Supplier.capacity_score` | PO-split, customer allocation |
+| Warehouse capacity | `Warehouse.capacity_units` | Customer allocation |
+| Production capacity | `Factory.capacity_units_per_day` | Customer allocation |
+| Lead time | `Supplier.lead_time_days` | Safety-stock, PO-split, customer allocation |
+
+No new node/edge type or tensor feature is required for this — these fields already exist as node properties (Section 5) for the GNN's own use; the optimizer simply reads them a second time, directly, for a different purpose (a deterministic constraint, not a learned feature).
+
+- **Delivery Phase:** Phase 2
 
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 12. **Future Extension:** Section 13.
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 12. **Future Extension:** Section 13. **Optimization Constraint Inputs:** Section 14.
 - Baseline for Document 10 (AI/ML Documentation).

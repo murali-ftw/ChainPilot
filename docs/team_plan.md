@@ -70,11 +70,13 @@ The project is split by architectural responsibility across two deliveries, not 
 
 | Member   | Delivery 1 Role                       | Delivery 2 Role              | Estimated Load | Core Question                                                                                                         |
 | -------- | ------------------------------------- | ---------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Person 1 | Graph Construction & Data Engineering | RAG & Vector Database        | ≈20%          | How does the system turn raw records into a trustworthy structure — first a graph, then a retrievable evidence base? |
-| Person 2 | GNN + Transformer AI Development      | LLM & Chatbot                | ≈20%          | How does the system reason over that structure — first to score risk, then to explain it in language?                |
-| Person 3 | Backend & AI Serving                  | Advanced Frontend Features   | ≈20%          | How does the system get built, and — having built it — how should it be surfaced to a user?                         |
-| Person 4 | Frontend & Visualization              | MCP & Enterprise Integration | ≈20%          | How does a user see the system, and — having seen it from the outside — how should it safely act on the world?      |
-| Person 5 | Integration, Testing & Deployment     | Advanced Graph AI            | ≈20%          | Does the whole system actually work together, and — having proven that — how far can the core model be pushed?      |
+| Person 1 | Graph Construction & Data Engineering (incl. Customer entity) | RAG & Vector Database        | ≈20%          | How does the system turn raw records — now including customers — into a trustworthy structure — first a graph, then a retrievable evidence base? |
+| Person 2 | GNN + Transformer AI Development (incl. GraphSAGE→GAT→HGT ablation, Risk Intelligence methodology, model governance) | LLM & Chatbot                | ≈20%          | How does the system reason over that structure — first to score risk *and know how confident it is*, then to explain it in language?                |
+| Person 3 | Backend & AI Serving (incl. Customer, Evaluation & Risk Intelligence services) | Advanced Frontend Features (incl. Optimizer/Allocation/Decision Trace UI) | ≈20%          | How does the system get built, and — having built it — how should it be surfaced to a user, including the system's own decisions?                         |
+| Person 4 | Frontend & Visualization              | MCP & Enterprise Integration (incl. Decision Intelligence Service) | ≈20%          | How does a user see the system, and — having seen it from the outside — how should it safely decide and act on the world?      |
+| Person 5 | Integration, Testing & Deployment     | Advanced Graph AI (incl. OR-Tools Optimization Engine) | ≈20%          | Does the whole system actually work together, and — having proven that — how far can the core model *and its decision-support features* be pushed?      |
+
+Each person's added scope from the approved architecture enhancement (research ablation, Risk Intelligence, model governance, customer entity, Decision Intelligence, OR-Tools optimization) is distributed to preserve this even split — see Sections 4 and 5 for exactly which new tasks each person owns.
 
 **Team Ownership and System Interaction (Delivery 1)**
 
@@ -104,14 +106,20 @@ flowchart TB
 
 ## 3. System Architecture and Request Flow
 
-### 3.1 Six-Layer Architecture
+### 3.1 Six-Layer Architecture, Two Intelligence Stages
+
+Per `docs/problem_statement.md` §4 (as revised): two intelligence stages — **Risk Intelligence** and **Decision Intelligence** — now sit explicitly between Layer 2 and Layer 3/5. They are genuine architectural stages, not UI formatting, and each has a named owner below.
 
 ```mermaid
 flowchart TD
-    A["Layer 1: Graph Construction\nStructured records + light document parsing"] --> B["Layer 2: GNN x Transformer\nPredicting risk"]
-    B --> C["Layer 3: RAG\nFetching evidence"]
-    C --> D["Layer 4: LLM\nExplaining results"]
-    D --> E["Layer 5: MCP Servers\nTaking action"]
+    A["Layer 1: Graph Construction\nStructured records + light document parsing + Customer entity"] --> B["Layer 2: Graph Intelligence\nGNN x Transformer (GraphSAGE->GAT->HGT ablation)"]
+    B --> RI["Risk Intelligence Layer\nConfidence, weighted formula, categorization"]
+    RI --> DI["Decision Intelligence Layer\nRouting, policy validation, decision trace"]
+    DI -->|closed-form decision type| OPT["Optimization\nOR-Tools: safety-stock, PO-split, allocation"]
+    DI -->|qualitative recommendation| C["Layer 3: RAG\nFetching evidence"]
+    OPT --> C
+    C --> D["Layer 4: LLM\nExplaining decision / risk"]
+    D --> E["Layer 5: MCP Servers\nHuman Approval + Enterprise Execution"]
     E --> F["Layer 6: Frontend Dashboard\nShowing results"]
     F -.feedback loop.-> A
 
@@ -119,21 +127,25 @@ flowchart TD
     B -. explanation subgraph .-> H["Explainability Overlay"]
     B -. embeddings .-> I["Alternative-Supplier Recommender"]
     E -. threshold crossed .-> J["Proactive Alerts"]
-    B -. scored each run .-> K["Risk Trend Timeline"]
+    RI -. scored each run .-> K["Risk Trend Timeline"]
     B -. re-scored on edit .-> L["What-If Simulator"]
+    OPT -. optimal decision .-> E
 ```
 
 ### 3.2 Layer → Component → Owner Mapping
 
 | Layer                 | Component (Document 2 §4)                  | Delivery 1 Owner                               | Delivery 2 Owner                                             |
 | --------------------- | ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| 1. Graph Construction | Graph Construction Service                  | Person 1                                       | Person 1 (extends into evidence ingestion)                   |
-| 2. GNN × Transformer | GNN-Transformer Inference Service           | Person 2                                       | Person 5 (reuses model unmodified for simulator/recommender) |
+| 1. Graph Construction | Graph Construction Service (incl. Customer node) | Person 1                                       | Person 1 (extends into evidence ingestion)                   |
+| 2. GNN × Transformer (Graph Intelligence) | GNN-Transformer Inference Service (GraphSAGE→GAT→HGT ablation) | Person 2                                       | Person 5 (reuses model unmodified for simulator/recommender) |
+| Risk Intelligence Layer | Risk Intelligence Service (confidence, weighted formula, categorization); Evaluation Service (`model_evaluation_runs`, `model_registry`) | Person 2 (methodology) / Person 3 (service & API) | — (stable, carried forward) |
+| Decision Intelligence Layer | Decision Intelligence Service (routing, policy validation, decision trace) | — (schema foundation only, Person 3) | Person 4 (backend) / Person 3 (UI) |
 | 3. RAG                | RAG Retrieval Service, Vector DB            | —                                             | Person 1                                                     |
-| 4. LLM                | LLM Orchestration Service                   | —                                             | Person 2                                                     |
+| 4. LLM                | LLM Orchestration Service (explains risk *and* Decision Intelligence/Optimizer output; never optimizes numerically) | —                                             | Person 2                                                     |
 | 4b. Chatbot           | Chatbot Service                             | —                                             | Person 2 (logic) / Person 3 (UI)                             |
+| Optimization           | Optimization Service (OR-Tools: safety-stock, PO-split, customer allocation) | —                                             | Person 5                                                      |
 | 5. MCP Servers        | MCP Execution Service, Notification Service | —                                             | Person 4                                                     |
-| 6. Frontend Dashboard | React Dashboard, API Gateway                | Person 3 (API) / Person 4 (UI)                 | Person 3 (advanced UI) / Person 4 (approval surfaces)        |
+| 6. Frontend Dashboard | React Dashboard, API Gateway                | Person 3 (API) / Person 4 (UI)                 | Person 3 (advanced UI, incl. Optimizer/Allocation/Decision Trace) / Person 4 (approval surfaces) |
 | Cross-cutting         | Auth, Audit, CI/CD, Testing                 | Person 3 (auth/audit) / Person 5 (CI/CD/tests) | Person 4 (approval audit) / Person 5 (final integration)     |
 
 ### 3.3 High-Level Component Diagram
@@ -150,14 +162,18 @@ flowchart TB
 
     subgraph CoreServices["Delivery 1 Core Services"]
         AUTH["Auth Service (P3)"]
-        GCS["Graph Construction Service (P1)"]
-        GNN["GNN-Transformer Inference (P2)"]
+        GCS["Graph Construction Service (P1)\nincl. Customer node"]
+        GNN["GNN-Transformer Inference (P2)\nGraphSAGE/GAT/HGT ablation"]
+        RISKINT["Risk Intelligence Service (P3)\nconfidence, formula, category"]
+        EVAL["Evaluation & Governance Service (P3)"]
     end
 
     subgraph ExtServices["Delivery 2 Extended Services"]
         RAG["RAG Retrieval Service (P1)"]
-        LLMS["LLM Orchestration (P2)"]
+        LLMS["LLM Orchestration (P2)\nexplains only"]
         CHAT["Chatbot Service (P2/P3)"]
+        DECISION["Decision Intelligence Service (P4)"]
+        OPT["Optimization Service (P5)\nOR-Tools"]
         MCP["MCP Execution Service (P4)"]
         NOTIFY["Notification Service (P4)"]
         ADV["Simulator / Recommender (P5)"]
@@ -174,15 +190,20 @@ flowchart TB
     GW --> GCS --> PG
     GCS --> GRAPH
     GW --> GNN --> GRAPH
+    GNN --> RISKINT --> PG
+    GW --> EVAL --> PG
     GW --> RAG --> VEC
     GW --> LLMS --> RAG
     GW --> CHAT --> LLMS
+    RISKINT --> DECISION
+    DECISION --> OPT
+    DECISION --> LLMS
     GW --> MCP
     GW --> NOTIFY
     GW --> ADV --> GNN
 
     classDef phase2 fill:#f5e6ff,stroke:#8855cc;
-    class RAG,LLMS,CHAT,MCP,NOTIFY,ADV,VEC phase2;
+    class RAG,LLMS,CHAT,DECISION,OPT,MCP,NOTIFY,ADV,VEC phase2;
 ```
 
 ---
@@ -224,8 +245,8 @@ flowchart TB
 **P1.1 Dataset Sourcing & Schema Collaboration — Deadline: End of S1 (2026-08-02)**
 
 - Source/compile realistic supplier, order, shipment, and inventory data covering on-time, delayed, shortage, and cancelled scenarios (Document 1 §12 assumption).
-- Collaborate with Person 3 to freeze the Phase 1 PostgreSQL schema: `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `orders`, `order_items`, `shipments`, `documents` (Document 5 §6.1–6.12).
-- Define the node/edge type inventory for the heterogeneous graph (Document 6 §5–6).
+- Collaborate with Person 3 to freeze the Phase 1 PostgreSQL schema: `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents` (Document 5 §6.1–6.12, §6.24).
+- Define the node/edge type inventory for the heterogeneous graph, including the `Customer` node type and `PLACED_BY` edge (Document 6 §5–6).
 
 Completion gate: Person 2 and Person 3 approve the schema and node/edge type list.
 Dependency/handoff: No dependency. Schema is a hard handoff to Person 2 (features) and Person 3 (repositories).
@@ -233,7 +254,7 @@ Dependency/handoff: No dependency. Schema is a hard handoff to Person 2 (feature
 **P1.2 Data Cleaning & Feature Engineering — Deadline: End of S2 (2026-08-16)**
 
 - Implement cleaning, normalization, deduplication, and type coercion (FR-GC-04).
-- Implement feature derivation per Document 10 §5 (`lead_time_days`, `reliability_history`, `capacity_score`, `days_to_eta`/`days_to_due`, one-hot categoricals).
+- Implement feature derivation per Document 10 §5 (`lead_time_days`, `reliability_history`, `capacity_score`, `days_to_eta`/`days_to_due`, one-hot categoricals), plus `Customer.priority_tier` one-hot encoding for the new node type.
 - Implement the lightweight document-parsing step for invoice/PO PDFs — a single extraction call, not a standing agent (FR-GC-05).
 
 Completion gate: A cleaned, feature-engineered dataset with at least 10 predefined business scenarios (on-time, shortage, carrier delay, warehouse delay) is queryable.
@@ -241,7 +262,7 @@ Dependency/handoff: Requires P1.1. Feeds Person 2's tensor encoding directly.
 
 **P1.3 Heterogeneous Graph Assembly — Deadline: End of S3 (2026-08-30)**
 
-- Assemble typed nodes (Supplier, Component, Product, Factory, Warehouse, Shipment, Order) and typed edges (SUPPLIES, USED_IN, STOCKED_AT, MANUFACTURED_AT, SHIPS_FROM, SHIPS_TO, FULFILLS, ORDERED) per Document 6 §5–6.
+- Assemble typed nodes (Supplier, Component, Product, Factory, Warehouse, Shipment, Order, Customer) and typed edges (SUPPLIES, USED_IN, STOCKED_AT, MANUFACTURED_AT, SHIPS_FROM, SHIPS_TO, FULFILLS, ORDERED, PLACED_BY) per Document 6 §5–6.
 - Build the PyTorch Geometric `HeteroData` object (FR-GC-06) with the tensor encodings in Document 6 §7.
 - Stand up the optional Neo4j representation, kept structurally identical to the tensor graph.
 
@@ -262,8 +283,9 @@ Dependency/handoff: Requires P1.3. Hands the update job's interface to Person 3 
 - Validate graph structural integrity (orphan nodes, dangling edges, degenerate feature vectors).
 - Surface data-quality warnings for missing/malformed fields rather than silently corrupting the graph (NFR-17).
 - Support Person 2 debugging node/edge feature encoding issues surfaced during training.
+- Author ≥3 shortage scenarios with multiple open orders competing for the same constrained product/warehouse stock (feeding Delivery 2's customer allocation optimizer, FR-CUST-02), and validate the `Customer`/`PLACED_BY` graph slice (no orphan customers, every order resolves to exactly one customer).
 
-Completion gate: A deliberately malformed input record produces a visible warning, not a crash or silent bad graph state.
+Completion gate: A deliberately malformed input record produces a visible warning, not a crash or silent bad graph state; the shortage scenarios are queryable and each has ≥2 competing orders.
 Dependency/handoff: Requires P1.4. Runs concurrently with Person 2's S4–S5 training work.
 
 **P1.6 Entity Screen Data Support — Deadline: End of S6 (2026-10-11)**
@@ -315,9 +337,9 @@ Dependency/handoff: Requires P1.7. Closes out Delivery 1 for Person 1.
 
 **P2.1 AI Architecture & Shared Contracts — Deadline: End of S1 (2026-08-02)**
 
-- Freeze the model design: heterogeneous GNN encoder + Transformer prediction head (Document 10 §8.1).
+- Freeze the model design: heterogeneous GNN encoder + Transformer prediction head, developed as an explicit three-stage research ablation — GraphSAGE baseline → GAT intermediate → Heterogeneous Graph Transformer final, each with a documented rationale, not merely a linear upgrade path (Document 10 §8.1, §8.4).
 - Define prediction targets, loss functions, and the AUC-ROC ≥ 0.80 evaluation target (Document 1 §11).
-- Define the `RiskScoreResponseDTO` / `ExplanationSubgraphResponseDTO` contract with Person 3 (Document 8 §8).
+- Define the `RiskScoreResponseDTO` / `ExplanationSubgraphResponseDTO` contract with Person 3 (Document 8 §8), including the `confidence`, `risk_category`, `scoring_method`, and `architecture` fields the Risk Intelligence Layer will populate (P2.9).
 
 Completion gate: Person 1 and Person 3 approve the model I/O contract.
 Dependency/handoff: No dependency. Critical cross-team contract, frozen alongside P1.1/P3.1.
@@ -333,19 +355,19 @@ Dependency/handoff: Requires P1.2 and P2.1.
 
 **P2.3 GNN Encoder Implementation — Deadline: End of S3 (2026-08-30)**
 
-- Implement the GraphSAGE/GAT baseline heterogeneous encoder over Person 1's `HeteroData` graph.
-- Validate message passing across all seven node types and eight Phase 1 edge types.
+- Implement and train the GraphSAGE baseline (Stage 1 of the ablation) over Person 1's `HeteroData` graph, logged under `model_version='graphsage-v1'`, then the GAT intermediate architecture (Stage 2), logged under `model_version='gat-v1'` — each evaluated on the same held-out split so the eventual HGT choice (P2.4) is a documented comparison, not an assumption.
+- Validate message passing across all eight node types (incl. `Customer`) and nine Phase 1 edge types (incl. `PLACED_BY`).
 
 Completion gate: Encoder produces contextualized node embeddings of the expected dimensionality for every node type.
 Dependency/handoff: Requires P1.3.
 
 **P2.4 Transformer Head & Full Training — Deadline: End of S4 (2026-09-13)**
 
-- Add the Transformer prediction head attending over a node's embedding and heterogeneous neighborhood.
+- Add the Transformer prediction head attending over a node's embedding and heterogeneous neighborhood, and train the final Heterogeneous Graph Transformer (Stage 3 of the ablation) under `model_version='hgt-v1'`.
 - Run full training with Adam/AdamW + LR scheduling, dropout, early stopping on validation AUC.
-- Hyperparameter tuning against the AUC-ROC ≥ 0.80 target.
+- Hyperparameter tuning against the AUC-ROC ≥ 0.80 target; persist per-architecture metrics (Precision/Recall/F1/ROC-AUC/inference-time) plus governance metadata (git commit, hyperparameters, dataset reference) for all three ablation stages, handed to Person 3's evaluation service (P3.10) for persistence to `model_evaluation_runs`/`model_registry`.
 
-Completion gate: Held-out test AUC-ROC ≥ 0.80 for delay/shortage classification (Document 1 §11) — the project's core hypothesis (BG-1) is proven here.
+Completion gate: Held-out test AUC-ROC ≥ 0.80 for delay/shortage classification (Document 1 §11) — the project's core hypothesis (BG-1) is proven here — **and** the GraphSAGE/GAT/HGT comparison shows HGT is the justified choice, not merely the last one trained.
 Dependency/handoff: Requires P2.3.
 
 **P2.5 Inference Pipeline & Explainability — Deadline: End of S5 (2026-09-27)**
@@ -359,10 +381,10 @@ Dependency/handoff: Requires P2.4. Hard handoff to Person 3 (serving) and Person
 
 **P2.6 Model Evaluation — Deadline: End of S6 (2026-10-11)**
 
-- Full evaluation report: AUC-ROC, precision/recall, calibration (Document 10 §10).
+- Full evaluation report: AUC-ROC, precision/recall, calibration (Document 10 §10), covering all three ablation stages side by side.
 - Qualitative explanation-fidelity review against domain-plausible causes.
 
-Completion gate: Explanation subgraph available for 100% of high-risk predictions (Document 1 §11).
+Completion gate: Explanation subgraph available for 100% of high-risk predictions (Document 1 §11); the three-architecture comparison report is complete and handed to Person 3 (P3.10) for the Model Comparison API.
 Dependency/handoff: Requires P2.5.
 
 **P2.7 Latency & Retraining Hardening — Deadline: End of S7 (2026-10-25)**
@@ -381,6 +403,15 @@ Dependency/handoff: Requires P2.6.
 
 Completion gate: Frozen model artifact passes UAT with Person 3/4's integrated dashboard.
 Dependency/handoff: Requires P2.7.
+
+**P2.9 Risk Intelligence Methodology: Confidence & Weighted Formula — Deadline: End of S5 (2026-09-27, parallel with P2.5)**
+
+- Design the confidence-estimation mechanism (softmax margin or MC-dropout variance across a small number of stochastic forward passes) that turns a raw model output into the `confidence` value exposed on every prediction (FR-RISKINT-01).
+- Define and tune the transparent weighted risk formula (0.30 Supplier Risk + 0.25 Shipment Delay + 0.20 Inventory Risk + 0.15 Demand Spike + 0.10 Financial Risk) against validation data as a documented, inspectable alternative to the GNN-native score — never a replacement for the GNN itself (FR-RISK-01).
+- Hand off the confidence signal and the tuned formula's exact computation to Person 3 (P3.10), who implements them as the `risk_intelligence_service`.
+
+Completion gate: Person 3 confirms the confidence signal and formula spec are directly implementable without further clarification.
+Dependency/handoff: Requires P2.5. Hands off to P3.10.
 
 ---
 
@@ -407,7 +438,7 @@ Dependency/handoff: Requires P2.7.
 
 - Stand up the FastAPI app factory and modular-monolith folder structure (Document 8 §5), with Person 5 on the Docker Compose skeleton (Document 11 §7).
 - Implement the `users` table and Auth module (Document 5 §6.1; FR-AUTH-01/02/04/05/06/07): login, JWT issuance/refresh, account lockout, logout, admin user CRUD.
-- Freeze the Phase 1 schema with Person 1 (Document 5 §7 migration set).
+- Freeze the Phase 1 schema with Person 1 (Document 5 §7 migration set), including `customers`, `model_evaluation_runs`, and `model_registry`, and the `risk_scores.scoring_method`/`confidence`/`risk_category` columns.
 
 Completion gate: `POST /api/v1/auth/login` issues a valid JWT against a seeded user; the Phase 1 Alembic migration runs clean.
 Dependency/handoff: No dependency. API contract handed to Person 4 immediately.
@@ -467,6 +498,21 @@ Dependency/handoff: Requires P3.6. Feeds Person 5's security test pass.
 
 Completion gate: Full Document 13 Phase 1 API test suite green.
 Dependency/handoff: Requires P3.7.
+
+**P3.9 Customer Service & API — Deadline: End of S2 (2026-08-16, alongside P3.2)**
+
+- Implement the `customers` module (CRUD) and `GET/POST/PATCH /api/v1/customers*` endpoints (Document 9 §8.3; FR-CUST-01), plus the `orders.customer_id` backfill migration from legacy `customer_name` values (Document 5 §7.1).
+
+Completion gate: `POST /api/v1/customers` creates a customer; every seeded order resolves to exactly one `customer_id` post-backfill.
+Dependency/handoff: Requires P3.1, P1.1. Feeds Person 4's Customers screen (P4.9).
+
+**P3.10 Evaluation, Model Governance & Risk Intelligence Services — Deadline: End of S5–S6 (2026-09-14 – 2026-10-11, alongside P3.5/P3.6)**
+
+- Implement the `evaluation` module: persist `model_evaluation_runs` and `model_registry` rows from Person 2's training pipeline output (P2.4/P2.6), and expose `GET /api/v1/models/comparison`, `/evaluation-runs`, `/registry`, `/active` (Document 9 §9.4–9.5; FR-EVAL-01/02, FR-GOV-01/02).
+- Implement the `risk_intelligence` module consuming Person 2's confidence signal and weighted-formula spec (P2.9): compute `impact_score` via `gnn_native`/`weighted_formula`, assign `risk_category` against configurable thresholds, and expose all of it on `GET /api/v1/predictions` (FR-RISKINT-01–03, FR-RISK-01/02).
+
+Completion gate: `GET /api/v1/models/comparison` returns all three ablation architectures' metrics side by side; every prediction response carries `confidence`, `risk_category`, and `scoring_method`.
+Dependency/handoff: Requires P2.6, P2.9, P3.5. Feeds Person 4's Model Comparison/Confidence Panel UI (P4.10).
 
 ---
 
@@ -550,6 +596,21 @@ Dependency/handoff: Requires P4.6. Feeds Person 5's UI/performance testing.
 Completion gate: Document 1 §11 "100% of Phase 1 functional requirements demonstrable" target met.
 Dependency/handoff: Requires P4.7.
 
+**P4.9 Customers Screen — Deadline: End of S4 (2026-09-13, alongside P4.4)**
+
+- Build the Customers list/detail screen (Document 3 §6.20) against Person 3's `customers` API (P3.9): searchable list, priority-tier filter, detail view with contract terms and linked orders.
+
+Completion gate: Customer list/detail renders against live data with correct priority-tier filtering.
+Dependency/handoff: Requires P3.9.
+
+**P4.10 Model Comparison, Confidence Panel & Risk Formula UI — Deadline: End of S6 (2026-10-11, alongside P4.6)**
+
+- Build the Model Comparison screen (Document 3 §6.19): three-architecture comparison cards with each stage's rationale, evaluation-run history, and a Model Metadata Panel (dataset, timestamp, experiment ID, git commit, hyperparameters, status) against Person 3's evaluation/governance API (P3.10).
+- Add the Confidence Panel (collapsed by default) and the formula-breakdown popover to the Risk Dashboard (Document 3 §6.4) against the same API.
+
+Completion gate: Model Comparison renders all three architectures side by side from live data; every Risk Dashboard row exposes confidence on demand.
+Dependency/handoff: Requires P3.10.
+
 ---
 
 ### 4.6 Person 5 Work Plan: Integration, Testing & Deployment
@@ -612,7 +673,7 @@ Dependency/handoff: Requires P3.5 and P4.5.
 
 **P5.6 Full Phase 1 Test Suite Execution — Deadline: End of S7 (2026-10-25)**
 
-- Run the complete Document 13 Phase 1 suite: unit, integration, system, API, UI, performance (NFR-01/02), security (Document 12 Phase 1 controls).
+- Run the complete Document 13 Phase 1 suite: unit, integration, system, API, UI, performance (NFR-01/02), security (Document 12 Phase 1 controls), including the new confidence/`risk_category` coverage (P3.10), `model_evaluation_runs`/`model_registry` persistence and post-`active` immutability (NFR-19/24), and the `orders.customer_id` backfill migration integrity check (P3.9).
 - Track and report defects to the responsible owner; no defect closes without a regression test.
 
 Completion gate: Full Document 13 Phase 1 suite green.
@@ -641,15 +702,18 @@ Dependency/handoff: Requires P5.6 and every person's final sign-off task.
 | Live`/api/v1/predictions` + `/explanation` endpoints  | Risk Dashboard, graph highlight                     | Person 3            | S5     |
 | CI/CD pipeline + test database                            | Every PR across all persons                         | Person 5            | S1     |
 | Docker Compose stack                                      | Local dev + staging deploy                          | Person 3 + Person 5 | S1     |
+| `customers` API + `orders.customer_id` backfill           | Customers screen                                     | Person 3 (P3.9)     | S2     |
+| Confidence signal + weighted-formula spec                 | Risk Intelligence service                            | Person 2 (P2.9)     | S5     |
+| Evaluation/governance + Risk Intelligence services         | Model Comparison, Confidence Panel UI                | Person 3 (P3.10)    | S5–S6 |
 
 ### 4.8 Delivery 1 Completion Gates
 
 | Milestone                            | Target                           | Exit Criteria                                                                     | Primary Owner(s)      |
 | ------------------------------------ | -------------------------------- | --------------------------------------------------------------------------------- | --------------------- |
-| M1 — Foundations Ready              | End of S1 (2026-08-02)           | Dev environment, CI/CD, Phase 1 DB schema, Auth working end-to-end                | Person 3, Person 5    |
-| M2 — Graph Live                     | End of S3 (2026-08-30)           | Graph Construction Service assembling a real`HeteroData` graph from seeded data | Person 1              |
-| M3 — Model Trained                  | End of S4 (2026-09-13)           | GNN-Transformer trained, meeting AUC-ROC ≥ 0.80 on held-out data                 | Person 2              |
-| M4 — Prediction API Live            | End of S5 (2026-09-27)           | Inference + explanation subgraph served via REST                                  | Person 2, Person 3    |
+| M1 — Foundations Ready              | End of S1 (2026-08-02)           | Dev environment, CI/CD, Phase 1 DB schema (incl. `customers`, `model_evaluation_runs`, `model_registry`), Auth working end-to-end | Person 3, Person 5    |
+| M2 — Graph Live                     | End of S3 (2026-08-30)           | Graph Construction Service assembling a real`HeteroData` graph (incl. `Customer` node) from seeded data | Person 1              |
+| M3 — Model Trained                  | End of S4 (2026-09-13)           | GraphSAGE→GAT→HGT ablation complete; final HGT meets AUC-ROC ≥ 0.80 on held-out data | Person 2              |
+| M4 — Prediction API Live            | End of S5 (2026-09-27)           | Inference + explanation subgraph + confidence/risk_category (Risk Intelligence) served via REST | Person 2, Person 3    |
 | M5 — Phase 1 Dashboard Complete     | End of S6 (2026-10-11)           | All Phase 1 screens functional against live APIs                                  | Person 4              |
 | **M6 — Phase 1 MVP Sign-off** | **End of S8 (2026-11-01)** | Document 13 Phase 1 suite green; Priya/Meera/Arjun UAT pass                       | All (led by Person 5) |
 
@@ -709,7 +773,7 @@ Dependency/handoff: Requires Phase 1's `documents` table and parsing step. Hard 
 
 **D1.2 Embedding Pipeline & Metadata Filtering — Deadline: End of S10 (2026-11-29)**
 
-- Wire the embedding model into the ingestion path; populate `supplier_id`/`order_id`/`shipment_id` metadata (Document 7 §8).
+- Wire the embedding model into the ingestion path; populate `supplier_id`/`order_id`/`shipment_id`/`customer_id` metadata (Document 7 §8), the last enabling customer-scoped evidence for allocation rationale (FR-CUST-03).
 - Implement metadata pre-filtering ahead of vector search (Document 7 §10).
 
 Completion gate: A query filtered to a specific supplier only returns evidence attributable to that supplier.
@@ -768,7 +832,7 @@ Dependency/handoff: Requires D1.5. Supports Phase 2 sign-off (M11).
 
 **D2.1 LLM Orchestration Foundation — Deadline: End of S11 (2026-12-13)**
 
-- Build the `llm` module: prompt templates with instruction/data separation (Document 12 §9), combining risk score + explanation subgraph + retrieved evidence into a plain-language explanation (FR-LLM-01).
+- Build the `llm` module: prompt templates with instruction/data separation (Document 12 §9), combining risk score + explanation subgraph + retrieved evidence into a plain-language explanation (FR-LLM-01) — and, for entities the Decision Intelligence Layer (Person 4, D4.7) routes to the optimizer, explaining the already-computed optimal decision instead of generating one (FR-OPT-03: the LLM never optimizes numerically).
 - Implement business-rule validation of LLM-proposed actions before they can become an `action_request` (FR-LLM-03).
 
 Completion gate: Given a fixed risk score + evidence set, the LLM produces a plain-language explanation citing at least one evidence source (FR-LLM-04).
@@ -776,7 +840,7 @@ Dependency/handoff: Requires Person 1's D1.3 and Phase 1's prediction/explanatio
 
 **D2.2 Recommended-Action Generation — Deadline: End of S11 (2026-12-13)**
 
-- Generate a recommended action alongside every explanation (FR-LLM-02), constrained to a structured output schema (Document 12 §9), preventing prompt-injected free-form actions.
+- Generate a recommended action alongside every explanation (FR-LLM-02), constrained to a structured output schema (Document 12 §9), preventing prompt-injected free-form actions — the schema has no field capable of overriding an optimizer-provided numeric result, closing off any path for the LLM to smuggle in its own quantity.
 
 Completion gate: Every high-risk prediction in the evaluation set produces both an explanation and a schema-valid recommended action.
 Dependency/handoff: Requires D2.1. Hard handoff to Person 4's approval workflow.
@@ -877,6 +941,15 @@ Dependency/handoff: Requires Person 5's trend logging (D5.3, reusing Phase 1's `
 Completion gate: Document 13 §10 Phase 2 UI test cases pass; all Phase 2 sidebar entries un-hidden and functional.
 Dependency/handoff: Requires D3.1–D3.5 and Person 4's Alerts backend.
 
+**D3.7 Optimizer Results, Allocation Screen & Decision Trace Panel — Deadline: End of S18 (2027-02-22 – 2027-03-21, after D5.7/D5.8/D4.7)**
+
+- Extend the Recommendation UI (D3.4) with an Optimizer Results panel: optimal/infeasible badge and objective value for safety-stock/PO-split decisions, sourced from Person 5's Optimization Service (D5.7).
+- Build the Allocation screen (Document 3 §6.21): shortage-flagged product selector, optimal-allocation badge with objective value and applied constraints, ranked competing-orders table with editable quantities, against Person 5's customer-allocation solver (D5.8).
+- Build the Decision Trace Panel (embedded in the Alerts pending-approval queue, D3.6): expandable view naming which layer (Risk Intelligence, Decision Intelligence, Optimization, LLM) produced a given recommendation, against Person 4's decision-trace API (D4.7).
+
+Completion gate: Optimizer Results, Allocation, and Decision Trace Panel all render correctly against live Delivery 2 backend data.
+Dependency/handoff: Requires D3.4, D3.6, D5.7, D5.8, D4.7.
+
 ---
 
 ### 5.5 Person 4 Work Plan: MCP & Enterprise Integration
@@ -899,7 +972,7 @@ Dependency/handoff: Requires D3.1–D3.5 and Person 4's Alerts backend.
 
 **D4.1 Approval Workflow Backend — Deadline: End of S16 (2027-02-21)**
 
-- Implement the `approval` module: `action_requests` schema wiring (Document 5 §6.17), the Approval Flow (Document 4 §10), and endpoints (Document 9 §13).
+- Implement the `approval` module: `action_requests` schema wiring (Document 5 §6.17) — including the `decision_trace` JSONB column and the `optimizer` value on the `source` enum from the start, so Person 4's own D4.7 doesn't need a second migration — the Approval Flow (Document 4 §10), and endpoints (Document 9 §13).
 - Enforce the mandatory human-approval gate (FR-MCP-03) and required-reason-on-reject rule (FR-MCP-04) at the service layer.
 
 Completion gate: An action cannot reach `approved` without a recorded `decided_by`/`decided_at`; rejecting without a reason returns `422`.
@@ -941,6 +1014,15 @@ Dependency/handoff: Requires D4.2 and D2.2. Supports Phase 2 sign-off (M11).
 
 Completion gate: Karan's reject-with-reason and audit-review scenario, and Rahul's approve-a-PO scenario, both pass (Document 13 §13).
 Dependency/handoff: Requires D4.5.
+
+**D4.7 Decision Intelligence Service — Deadline: End of S16 (2027-02-08 – 2027-02-21, alongside D4.1)**
+
+- Implement the `decision_intelligence` module: routes each risk-intelligence record to Person 5's Optimization Service (D5.7/D5.8) for the three closed-form decision types (safety-stock, PO-split, customer allocation, FR-DEC-01) or to Person 2's LLM Orchestration Service otherwise; assembles the OR-Tools constraint set (inventory, supplier/warehouse/production capacity, lead time) from PostgreSQL for the routed case.
+- Implement policy validation extending Person 2's LLM-only business-rule check (D2.1) to cover optimizer output too (FR-DEC-02), and compose the `decision_trace` (Document 5 §6.17) persisted on every `action_requests` row D4.1's `ApprovalService` creates (FR-DEC-03).
+- Add the mandatory-non-empty `decision_trace` enforcement to D4.1's `ApprovalService.create_request()` — the `decision_trace` column and `optimizer` source-enum value are created by D4.1's own migration (sequenced there specifically so this task doesn't need a second schema change).
+
+Completion gate: A safety-stock-eligible entity is routed to the optimizer, not the LLM; every resulting `action_requests` row carries a non-empty `decision_trace` (NFR-23).
+Dependency/handoff: Requires D4.1 (`action_requests` schema), P5.7 (Risk Intelligence output). Feeds Person 5's Optimizer/Allocation solvers (D5.7/D5.8) and Person 3's Decision Trace Panel (D3.7).
 
 ---
 
@@ -1007,6 +1089,20 @@ Dependency/handoff: Requires D5.1–D5.4.
 Completion gate: Document 13 §13 Devika UAT scenario passes.
 Dependency/handoff: Requires D5.5. Supports Phase 2 sign-off (M11).
 
+**D5.7 OR-Tools Safety-Stock & PO-Split Solvers — Deadline: End of S17 (2027-02-08 – 2027-03-07, after D4.7)**
+
+- Implement the `optimization` module's safety-stock and PO-split solvers (Google OR-Tools constraint solver, Document 1 §8.16) and `POST /api/v1/optimize/safety-stock`/`/po-split` (Document 9 §12.2), consuming the constraint set Person 4's Decision Intelligence Service (D4.7) assembles. Scope stays deliberately narrow — these two decision types only, never a general solver (Document 1, risk R-12).
+
+Completion gate: A feasible request returns an optimal decision with objective value; an infeasible request returns `optimal: false`, never a forced recommendation (NFR-20).
+Dependency/handoff: Requires D4.7. Feeds Person 3's Optimizer Results UI (D3.7).
+
+**D5.8 OR-Tools Customer Allocation Solver — Deadline: End of S17 (2027-02-22 – 2027-03-07, after D5.7)**
+
+- Implement the customer-allocation solver: maximize protected customer value (priority tier, SLA compliance, order value, penalty avoidance) subject to inventory, supplier/warehouse/production capacity, and lead time, and `POST /api/v1/optimize/customer-allocation` (Document 9 §12.2; FR-CUST-02). Reuses Person 1's Delivery 1 `customers`/`orders.customer_id` schema and Person 1's Delivery 1 shortage scenarios (P1.5) as its primary test fixtures.
+
+Completion gate: A shortage scenario with capacity constraints produces an allocation that respects every constraint and sums to ≤ available stock; missing customer data falls back to FIFO-by-date (NFR-21).
+Dependency/handoff: Requires D4.7, P1.5 (shortage scenarios), P3.9 (`customers` schema). Feeds Person 3's Allocation UI (D3.7).
+
 ---
 
 ### 5.7 Delivery 2 Dependencies
@@ -1021,6 +1117,8 @@ Dependency/handoff: Requires D5.5. Supports Phase 2 sign-off (M11).
 | Chatbot service                               | Chatbot UI                       | Person 3                    | S13      |
 | What-if simulator backend                     | Simulator UI                     | Person 3                    | S14      |
 | Approval + MCP execution                      | Alerts/Approval UI, audit        | Person 3, Person 5 sign-off | S16–S18 |
+| Decision Intelligence Service (routing, constraint assembly, decision trace) | Optimizer/Allocation solvers, Approval | Person 4 (D4.7) | S16 |
+| OR-Tools safety-stock/PO-split/allocation solvers | Optimizer Results & Allocation UI | Person 5 (D5.7/D5.8) | S16–S17 |
 
 ### 5.8 Delivery 2 Completion Gates
 
@@ -1029,7 +1127,7 @@ Dependency/handoff: Requires D5.5. Supports Phase 2 sign-off (M11).
 | M7 — RAG + LLM Live               | End of S11 (2026-12-13)           | Vector DB populated, RAG retrieval + LLM explanation generation working                | Person 1, Person 2                                    |
 | M8 — Chatbot Live                 | End of S13 (2027-01-10)           | Chatbot end-to-end, integrated into dashboard                                          | Person 2, Person 3                                    |
 | M9 — Simulator + Recommender Live | End of S15 (2027-02-07)           | What-if simulation and alternative-supplier recommendation functional                  | Person 5, Person 3                                    |
-| M10 — Agentic Layer Live          | End of S17 (2027-03-07)           | Approval workflow, MCP execution against sandbox ERP, alerts, notifications functional | Person 4                                              |
+| M10 — Agentic Layer Live          | End of S17 (2027-03-07)           | Approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions (incl. optimizer/allocation sources with decision trace) all functional | Person 4, Person 5                                     |
 | **M11 — Phase 2 Sign-off**  | **End of S18 (2027-03-21)** | Full Document 13 suite (Phase 1 + Phase 2) green; all UAT personas pass                | All (led by Person 5 + Person 4's security hardening) |
 
 ### Non-Negotiable Milestones (Delivery 2)
@@ -1063,6 +1161,11 @@ Dependency/handoff: Requires D5.5. Supports Phase 2 sign-off (M11).
 | S15      | Person 5   | Recommender + trend logging (D5.2/D5.3)    | Person 3, Person 4 | Recommendation/Trend UI and approval integration can begin |
 | S16      | Person 4   | Approval + MCP execution (D4.1/D4.2)       | Person 3, Person 5 | Alerts UI and final integration can begin                  |
 | S18      | All        | Green Document 13 full suite (Phase 1 + 2) | All                | **M11 — Delivery 2 sign-off**                       |
+| S2       | Person 3   | Customer API + backfill (P3.9)             | Person 4            | Customers screen can begin                                  |
+| S5       | Person 2   | Confidence signal + weighted-formula spec (P2.9) | Person 3       | Risk Intelligence service can begin                          |
+| S5–S6   | Person 3   | Evaluation, governance & Risk Intelligence services (P3.10) | Person 4 | Model Comparison/Confidence Panel UI can begin              |
+| S16      | Person 4   | Decision Intelligence Service (D4.7)       | Person 5             | Optimizer/allocation solvers can begin                       |
+| S16–S17 | Person 5   | OR-Tools solvers (D5.7/D5.8)               | Person 3             | Optimizer Results/Allocation UI can begin                    |
 
 ### 6.2 Delivery 1 → Delivery 2 Rotation Handoff
 
@@ -1103,19 +1206,21 @@ gantt
     section Person 2 (GNN + Transformer)
     Architecture Freeze       :p2a, 2026-07-20, 14d
     Training Scaffolding      :p2b, after p2a, 14d
-    GNN Encoder               :p2c, after p2b, 14d
-    Transformer + Training    :p2d, after p2c, 14d
+    GNN Encoder (GraphSAGE+GAT) :p2c, after p2b, 14d
+    Transformer + HGT Training :p2d, after p2c, 14d
     Inference + Explainability :p2e, after p2d, 14d
+    Risk Intelligence Methodology :p2i, after p2e, 3d
     Model Evaluation          :p2f, after p2e, 14d
     Latency Hardening         :p2g, after p2f, 14d
     Sign-off Support          :p2h, after p2g, 7d
 
     section Person 3 (Backend & Serving)
     FastAPI + Auth + Docker   :p3a, 2026-07-20, 14d
-    Entity APIs               :p3b, after p3a, 14d
+    Entity APIs + Customer API :p3b, after p3a, 14d
     Graph Service Integration :p3c, after p3b, 14d
     Serving Scaffolding       :p3d, after p3c, 14d
     Live Prediction APIs      :p3e, after p3d, 14d
+    Evaluation + Governance + Risk Intel Services :p3i, after p3e, 14d
     Audit + Admin             :p3f, after p3e, 14d
     Security Hardening        :p3g, after p3f, 14d
     Sign-off Support          :p3h, after p3g, 7d
@@ -1124,9 +1229,10 @@ gantt
     React Foundation + Login  :p4a, 2026-07-20, 14d
     Dashboard + Entities (mock) :p4b, after p4a, 14d
     Graph Visualization       :p4c, after p4b, 14d
-    Real Data Integration     :p4d, after p4c, 14d
+    Real Data Integration + Customers Screen :p4d, after p4c, 14d
     Risk Dashboard + Predictions :p4e, after p4d, 14d
     Admin/Audit/Profile       :p4f, after p4e, 14d
+    Model Comparison + Confidence UI :p4i, after p4f, 7d
     UI Hardening              :p4g, after p4f, 14d
     Sign-off Support          :p4h, after p4g, 7d
 
@@ -1167,10 +1273,11 @@ gantt
     Chatbot + Overlay + Simulator UI :d3b, after d3a, 28d
     Recommendation + Trend UI   :d3c, after d3b, 28d
     Hardening + Sign-off        :d3d, after d3c, 28d
+    Optimizer/Allocation/Decision Trace UI :d3e, after d3d, 14d
 
     section Person 4 (MCP & Enterprise Integration)
     Adapter Research + Prep     :d4a, 2026-11-02, 84d
-    Approval + MCP Execution    :d4b, after d4a, 28d
+    Approval + MCP Execution + Decision Intelligence Service :d4b, after d4a, 14d
     Alerts + Notifications + Hardening :d4c, after d4b, 28d
 
     section Person 5 (Advanced Graph AI)
@@ -1178,6 +1285,7 @@ gantt
     Simulator Backend           :d5b, after d5a, 28d
     Recommender + Trend + Analytics :d5c, after d5b, 28d
     Final Integration + Sign-off :d5d, after d5c, 28d
+    OR-Tools Safety-Stock/PO-Split/Allocation Solvers :d5e, after d5c, 28d
 ```
 
 ### Sprint-by-Sprint Breakdown — Delivery 1
@@ -1185,11 +1293,11 @@ gantt
 | Sprint | Dates          | Person 1            | Person 2                   | Person 3                  | Person 4                     | Person 5                        |
 | ------ | -------------- | ------------------- | -------------------------- | ------------------------- | ---------------------------- | ------------------------------- |
 | S1     | 07-20 – 08-02 | Dataset + schema    | Architecture freeze        | FastAPI/Auth/Docker       | React foundation + Login     | CI/CD + repo foundation         |
-| S2     | 08-03 – 08-16 | Cleaning + features | Training scaffolding       | Entity APIs               | Dashboard + entities (mock)  | Test harness                    |
-| S3     | 08-17 – 08-30 | Graph assembly      | GNN encoder                | Graph service integration | Graph visualization          | Graph integration tests         |
-| S4     | 08-31 – 09-13 | Incremental updates | Transformer + training     | Serving scaffolding       | Real data integration        | Model integration tests         |
-| S5     | 09-14 – 09-27 | Validation + QA     | Inference + explainability | Live prediction APIs      | Risk Dashboard + predictions | Model integration tests (cont.) |
-| S6     | 09-28 – 10-11 | Screen data support | Model evaluation           | Audit + Admin             | Admin/Audit/Profile          | System integration              |
+| S2     | 08-03 – 08-16 | Cleaning + features | Training scaffolding       | Entity APIs + Customer API (P3.9) | Dashboard + entities (mock)  | Test harness                    |
+| S3     | 08-17 – 08-30 | Graph assembly (incl. Customer node) | GNN encoder (GraphSAGE→GAT ablation) | Graph service integration | Graph visualization          | Graph integration tests         |
+| S4     | 08-31 – 09-13 | Incremental updates | Transformer + HGT training | Serving scaffolding       | Real data integration + Customers screen (P4.9) | Model integration tests         |
+| S5     | 09-14 – 09-27 | Validation + QA + shortage scenarios | Inference + explainability + Risk Intelligence methodology (P2.9) | Live prediction APIs      | Risk Dashboard + predictions | Model integration tests (cont.) |
+| S6     | 09-28 – 10-11 | Screen data support | Model evaluation           | Audit + Admin + Evaluation/Governance/Risk Intel services (P3.10) | Admin/Audit/Profile + Model Comparison/Confidence UI (P4.10) | System integration              |
 | S7     | 10-12 – 10-25 | Docs + hardening    | Latency hardening          | Security hardening        | UI hardening                 | Full test suite                 |
 | S8     | 10-26 – 11-01 | Sign-off support    | Sign-off support           | Sign-off support          | Sign-off support             | UAT + demo prep                 |
 
@@ -1204,9 +1312,9 @@ gantt
 | S13    | 12-28 – 01-10 | —                                   | Chatbot intent + retrieve-generate | Chatbot UI                | —                            | —                           |
 | S14    | 01-11 – 01-24 | —                                   | Session persistence                | Overlay + Simulator UI    | —                            | Simulator backend            |
 | S15    | 01-25 – 02-07 | —                                   | —                                 | Recommendation + Trend UI | —                            | Recommender + trend logging  |
-| S16    | 02-08 – 02-21 | —                                   | —                                 | —                        | Approval + MCP execution      | Graph analytics (SIMILAR_TO) |
-| S17    | 02-22 – 03-07 | —                                   | —                                 | —                        | Alerts + Notifications        | —                           |
-| S18    | 03-08 – 03-21 | RAG hardening + sign-off             | Evaluation + sign-off              | Hardening + sign-off      | Security hardening + sign-off | Final integration + sign-off |
+| S16    | 02-08 – 02-21 | —                                   | —                                 | —                        | Approval + MCP execution + Decision Intelligence Service (D4.7) | Graph analytics (SIMILAR_TO) + OR-Tools safety-stock/PO-split (D5.7, into S17) |
+| S17    | 02-22 – 03-07 | —                                   | —                                 | —                        | Alerts + Notifications        | OR-Tools allocation solver (D5.8) |
+| S18    | 03-08 – 03-21 | RAG hardening + sign-off             | Evaluation + sign-off              | Hardening + sign-off + Optimizer/Allocation/Decision Trace UI (D3.7) | Security hardening + sign-off | Final integration + sign-off |
 
 ---
 
@@ -1233,11 +1341,11 @@ flowchart TD
 
 ### Required Test Categories
 
-- **Data/graph tests (Person 1):** feature-encoding correctness, incremental update integrity, data-quality warning paths, evidence chunking/embedding correctness (Delivery 2).
-- **Model tests (Person 2):** AUC-ROC ≥ 0.80 on held-out data, GNNExplainer contribution-weight tolerance, LLM grounding/citation rate ≥ 90% (Delivery 2).
-- **Backend/API tests (Person 3):** every endpoint in Document 9 contract-tested; auth/RBAC enforcement; UI-state coverage for advanced screens (Delivery 2).
-- **Frontend/integration-security tests (Person 4):** loading/error/empty states on every screen (Delivery 1); approval-gate integrity and idempotency, prompt-injection resistance (Delivery 2).
-- **System, performance, and UAT tests (Person 5):** end-to-end flows, NFR-01/02/03 latency targets, full persona-driven UAT; advanced graph-AI regression tests (Delivery 2).
+- **Data/graph tests (Person 1):** feature-encoding correctness, incremental update integrity, data-quality warning paths, customer graph/shortage-scenario validation, evidence chunking/embedding correctness (Delivery 2).
+- **Model tests (Person 2):** AUC-ROC ≥ 0.80 on held-out data for all three ablation architectures, GNNExplainer contribution-weight tolerance, confidence-signal sanity, LLM grounding/citation rate ≥ 90% (Delivery 2).
+- **Backend/API tests (Person 3):** every endpoint in Document 9 contract-tested (incl. customer, evaluation, governance, risk-intelligence APIs); auth/RBAC enforcement; UI-state coverage for advanced screens (Delivery 2).
+- **Frontend/integration-security tests (Person 4):** loading/error/empty states on every screen (Delivery 1); approval-gate integrity and idempotency, decision-trace-mandatory enforcement, prompt-injection resistance (Delivery 2).
+- **System, performance, and UAT tests (Person 5):** end-to-end flows, NFR-01/02/03 latency targets, full persona-driven UAT; advanced graph-AI and OR-Tools optimizer/allocation regression tests (Delivery 2).
 
 ### Feature Freeze Rule
 
@@ -1269,18 +1377,18 @@ flowchart TD
 
 | Deliverable                                                                  | Primary Owner | Definition of Done                                                                       |
 | ---------------------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------- |
-| Clean, feature-engineered dataset                                            | Person 1      | ≥10 predefined business scenarios queryable; data-quality warnings surfaced, not silent |
-| Heterogeneous graph + update pipeline                                        | Person 1      | `HeteroData` assembled from live schema; incremental updates verified (FR-GC-07)       |
-| Trained GNN-Transformer model                                                | Person 2      | AUC-ROC ≥ 0.80 on held-out test set (Document 1 §11)                                   |
-| Inference + explainability pipeline                                          | Person 2      | Explanation subgraph available for 100% of high-risk predictions; p95 ≤ 2s              |
-| Backend APIs + Auth + Docker                                                 | Person 3      | Full Document 9 contract implemented; Document 13 Phase 1 API suite green                |
-| React dashboard (Phase 1)                                                    | Person 4      | All 12 Phase 1 screens functional with loading/error/empty states                        |
+| Clean, feature-engineered dataset (incl. customer shortage scenarios)        | Person 1      | ≥10 predefined business scenarios queryable, incl. ≥3 shortage/competing-order scenarios; data-quality warnings surfaced, not silent |
+| Heterogeneous graph + update pipeline (incl. Customer node)                  | Person 1      | `HeteroData` assembled from live schema; incremental updates verified (FR-GC-07)       |
+| Trained GNN-Transformer model + GraphSAGE/GAT/HGT ablation                   | Person 2      | AUC-ROC ≥ 0.80 on held-out test set (Document 1 §11); three-architecture comparison documented |
+| Inference + explainability pipeline + Risk Intelligence methodology          | Person 2      | Explanation subgraph available for 100% of high-risk predictions; p95 ≤ 2s; confidence signal + weighted-formula spec handed off |
+| Backend APIs + Auth + Docker + Customer/Evaluation/Governance/Risk Intelligence services | Person 3 | Full Document 9 contract implemented (incl. §8.3, §9.4–9.5); Document 13 Phase 1 API suite green |
+| React dashboard (Phase 1, incl. Customers, Model Comparison, Confidence Panel) | Person 4    | All 14 Phase 1 screens functional with loading/error/empty states                        |
 | Fully integrated Phase 1 MVP                                                 | Person 5      | M6 sign-off: Document 13 Phase 1 suite green, UAT passed                                 |
 | RAG pipeline + vector DB                                                     | Person 1 (D1) | ≥90% of explanations cite at least one evidence source                                  |
-| LLM explanation engine + chatbot                                             | Person 2 (D2) | Chatbot answer relevance ≥ 90% on evaluator sample                                      |
-| Advanced frontend (chatbot UI, overlay, simulator, trend, recommendation UI) | Person 3 (D3) | Document 13 Phase 2 UI suite green; all Phase 2 screens un-hidden                        |
-| MCP integration, approval workflow, alerts                                   | Person 4 (D4) | 0 actions executed without recorded approval; alert precision ≤10% false-positive       |
-| Simulator, recommender, trend prediction backend                             | Person 5 (D5) | Simulated graph never mutates persisted state; ≥80% of recommendations judged plausible |
+| LLM explanation engine + chatbot (explains risk and optimizer decisions)     | Person 2 (D2) | Chatbot answer relevance ≥ 90% on evaluator sample; 0 numeric optimizations performed by the LLM |
+| Advanced frontend (chatbot UI, overlay, simulator, trend, recommendation, optimizer/allocation/decision-trace UI) | Person 3 (D3) | Document 13 Phase 2 UI suite green; all Phase 2 screens un-hidden                        |
+| MCP integration, approval workflow, alerts, Decision Intelligence Service    | Person 4 (D4) | 0 actions executed without recorded approval; alert precision ≤10% false-positive; 100% of `action_requests` carry a decision trace |
+| Simulator, recommender, trend prediction backend, OR-Tools optimization engine | Person 5 (D5) | Simulated graph never mutates persisted state; ≥80% of recommendations judged plausible; 100% of surfaced optimizer decisions are optimal/feasible outputs |
 | Fully integrated Delivery 2 system                                           | All           | M11 sign-off: Document 13 full suite green, all UAT personas pass                        |
 | Report, PPT, demo video                                                      | All           | Architecture, ownership, results, and limitations documented per Document 1 §7/§8      |
 
@@ -1294,6 +1402,8 @@ flowchart TD
 - AUC-ROC ≥ 0.80 on held-out test data (Document 1 §11).
 - p95 inference latency ≤ 2s; graph view interaction ≤ 500ms at 5,000 nodes (NFR-01/02).
 - Explanation subgraph available for 100% of high-risk predictions.
+- GraphSAGE, GAT, and HGT are all trained and evaluated on the same held-out split, with the HGT choice justified by the comparison, not asserted; every prediction response carries `confidence`, `risk_category`, and `scoring_method` (100% coverage, NFR-22).
+- `model_evaluation_runs` and `model_registry` are populated for every training run, with `model_registry` immutable once a version reaches `active` (NFR-24).
 - Document 13 Phase 1 test suite (unit, integration, system, API, UI, performance, security) is fully green.
 - Priya, Meera, and Arjun UAT scenarios (Document 13 §13) all pass.
 - Phase 1 is deployed to the staging/demo environment and smoke-tested.
@@ -1303,6 +1413,7 @@ flowchart TD
 - All Document 1 §8 Phase 2 functional requirements are demonstrable end-to-end (chat → recommend → approve → execute → log).
 - ≥90% of LLM explanations cite at least one retrieved evidence source; chatbot answer relevance ≥90%.
 - 0 actions executed without a recorded human approval; approval-gate and idempotency security tests pass.
+- Every `action_requests` row that reaches `approved`/`rejected` carries a non-empty decision trace (NFR-23); 100% of safety-stock/PO-split/customer-allocation decisions are OR-Tools optimizer outputs, never LLM-generated numbers (FR-OPT-03).
 - ≥80% of alternative-supplier recommendations judged plausible; alert false-positive rate ≤10%.
 - Document 13 full test suite (Phase 1 + Phase 2) is fully green.
 - All six personas' UAT scenarios (Priya, Rahul, Meera, Arjun, Devika, Karan — Document 13 §13) pass.

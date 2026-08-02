@@ -14,7 +14,7 @@ This document specifies every screen in the React dashboard: its purpose, compon
 
 ## 2. Scope
 
-18 screens are specified: Login, Dashboard, Supply Chain Graph, Risk Dashboard, Supplier, Warehouse, Orders, Shipments, Products, Inventory, Chatbot, What-if Simulator, Recommendation, Alerts, Admin, Audit, Profile, Settings. Each is tagged with a Delivery Phase; Phase 2 screens are stubbed but hidden behind feature flags in the Phase 1 build to avoid dead UI surface.
+21 screens are specified: Login, Dashboard, Supply Chain Graph, Risk Dashboard, Supplier, Warehouse, Orders, Shipments, Products, Inventory, Model Comparison, Customers, Chatbot, What-if Simulator, Recommendation, Allocation, Alerts, Admin, Audit, Profile, Settings. Each is tagged with a Delivery Phase; Phase 2 screens are stubbed but hidden behind feature flags in the Phase 1 build to avoid dead UI surface. Three cross-cutting components — a **Confidence Panel**, a **Model Metadata Panel**, and a **Decision Trace Panel** — are not separate screens; they are embedded wherever their underlying data appears (Risk Dashboard, Supplier/Supply-Chain-Graph detail, Model Comparison, and the Alerts/Approval detail view respectively), per Document 1's confidence/governance/decision-audit requirements (FR-CONF-01/02, FR-GOV-01/02, FR-DEC-03).
 
 ## 3. Assumptions
 
@@ -46,9 +46,12 @@ flowchart LR
         NAV --> SHIP["Shipments"]
         NAV --> PROD["Products"]
         NAV --> INV["Inventory"]
+        NAV --> MODCMP["Model Comparison"]
+        NAV --> CUST["Customers"]
         NAV --> CHAT["Chatbot*"]
         NAV --> SIM["What-if Simulator*"]
         NAV --> REC["Recommendation*"]
+        NAV --> ALLOC["Allocation*"]
         NAV --> ALERT["Alerts*"]
         NAV --> ADMIN["Admin"]
         NAV --> AUDIT["Audit"]
@@ -115,7 +118,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | Sortable/filterable table of at-risk suppliers and orders (FR-DASH-02, US-DASH-02). |
-| Components | Filter bar (entity type, risk level, date range), sortable data table (entity, risk score, delay probability, shortage risk, impact score, affected orders count), row-level "view detail" action, risk trend sparkline column* (Phase 2). |
+| Components | Filter bar (entity type, risk level, date range, risk category), sortable data table (entity, risk score, confidence, risk category badge (`low`/`medium`/`high`/`critical`), delay probability, shortage risk, impact score, scoring method badge (`gnn_native`/`weighted_formula`), affected orders count), row-level "view detail" action, **Confidence Panel** (confidence value + architecture/model_version, expandable on row hover/click, FR-CONF-01) formula breakdown popover (component risk weights, FR-RISK-01) when `scoring_method='weighted_formula'`, risk trend sparkline column* (Phase 2). |
 | Layout | Filter bar above a full-width data table with pagination. |
 | Navigation | Row click → entity detail screen (Supplier/Product/etc.); "view explanation" → Supply Chain Graph with explainability overlay* (Phase 2) or explanation subgraph panel (Phase 1). |
 | Validation | Filter inputs constrained to valid enum values/date ranges; invalid ranges show inline validation message. |
@@ -131,7 +134,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | List and detail view of suppliers, their risk status, and (Phase 2) recommended alternatives. |
-| Components | Supplier list (searchable), supplier detail (profile fields, risk score, delay probability, linked components/orders, explanation subgraph panel, "recommend alternative" action*). |
+| Components | Supplier list (searchable), supplier detail (profile fields, risk score, Confidence Panel, delay probability, linked components/orders, explanation subgraph panel, "recommend alternative" action*). |
 | Layout | Master-detail: list on the left/top, detail panel on selection. |
 | Navigation | From Risk Dashboard, Graph view, or direct sidebar entry; detail links to related Orders/Shipments. |
 | Validation | Search/filter fields validated against expected formats (e.g., supplier ID pattern). |
@@ -258,8 +261,8 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 
 | Attribute | Specification |
 |---|---|
-| Purpose | Show ranked alternative-supplier recommendations for a flagged supplier (Section 5.4, `problem_statement.md`). |
-| Components | Ranked list of candidate suppliers (similarity score, component-type match, risk comparison), "approve: raise PO" action per candidate. |
+| Purpose | Show ranked alternative-supplier recommendations for a flagged supplier (Section 5.4, `problem_statement.md`), and OR-Tools-generated safety-stock/PO-split decisions (Section 5.7). |
+| Components | Ranked list of candidate suppliers (similarity score, component-type match, risk comparison), "approve: raise PO" action per candidate; a separate **Optimizer Results** panel showing safety-stock/PO-split decisions with an optimal/infeasible badge and objective value, sourced from `POST /api/v1/optimize/*` (Document 9, Section 12.2) — every item here was routed here by the Decision Intelligence Layer (Document 1, Section 8.19), never computed by the LLM. |
 | Layout | List/card layout, one card per candidate, sorted by similarity score descending. |
 | Navigation | Launched from Supplier detail; approving routes into the approval workflow. |
 | Validation | N/A (read-only selection); approval action requires confirmation dialog. |
@@ -275,7 +278,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | Show proactive alerts triggered by threshold-crossing risk scores and pending approvals (Section 5.6, `problem_statement.md`). |
-| Components | Alert feed (entity, triggered threshold, timestamp, status), pending-approval queue with approve/reject controls, filter by status/severity. |
+| Components | Alert feed (entity, triggered threshold, timestamp, status), pending-approval queue with approve/reject controls and an expandable **Decision Trace Panel** per queued item (which of Risk Intelligence/Decision Intelligence/Optimization/LLM produced the recommendation, FR-DEC-03, sourced from `GET /api/v1/approvals/{id}/decision-trace`), filter by status/severity. |
 | Layout | Two-tab layout: "Alerts" feed and "Pending Approvals" queue. |
 | Navigation | Alert entries link to the relevant entity/prediction; approval entries link to Recommendation or chatbot-originated action detail. |
 | Validation | Reject action requires a non-empty reason field (FR-MCP-04). |
@@ -350,6 +353,54 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Responsive Behaviour | Single column at all widths. |
 | Delivery Phase | Phase 1 (basic preferences); notification channel preferences Phase 2 |
 
+### 6.19 Model Comparison
+
+| Attribute | Specification |
+|---|---|
+| Purpose | Side-by-side comparison of the GraphSAGE, GAT, and Heterogeneous Graph Transformer architectures, with the documented research rationale for each stage (Document 10, Section 8.4), justifying the final architecture selection (FR-ABL-02) and surfacing persisted evaluation history (FR-EVAL-02) and model governance (FR-GOV-01/02). |
+| Components | Architecture comparison table/cards (Precision, Recall, F1, ROC-AUC, inference time per architecture) each annotated with its "why this stage / documented limitation" rationale, evaluation-run history list filterable by `model_version`/`metric_name`, regression metrics (MAE/RMSE/MAPE) shown if applicable, and a **Model Metadata Panel** (training dataset, timestamp, experiment ID, git commit, hyperparameters, parameter count, lifecycle `status`) sourced from `GET /api/v1/models/registry` / `/active` (Document 9, Section 9.5). |
+| Layout | Three-column comparison card row (one per architecture, each with its rationale) above a filterable evaluation-run history table and a Model Metadata Panel for the currently active model. |
+| Navigation | Sidebar entry; links to Risk Dashboard for the currently active `model_version`. |
+| Validation | Filter inputs constrained to known `architecture`/`metric_name` enum values. |
+| Loading State | Skeleton cards and table rows while `GET /api/v1/models/comparison`, `/evaluation-runs`, and `/registry` load. |
+| Error State | Retry-capable error banner if evaluation/registry data fails to load. |
+| Empty State | "No evaluation runs recorded yet" if no training run has completed. |
+| Permissions | All authenticated roles (view). |
+| Responsive Behaviour | Comparison cards stack to one column below tablet width. |
+| Delivery Phase | Phase 1 |
+
+### 6.20 Customers
+
+| Attribute | Specification |
+|---|---|
+| Purpose | List, detail, and management view of customers, their priority tier, and contract terms (FR-CUST-01), replacing the free-text `customer_name` field on Orders. |
+| Components | Customer list (searchable, filter by priority tier), customer detail (profile fields, priority tier, contract terms, linked orders), create/edit form (Admin/Analyst). |
+| Layout | Master-detail: list on the left/top, detail panel on selection. |
+| Navigation | From Orders screen (linked customer) or direct sidebar entry. |
+| Validation | Priority tier constrained to enum values; contract terms fields validated against expected types (numeric SLA days, percentage penalty). |
+| Loading State | Skeleton list/detail loaders. |
+| Error State | Retry-capable error banner; inline error toast on failed create/update. |
+| Empty State | "No customers found" for empty search results. |
+| Permissions | View: all roles. Create/edit: Analyst, Admin. |
+| Responsive Behaviour | Master-detail stacks vertically on mobile widths. |
+| Delivery Phase | Phase 1 |
+
+### 6.21 Allocation
+
+| Attribute | Specification |
+|---|---|
+| Purpose | Optimal allocation decision across all orders competing for the same shortage-affected product, solved by the OR-Tools optimizer (Section 5.7–5.8, `problem_statement.md`; US-CUST-01–03), not a simple ranking. |
+| Components | Shortage-flagged product selector, an optimal/infeasible badge with objective value and the applied constraint set (inventory, supplier/warehouse/production capacity, lead time), ranked competing-orders table (customer, priority tier, order value, SLA penalty, proposed allocated quantity), editable quantity fields per order, "approve allocation" action with rationale summary and Decision Trace Panel link. |
+| Layout | Product selector above a full-width ranked table with inline edit controls. |
+| Navigation | Launched from Products/Orders detail when shortage-flagged, or direct sidebar entry; approving routes into the Approval Workflow. |
+| Validation | Edited allocated quantities must sum to ≤ available stock; over-allocation blocked with inline message before submission (US-CUST-02). |
+| Loading State | Skeleton table while `GET /api/v1/customers/allocations/{product_id}` loads. |
+| Error State | Retry-capable error banner if allocation computation fails. |
+| Empty State | "No shortage-flagged product selected" prompt before a product is chosen. |
+| Permissions | View: Analyst, Approver, Admin. Approve/adjust: Approver, Admin only. |
+| Responsive Behaviour | Table converts to stacked card rows below tablet width. |
+| Delivery Phase | Phase 2 |
+
 ## 7. Cross-Cutting UX Rules
 
 - **Loading:** every data-bound screen must show a skeleton or spinner within 100ms of navigation; no blank screens.
@@ -364,6 +415,8 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | UX-01 | Phase 2 feature-flagged screens (Chatbot, Simulator, Recommendation, Alerts) leave dead navigation entries visible in Phase 1 | Sidebar entries for Phase 2 screens are hidden, not disabled, until Phase 2 ships | Phase 1 |
 | UX-02 | Large graphs (Supply Chain Graph screen) may degrade render performance | Bounded by NFR-02 (Document 1); pagination/clustering considered if exceeded | Phase 1 |
 | UX-03 | Chatbot streaming UX adds complexity not present in Phase 1 screens | Isolated to Chatbot screen only; does not affect Phase 1 screen patterns | Phase 2 |
+| UX-04 | Allocation screen's inline quantity editing (US-CUST-02) could let a user submit an over-allocation without noticing | Client-side sum validation blocks submission before it reaches the API; server-side validation is the authoritative backstop | Phase 2 |
+| UX-05 | Confidence Panel and Decision Trace Panel add cognitive load to screens that were previously simple score displays | Both render collapsed by default (expand-on-demand), so the default view stays as simple as Phase 1's; users who don't need the detail never see it | Phase 1 (Confidence Panel), Phase 2 (Decision Trace Panel) |
 
 ## 9. Future Extension
 

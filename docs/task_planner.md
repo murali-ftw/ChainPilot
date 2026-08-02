@@ -24,11 +24,11 @@ Task IDs are inherited unchanged from `docs/team_plan.md`: `P<person>.<n>` for D
 
 ## 0.1 Purpose of This Document
 
-`docs/team_plan.md` answers "who does what, by when, and what proves it's done." This document answers "what, precisely, do they build" — for all 39 Delivery 1 tasks (P1.1–P1.8, P2.1–P2.8, P3.1–P3.8, P4.1–P4.8, P5.1–P5.7) and all 30 Delivery 2 tasks (D1.1–D1.6, D2.1–D2.6, D3.1–D3.6, D4.1–D4.6, D5.1–D5.6), 69 tasks in total. Every task specification in this document is self-contained: an implementer should be able to open this document to a single task and start work without needing to read any other document first, though every claim here is traceable back to the numbered documentation set (`docs/01_...md` through `docs/14_...md`) for anyone who wants the full rationale.
+`docs/team_plan.md` answers "who does what, by when, and what proves it's done." This document answers "what, precisely, do they build" — for all 44 Delivery 1 tasks (P1.1–P1.8, P2.1–P2.9, P3.1–P3.10, P4.1–P4.10, P5.1–P5.7) and all 34 Delivery 2 tasks (D1.1–D1.6, D2.1–D2.6, D3.1–D3.7, D4.1–D4.7, D5.1–D5.8), 78 tasks in total. Every task specification in this document is self-contained: an implementer should be able to open this document to a single task and start work without needing to read any other document first, though every claim here is traceable back to the numbered documentation set (`docs/01_...md` through `docs/14_...md`) for anyone who wants the full rationale.
 
 ## 0.2 Overall Architecture
 
-The system is a layered, service-oriented architecture (Document 2 §3.1) delivered as a Python/FastAPI backend, a Python/PyTorch ML subsystem, a React/TypeScript frontend, and a PostgreSQL + pgvector + (optional) Neo4j data layer, orchestrated with Docker Compose. Delivery 1 ships four backend modules (`auth`, `graph_construction`, `prediction`, `audit`) behind a single FastAPI gateway; Delivery 2 adds seven more modules (`rag`, `llm`, `chatbot`, `simulation`, `recommendation`, `approval`, `mcp_execution`, `alerts`, `notifications`) additively — no Delivery 1 module is restructured to make room for them (Document 8 §2).
+The system is a layered, service-oriented architecture (Document 2 §3.1) delivered as a Python/FastAPI backend, a Python/PyTorch ML subsystem, a React/TypeScript frontend, and a PostgreSQL + pgvector + (optional) Neo4j data layer, orchestrated with Docker Compose. Delivery 1 ships seven backend modules (`auth`, `graph_construction`, `prediction`, `audit`, `customers`, `evaluation`, `risk_intelligence`) behind a single FastAPI gateway; Delivery 2 adds eleven more modules (`rag`, `llm`, `chatbot`, `simulation`, `recommendation`, `decision_intelligence`, `optimization`, `approval`, `mcp_execution`, `alerts`, `notifications`) additively — no Delivery 1 module is restructured to make room for them (Document 8 §2).
 
 ```mermaid
 flowchart TB
@@ -45,11 +45,16 @@ flowchart TB
         GC["graph_construction"]
         PRED["prediction"]
         AUDIT["audit"]
+        CUST["customers"]
+        EVAL["evaluation"]
+        RISKINT["risk_intelligence"]
         RAG["rag *P2*"]
         LLM["llm *P2*"]
         CHAT["chatbot *P2*"]
         SIM["simulation *P2*"]
         REC["recommendation *P2*"]
+        DECISION["decision_intelligence *P2*"]
+        OPT["optimization *P2*"]
         APPR["approval *P2*"]
         MCP["mcp_execution *P2*"]
         ALERT["alerts *P2*"]
@@ -57,7 +62,7 @@ flowchart TB
     end
 
     subgraph ML["ml/ (PyTorch subsystem)"]
-        GNN["ml/gnn/ — model definitions, training"]
+        GNN["ml/gnn/ — model definitions, training, ablation, confidence, formula"]
         SERVE["ml/serving/ — inference entrypoint"]
     end
 
@@ -81,6 +86,9 @@ flowchart TB
     SERVE --> GRAPH
     PRED --> GNN
     GW --> AUDIT --> PG
+    GW --> CUST --> PG
+    GW --> EVAL --> PG
+    PRED --> RISKINT --> PG
     GW --> RAG --> VEC
     GW --> LLM --> RAG
     LLM --> LLMAPI
@@ -88,13 +96,16 @@ flowchart TB
     CHAT --> PRED
     GW --> SIM --> SERVE
     GW --> REC --> SERVE
+    RISKINT --> DECISION
+    DECISION --> OPT
+    DECISION --> LLM
     GW --> APPR --> PG
     GW --> MCP --> ERP
     GW --> ALERT --> PG
     GW --> NOTIFY --> SLACK
 
     classDef phase2 fill:#f5e6ff,stroke:#8855cc;
-    class RAG,LLM,CHAT,SIM,REC,APPR,MCP,ALERT,NOTIFY,VEC,LLMAPI,ERP,SLACK phase2;
+    class RAG,LLM,CHAT,SIM,REC,DECISION,OPT,APPR,MCP,ALERT,NOTIFY,VEC,LLMAPI,ERP,SLACK phase2;
 ```
 
 This diagram is the single source of truth every task in this document is validated against: a task that would draw an arrow not shown here (e.g., a frontend component calling PostgreSQL directly, or the `graph_construction` module reaching into `prediction`'s repository) is out of scope and must be flagged, not implemented.
@@ -103,11 +114,11 @@ This diagram is the single source of truth every task in this document is valida
 
 | Person   | Delivery 1                            | Delivery 2                   | Owns (folders)                                                                                                                                                                                                                                                                 |
 | -------- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Person 1 | Graph Construction & Data Engineering | RAG & Vector Database        | `backend/app/modules/graph_construction/`, `ml/gnn/features.py`, `backend/app/modules/rag/`                                                                                                                                                                              |
-| Person 2 | GNN + Transformer AI Development      | LLM & Chatbot                | `ml/gnn/`, `ml/serving/`, `backend/app/modules/llm/`, `backend/app/modules/chatbot/`                                                                                                                                                                                   |
-| Person 3 | Backend & AI Serving                  | Advanced Frontend Features   | `backend/app/core/`, `backend/app/modules/auth/`, `backend/app/modules/prediction/`, `backend/app/modules/audit/` (D1); `frontend/src/pages/chatbot/`, `frontend/src/pages/simulator/`, `frontend/src/pages/recommendation/`, `frontend/src/pages/trend/` (D2) |
-| Person 4 | Frontend & Visualization              | MCP & Enterprise Integration | `frontend/src/` (D1); `backend/app/modules/approval/`, `backend/app/modules/mcp_execution/`, `backend/app/modules/alerts/`, `backend/app/modules/notifications/` (D2)                                                                                                |
-| Person 5 | Integration, Testing & Deployment     | Advanced Graph AI            | `.github/workflows/`, `backend/tests/`, `frontend/tests/`, `docker-compose*.yml` (D1); `backend/app/modules/simulation/`, `backend/app/modules/recommendation/` (D2)                                                                                               |
+| Person 1 | Graph Construction & Data Engineering | RAG & Vector Database        | `backend/app/modules/graph_construction/`, `ml/gnn/features.py` (D1, incl. Customer node/shortage scenarios); `backend/app/modules/rag/` (D2)                                                                                                                                                                              |
+| Person 2 | GNN + Transformer AI Development      | LLM & Chatbot                | `ml/gnn/` (D1, incl. ablation, `confidence.py`, `risk_formula.py`), `ml/serving/`; `backend/app/modules/llm/`, `backend/app/modules/chatbot/` (D2)                                                                                                                                                                                   |
+| Person 3 | Backend & AI Serving                  | Advanced Frontend Features   | `backend/app/core/`, `backend/app/modules/auth/`, `backend/app/modules/prediction/`, `backend/app/modules/audit/`, `backend/app/modules/customers/`, `backend/app/modules/evaluation/`, `backend/app/modules/risk_intelligence/` (D1); `frontend/src/pages/chatbot/`, `frontend/src/pages/simulator/`, `frontend/src/pages/recommendation/`, `frontend/src/pages/trend/`, `frontend/src/pages/allocation/` (D2) |
+| Person 4 | Frontend & Visualization              | MCP & Enterprise Integration | `frontend/src/` (D1, incl. `pages/customers/`, `pages/models/`); `backend/app/modules/approval/`, `backend/app/modules/mcp_execution/`, `backend/app/modules/alerts/`, `backend/app/modules/notifications/`, `backend/app/modules/decision_intelligence/` (D2)                                                                                                |
+| Person 5 | Integration, Testing & Deployment     | Advanced Graph AI            | `.github/workflows/`, `backend/tests/`, `frontend/tests/`, `docker-compose*.yml` (D1); `backend/app/modules/simulation/`, `backend/app/modules/recommendation/`, `backend/app/modules/optimization/` (D2)                                                                                               |
 
 No person's task in this document ever instructs them to edit a file inside another person's owned folder without that being an explicit, gated integration point (see each task's "Integration Points" and "What MUST NOT Be Modified" subsections).
 
@@ -166,11 +177,16 @@ repo-root/
 │   │   │   ├── graph_construction/   {controller,service,repository,dto,parsing,models}.py
 │   │   │   ├── prediction/           {controller,service,repository,dto,models}.py
 │   │   │   ├── audit/                {controller,service,models}.py
+│   │   │   ├── customers/            {controller,service,repository,dto,models}.py
+│   │   │   ├── evaluation/           {controller,service,repository,dto,models}.py
+│   │   │   ├── risk_intelligence/    {controller,service,dto}.py
 │   │   │   ├── rag/                  {controller,service,repository,dto}.py           [Delivery 2]
 │   │   │   ├── llm/                  {service,prompt_templates,business_rules}.py       [Delivery 2]
 │   │   │   ├── chatbot/              {controller,service,repository,dto,models}.py      [Delivery 2]
 │   │   │   ├── simulation/           {controller,service}.py                            [Delivery 2]
 │   │   │   ├── recommendation/       {controller,service}.py                            [Delivery 2]
+│   │   │   ├── decision_intelligence/ {controller,service,constraint_prep,policy_validation,decision_trace}.py [Delivery 2]
+│   │   │   ├── optimization/         {controller,service,solvers/}.py                   [Delivery 2]
 │   │   │   ├── approval/             {controller,service,repository,dto,models}.py      [Delivery 2]
 │   │   │   ├── mcp_execution/        {service,adapters/,models}.py                      [Delivery 2]
 │   │   │   ├── alerts/               {controller,service,repository,models}.py          [Delivery 2]
@@ -185,7 +201,7 @@ repo-root/
 │   │       ├── evidence_reindex_job.py                                                   [Delivery 2]
 │   │       └── alert_evaluation_job.py                                                   [Delivery 2]
 │   ├── ml/
-│   │   ├── gnn/            model.py, train.py, features.py, explain.py
+│   │   ├── gnn/            model.py, train.py, features.py, explain.py, confidence.py, risk_formula.py
 │   │   └── serving/        inference.py, simulate.py [Delivery 2]
 │   ├── migrations/         Alembic versions (Document 5 §7)
 │   ├── tests/               unit/, integration/, api/
@@ -194,8 +210,8 @@ repo-root/
 │   ├── src/
 │   │   ├── pages/           login/, dashboard/, graph/, risk/, suppliers/, warehouses/,
 │   │   │                    orders/, shipments/, products/, inventory/, admin/, audit/,
-│   │   │                    profile/, settings/, chatbot/ [D2], simulator/ [D2],
-│   │   │                    recommendation/ [D2], alerts/ [D2]
+│   │   │                    profile/, settings/, customers/, models/, chatbot/ [D2], simulator/ [D2],
+│   │   │                    recommendation/ [D2], alerts/ [D2], allocation/ [D2]
 │   │   ├── components/      shared UI primitives (AsyncState, DataTable, GraphCanvas, ...)
 │   │   ├── services/        authService.ts, entityService.ts, predictionService.ts, ...
 │   │   ├── hooks/           useAuth.ts, usePagination.ts, ...
@@ -269,6 +285,7 @@ The table below is the complete `Depends On` / `Unlocks` graph for all 69 tasks,
 | P2.6 | P2.5                                           | P2.7                                 |
 | P2.7 | P2.6                                           | P2.8, P5.6                           |
 | P2.8 | P2.7                                           | P5.7 (Delivery 1 sign-off)           |
+| P2.9 | P2.5                                           | P3.10                                |
 | P3.1 | P1.1                                           | P3.2, P4.1                           |
 | P3.2 | P3.1, P1.1                                     | P3.3, P4.2, P4.4, P5.2               |
 | P3.3 | P1.3, P1.4, P3.2                               | P3.4                                 |
@@ -277,6 +294,8 @@ The table below is the complete `Depends On` / `Unlocks` graph for all 69 tasks,
 | P3.6 | P3.1                                           | P3.7, P4.6                           |
 | P3.7 | P3.6                                           | P3.8, P5.6                           |
 | P3.8 | P3.7                                           | P5.7 (Delivery 1 sign-off)           |
+| P3.9 | P3.1, P1.1                                     | P4.9                                 |
+| P3.10 | P2.6, P2.9, P3.5                              | P4.10                                |
 | P4.1 | P3.1                                           | P4.2                                 |
 | P4.2 | P4.1                                           | P4.3, P4.4                           |
 | P4.3 | P4.2                                           | P4.5                                 |
@@ -285,6 +304,8 @@ The table below is the complete `Depends On` / `Unlocks` graph for all 69 tasks,
 | P4.6 | P3.6, P4.5                                     | P4.7                                 |
 | P4.7 | P4.6                                           | P4.8, P5.6                           |
 | P4.8 | P4.7                                           | P5.7 (Delivery 1 sign-off)           |
+| P4.9 | P3.9                                           | (none blocking; informs D3.7)        |
+| P4.10 | P3.10                                         | (none blocking; informs D3.7)        |
 | P5.1 | —                                             | P5.2, P3.1 (Docker Compose collab)   |
 | P5.2 | P3.2, P5.1                                     | P5.3                                 |
 | P5.3 | P1.3, P1.4, P5.2                               | P5.4                                 |
@@ -310,18 +331,22 @@ The table below is the complete `Depends On` / `Unlocks` graph for all 69 tasks,
 | D3.4 | D5.2                                           | D3.6                                 |
 | D3.5 | D5.3                                           | D3.6                                 |
 | D3.6 | D3.1, D3.2, D3.3, D3.4, D3.5, D4.4             | D5.5 (Delivery 2 sign-off)           |
-| D4.1 | P5.7 (`users`/RBAC), D2.2                    | D4.2                                 |
+| D3.7 | D3.4, D3.6, D5.7, D5.8, D4.7                   | D5.5 (Delivery 2 sign-off)           |
+| D4.1 | P5.7 (`users`/RBAC), D2.2                    | D4.2, D4.7                           |
 | D4.2 | D4.1                                           | D4.3 (indirect), D4.5                |
 | D4.3 | P5.7 (`risk_scores`), D5.3                   | D4.4                                 |
 | D4.4 | D4.3                                           | D3.6, D4.5                           |
 | D4.5 | D4.2, D2.2                                     | D4.6, D5.5 (Delivery 2 sign-off)     |
 | D4.6 | D4.5                                           | D5.5 (Delivery 2 sign-off)           |
+| D4.7 | D4.1, P5.7 (Risk Intelligence output), D2.1    | D5.7, D5.8, D3.7 (indirect)          |
 | D5.1 | P5.7 (trained model, graph store)              | D3.3, D5.5                           |
 | D5.2 | P5.7 (embeddings, FR-GNN-06)                   | D3.4, D5.4, D5.5                     |
 | D5.3 | P5.7 (`risk_scores`)                         | D3.5, D4.3, D5.5                     |
 | D5.4 | D5.2                                           | D5.5                                 |
-| D5.5 | D5.1, D5.2, D5.3, D5.4, D1.6, D2.6, D3.6, D4.5 | D5.6                                 |
+| D5.5 | D5.1, D5.2, D5.3, D5.4, D1.6, D2.6, D3.6, D3.7, D4.5 | D5.6                            |
 | D5.6 | D5.5                                           | **M11 — Phase 2 Sign-off**    |
+| D5.7 | D4.7                                           | D3.7 (indirect), D5.8                |
+| D5.8 | D4.7, D5.7, P1.5, P3.9                         | D3.7 (indirect)                      |
 
 ---
 
@@ -354,11 +379,11 @@ Document 5 defines the full Phase 1 schema; Document 1 §12 assumes dataset volu
 1. Decide real-vs-synthetic data strategy per Document 1 §12 assumption; if synthetic, generate with a fixed random seed (document the seed in `data/README.md`).
 2. Draft entity list and cardinalities: target ≥15 suppliers, ≥30 components, ≥20 products, ≥5 factories, ≥8 warehouses, ≥150 orders, ≥200 shipments, spanning at least 6 months of historical timestamps to support the time-based train/test split Person 2 needs in P2.2.
 3. Enumerate the 10 minimum business scenarios required by the P1.2 completion gate: (a) on-time delivery, (b) supplier delay, (c) inventory shortage, (d) carrier delay, (e) warehouse capacity constraint, (f) cancelled order, (g) partial shipment, (h) repeat-offender supplier (multiple delays), (i) new supplier with no history, (j) seasonal demand spike causing at-risk order status.
-4. Draft the full PostgreSQL DDL for all Phase 1 tables listed in Document 5 §6.1–6.14 and §6.22 (`users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `orders`, `order_items`, `shipments`, `documents`, `risk_scores`, `explanation_subgraphs`, `audit_log`), matching every column, datatype, and constraint exactly as specified.
+4. Draft the full PostgreSQL DDL for all Phase 1 tables listed in Document 5 §6.1–6.14, §6.22–6.25 (`users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents`, `risk_scores` (incl. `scoring_method`/`confidence`/`risk_category`), `explanation_subgraphs`, `model_evaluation_runs`, `model_registry`, `audit_log`), matching every column, datatype, and constraint exactly as specified.
 5. Review the draft DDL jointly with Person 2 (for node/edge feature sufficiency) and Person 3 (for repository-layer feasibility) in a scheduled 1-hour sync before end of S1.
 6. Finalize and write the first Alembic migration (`backend/migrations/versions/0001_phase1_schema.py`) — coordinate the actual `alembic revision` authoring with Person 3, who owns the migration tool, but Person 1 authors the DDL content.
 7. Write the seed script (`data/seed_phase1.py`) that populates all 15 tables with the scenario-rich dataset from step 3.
-8. Write the node/edge type inventory document (`docs/internal/graph_schema_notes.md`) enumerating the 7 node types and 8 edge types from Document 6 §5–6, mapped to source tables/columns.
+8. Write the node/edge type inventory document (`docs/internal/graph_schema_notes.md`) enumerating the 8 node types (incl. `Customer`) and 9 edge types (incl. `PLACED_BY`) from Document 6 §5–6, mapped to source tables/columns.
 
 ### Files to Create
 
@@ -378,7 +403,7 @@ Document 5 defines the full Phase 1 schema; Document 1 §12 assumes dataset volu
 
 ### Database Tables
 
-Creates (via migration, Document 5 §6): `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `orders`, `order_items`, `shipments`, `documents`, `risk_scores`, `explanation_subgraphs`, `audit_log` — full column/constraint/index spec exactly as Document 5 §6.1–6.14, §6.22.
+Creates (via migration, Document 5 §6): `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders`, `order_items`, `shipments`, `documents`, `risk_scores`, `explanation_subgraphs`, `model_evaluation_runs`, `model_registry`, `audit_log` — full column/constraint/index spec exactly as Document 5 §6.1–6.14, §6.22–6.25.
 
 ### API Contracts
 
@@ -420,7 +445,7 @@ A running PostgreSQL instance with all 15 Phase 1 tables created and populated, 
 
 ### Definition of Done
 
-- [ ] All 15 Phase 1 tables exist with exact column/constraint match to Document 5.
+- [ ] All 18 Phase 1 tables exist with exact column/constraint match to Document 5.
 - [ ] Seed script runs idempotently and populates ≥15 suppliers, ≥150 orders per step 2 targets.
 - [ ] All 10 business scenarios from step 3 are present and manually verified.
 - [ ] Person 2 and Person 3 have signed off on the schema in the S1 sync.
@@ -474,7 +499,7 @@ Document 10 §5 defines the exact feature-derivation logic per node/edge type. F
 ### Implementation Checklist
 
 1. Implement `clean_records()` in `ml/gnn/features.py`: deduplication by natural key (e.g., `orders.order_number`, `products.sku`), type coercion (string-to-numeric, string-to-timestamp), and missing-value handling (documented default-fill policy per column, never silent drops).
-2. Implement per-Document-10-§5 feature derivations: `lead_time_days` (min-max/z-score scaling), `reliability_history` (rolling on-time delivery rate over last N shipments), `capacity_score` (scaling), `days_to_eta`/`days_to_due` (recomputed at each snapshot), `stock_level`/`reorder_threshold` (scaling), `quantity_required` (scaling), one-hot categoricals (`component_type`, `category`, `location` bucket, `status` fields).
+2. Implement per-Document-10-§5 feature derivations: `lead_time_days` (min-max/z-score scaling), `reliability_history` (rolling on-time delivery rate over last N shipments), `capacity_score` (scaling), `days_to_eta`/`days_to_due` (recomputed at each snapshot), `stock_level`/`reorder_threshold` (scaling), `quantity_required` (scaling), one-hot categoricals (`component_type`, `category`, `location` bucket, `status` fields, `Customer.priority_tier`).
 3. Implement the two supervision-target label derivations: `delayed` (from `shipments.status = 'delayed'` OR `delivered_at > eta`) and `shortage` (from historical `inventory.stock_level` dropping below `reorder_threshold` while linked orders remained open).
 4. Implement `backend/app/modules/graph_construction/parsing.py`: a single-call LLM extraction function `parse_document(file_bytes, document_type) -> ExtractedFields` that reads an uploaded invoice/PO PDF and returns structured fields (supplier reference, line items, amounts, dates) — explicitly a single request/response call, no loop, no agent state.
 5. Wire `parsing.py`'s output to populate `documents.extracted_fields` (JSONB) and set `documents.parse_status` to `parsed` or `failed`.
@@ -600,8 +625,8 @@ Document 6 §5–6 defines the exact 7 node types and 8 Phase 1 edge types; §7 
 ### Implementation Checklist
 
 1. Create `ml/gnn/graph_builder.py` with `build_hetero_data(session) -> HeteroData`.
-2. Implement node assembly for all 7 types (`Supplier`, `Component`, `Product`, `Factory`, `Warehouse`, `Shipment`, `Order`) per Document 6 §5, applying P1.2's feature encodings to produce each node type's `x` tensor per Document 6 §7's dimensionality table.
-3. Implement edge assembly for all 8 Phase 1 edge types (`SUPPLIES`, `USED_IN`, `STOCKED_AT`, `MANUFACTURED_AT`, `SHIPS_FROM`, `SHIPS_TO`, `FULFILLS`, `ORDERED`) per Document 6 §6, including edge-level `edge_attr` tensors where specified (`quantity_required`, `stock_level`/`reorder_threshold`, `eta` proximity/status).
+2. Implement node assembly for all 8 types (`Supplier`, `Component`, `Product`, `Factory`, `Warehouse`, `Shipment`, `Order`, `Customer`) per Document 6 §5, applying P1.2's feature encodings to produce each node type's `x` tensor per Document 6 §7's dimensionality table.
+3. Implement edge assembly for all 9 Phase 1 edge types (`SUPPLIES`, `USED_IN`, `STOCKED_AT`, `MANUFACTURED_AT`, `SHIPS_FROM`, `SHIPS_TO`, `FULFILLS`, `ORDERED`, `PLACED_BY`) per Document 6 §6, including edge-level `edge_attr` tensors where specified (`quantity_required`, `stock_level`/`reorder_threshold`, `eta` proximity/status).
 4. Handle the `MANUFACTURED_AT` inference case per Document 6 §6: restrict inference to shipments with an unambiguous factory-to-product link; flag ambiguous cases as a data-quality warning (risk GD-02 mitigation), reusing P1.2's `DataQualityWarning`.
 5. Build the node-ID → tensor-row mapping dictionary per node type (Document 6 §10), enabling O(1) lookup from PostgreSQL UUID to tensor row — required by Person 2's explainability output (P2.5) and Person 3's serving layer (P3.4).
 6. Implement the optional Neo4j export in `ml/gnn/neo4j_export.py`: `MERGE`-based idempotent node/edge creation matching the tensor graph exactly (risk GD-01 mitigation).
@@ -649,8 +674,8 @@ None — this is an offline/library-level task; the update pipeline (P1.4) and s
 
 ### Testing Requirements
 
-- `test_graph_builder.py::test_all_seven_node_types_present` — assembled `HeteroData` has non-empty `x` for all 7 node types.
-- `test_graph_builder.py::test_all_eight_edge_types_present` — assembled graph has non-empty `edge_index` for all 8 edge types.
+- `test_graph_builder.py::test_all_eight_node_types_present` — assembled `HeteroData` has non-empty `x` for all 8 node types (incl. `Customer`).
+- `test_graph_builder.py::test_all_nine_edge_types_present` — assembled graph has non-empty `edge_index` for all 9 edge types (incl. `PLACED_BY`).
 - `test_graph_builder.py::test_node_feature_dimensionality_matches_document_10` — each node type's feature width matches Document 10 §7's approximate dimensionality table.
 - `test_graph_builder.py::test_no_nan_in_tensors` — no `NaN`/`inf` present anywhere in `x` or `edge_attr`.
 - `test_graph_builder.py::test_node_id_map_round_trip` — every PostgreSQL UUID in the seed data resolves to exactly one tensor row and back.
@@ -835,6 +860,8 @@ NFR-17 requires the system to surface data-quality warnings rather than silently
 3. Formalize `DataQualityWarning` into a structured, queryable log format (JSON lines) at `logs/data_quality_warnings.jsonl`, with fields: `timestamp`, `table`, `row_id`, `field`, `reason`.
 4. Add a deliberate-fault test fixture (a record with a missing required field) and confirm it produces exactly one visible warning entry, not a crash and not a silent drop.
 5. Pair with Person 2 for one session to debug any node/edge encoding issue surfaced during their S4–S5 training; document the resolution in `docs/internal/graph_schema_notes.md`.
+6. Author ≥3 shortage scenarios: a product/warehouse combination with ≥2 open orders (from different customers, at least one `strategic`-tier) competing for stock below combined demand — the exact fixture shape Delivery 2's customer-allocation optimizer (D5.8) will use for its own test fixtures.
+7. Extend `validate_graph()` to check the `Customer`/`PLACED_BY` slice specifically: every `Order` node resolves to exactly one `Customer` via `PLACED_BY`, and no `Customer` node is orphaned (zero placed orders is valid for a new customer, but flagged for review, not treated as an error).
 
 ### Files to Create
 
@@ -879,6 +906,8 @@ None beyond what P1.1–P1.4 already introduced.
 - `test_validate.py::test_detects_dangling_edge` — an edge index referencing a non-existent row is listed in `dangling_edges`.
 - `test_validate.py::test_detects_degenerate_feature_vector` — an all-zero feature row is listed in `degenerate_features`.
 - `test_validate.py::test_deliberately_malformed_record_produces_visible_warning_not_crash` — end-to-end: malformed record → pipeline run → exactly one JSON-lines warning entry, pipeline completes successfully.
+- `test_validate.py::test_every_order_resolves_to_exactly_one_customer` — the `Customer`/`PLACED_BY` validation check.
+- `backend/tests/unit/test_shortage_scenarios.py::test_shortage_scenarios_have_competing_orders` — each of the ≥3 authored scenarios has ≥2 open orders exceeding available stock for the shared product/warehouse.
 
 ### Regression Checklist
 
@@ -1266,7 +1295,7 @@ Document 10 §8.1 defines the two-stage hybrid: a heterogeneous GNN encoder (Gra
 
 ### Implementation Checklist
 
-1. Write the model architecture design doc `docs/internal/model_architecture.md`: encoder (GraphSAGE/GAT baseline, upgrade path to Heterogeneous Graph Transformer), prediction head (Transformer attending over node embedding + heterogeneous neighborhood), exact prediction targets (`delay_probability`, `shortage_risk`, `impact_score`), loss functions (binary cross-entropy per classification head, weighted/combined loss for `impact_score`), optimizer (Adam/AdamW + LR scheduling), regularization (dropout, edge dropout, early stopping on validation AUC), class-imbalance handling (class-weighted or focal loss).
+1. Write the model architecture design doc `docs/internal/model_architecture.md`: the encoder is developed as a three-stage research ablation (GraphSAGE baseline → GAT intermediate → Heterogeneous Graph Transformer final, Document 10 §8.4), each stage documenting *why* it was run and what limitation motivated the next stage — not merely a linear upgrade path; prediction head (Transformer attending over node embedding + heterogeneous neighborhood), exact prediction targets (`delay_probability`, `shortage_risk`, `impact_score`), loss functions (binary cross-entropy per classification head, weighted/combined loss for `impact_score`), optimizer (Adam/AdamW + LR scheduling), regularization (dropout, edge dropout, early stopping on validation AUC), class-imbalance handling (class-weighted or focal loss).
 2. Define the time-based train/validation/test split strategy (train on earlier history, validate/test on later history) to avoid leakage, per Document 10 §8.2.
 3. Draft `RiskScoreResponseDTO` and `ExplanationSubgraphResponseDTO` (Pydantic models) exactly as shown in Document 8 §8's example, and place them in a shared-contract stub `ml/serving/contracts.py` that both this module and Person 3's `prediction/dto.py` will reference/mirror.
 4. Review the contract with Person 1 (feature sufficiency) and Person 3 (serving feasibility) in the S1 joint sync (same meeting as P1.1 step 5).
@@ -1284,7 +1313,7 @@ None.
 
 ### Classes / Components / Controllers / Services / Models / DTOs
 
-- `RiskScoreResponseDTO` (Pydantic, in `ml/serving/contracts.py`): `entity_type: Literal["supplier","product","order","shipment"]`, `entity_id: UUID`, `delay_probability: float | None`, `shortage_risk: float | None`, `impact_score: float`, `model_version: str`, `scored_at: datetime`.
+- `RiskScoreResponseDTO` (Pydantic, in `ml/serving/contracts.py`): `entity_type: Literal["supplier","product","order","shipment"]`, `entity_id: UUID`, `delay_probability: float | None`, `shortage_risk: float | None`, `impact_score: float`, `confidence: float | None`, `risk_category: Literal["low","medium","high","critical"]`, `scoring_method: Literal["gnn_native","weighted_formula"]`, `model_version: str`, `architecture: str`, `scored_at: datetime` — the `confidence`/`risk_category`/`scoring_method` fields are populated by Person 3's Risk Intelligence service (P3.10) downstream of this contract, not by this task, but the shape is frozen here so P3.4/P3.10 can scaffold against it immediately.
 - `ExplanationSubgraphResponseDTO` (Pydantic): `nodes: list[ExplanationNodeDTO]`, `edges: list[ExplanationEdgeDTO]`.
 - `ExplanationNodeDTO`: `entity_type: str`, `entity_id: UUID`, `contribution_weight: float`.
 - `ExplanationEdgeDTO`: `source: UUID`, `target: UUID`, `edge_type: str`, `contribution_weight: float`.
@@ -1483,12 +1512,13 @@ Document 10 §8.1 step 1: "Heterogeneous GNN encoder ... message-passing over th
 
 ### Implementation Checklist
 
-1. Implement `ml/gnn/model.py::HeteroGNNEncoder(nn.Module)` using `torch_geometric.nn.HeteroConv` wrapping per-edge-type `SAGEConv`/`GATConv` layers (GraphSAGE/GAT baseline per Document 10 §8.1).
-2. Configure the encoder for all 7 node types and all 8 Phase 1 edge types from Document 6 §5–6, with per-node-type input dimensionality matching Document 10 §7's table exactly.
+1. Implement `ml/gnn/model.py::HeteroGNNEncoder(nn.Module, backbone: Literal["sage","gat"])` using `torch_geometric.nn.HeteroConv` wrapping per-edge-type `SAGEConv` (Stage 1) or `GATConv` (Stage 2) layers — a single parameterized class covering both ablation stages, per Document 10 §8.1/§8.4.
+2. Configure the encoder for all 8 node types (incl. `Customer`) and all 9 Phase 1 edge types (incl. `PLACED_BY`) from Document 6 §5–6, with per-node-type input dimensionality matching Document 10 §7's table exactly.
 3. Implement 2–3 message-passing layers with ReLU activation and dropout between layers (Document 10 §8.2 regularization).
 4. Implement `build_model(config) -> HeteroGNNEncoder`, satisfying P2.2's scaffold's expected function signature (replacing the stub).
-5. Run a forward pass against the real `hetero_data_snapshot.pt` and confirm output embedding dimensionality is consistent and non-degenerate (no all-zero output) for every node type.
-6. Validate message passing explicitly traces multi-hop relationships: write a targeted test confirming a 2-hop path (`Supplier → Component → Product`) influences the `Product` node's embedding (perturbation test: changing the linked supplier's features changes the product's output embedding).
+5. Train Stage 1 (`backbone="sage"`) end-to-end against the same split/loss/regularization settings, logging its evaluation metrics under `model_version='graphsage-v1'`; then train Stage 2 (`backbone="gat"`) identically under `model_version='gat-v1'` — the comparison isolates the encoder-architecture effect, per Document 10 §8.4.
+6. Run a forward pass against the real `hetero_data_snapshot.pt` for both stages and confirm output embedding dimensionality is consistent and non-degenerate (no all-zero output) for every node type.
+7. Validate message passing explicitly traces multi-hop relationships: write a targeted test confirming a 2-hop path (`Supplier → Component → Product`) influences the `Product` node's embedding (perturbation test: changing the linked supplier's features changes the product's output embedding) — run for both backbones.
 
 ### Files to Create
 
@@ -1594,14 +1624,15 @@ Document 10 §8.1 step 2: "Transformer prediction head — attends over a node's
 ### Implementation Checklist
 
 1. Implement `ml/gnn/model.py::TransformerPredictionHead(nn.Module)`: multi-head attention over a target node's embedding concatenated with its sampled heterogeneous neighborhood embeddings, followed by three output heads (`delay_probability`, `shortage_risk`, `impact_score`).
-2. Implement `ml/gnn/model.py::GNNTransformerHybrid(nn.Module)` composing `HeteroGNNEncoder` + `TransformerPredictionHead` end-to-end.
-3. Wire `build_model()` (P2.3) to return `GNNTransformerHybrid`.
-4. Implement the combined/weighted loss for `impact_score` (Document 10 §8.2) combining the two classification losses.
-5. Run full training with Adam/AdamW + LR scheduling, dropout, edge dropout, and early stopping on validation AUC (Document 10 §8.2), using P2.2's `TrainingConfig`.
-6. Run a hyperparameter tuning pass (grid or random search over learning rate, dropout, hidden dimension, number of layers) tracked in `ml/gnn/artifacts/hparam_search_results.csv`.
-7. Select the best configuration by validation AUC; run final evaluation against the held-out test split; confirm AUC-ROC ≥ 0.80 for both delay and shortage classification heads.
-8. If the target is not met on the first pass, iterate: revisit class-imbalance handling, feature scaling (pair with Person 1 if a feature-quality issue is suspected), or architecture depth — this step is not optional; the task is not done until the target is met or a documented, escalated exception is raised to the team.
-9. Save the final trained model artifact to `ml/gnn/artifacts/model_v1.pt` with an accompanying `model_v1_metadata.json` (hyperparameters, training date, dataset version, metrics).
+2. Extend `HeteroGNNEncoder` (P2.3) with a third `backbone="hgt"` option using `torch_geometric.nn.HGTConv` for full type-aware attention across node/edge types — Stage 3 of the ablation, chosen because the graph is natively multi-typed (Document 10 §8.4).
+3. Implement `ml/gnn/model.py::GNNTransformerHybrid(nn.Module)` composing `HeteroGNNEncoder` (any of the three backbones) + `TransformerPredictionHead` end-to-end.
+4. Wire `build_model()` (P2.3) to return `GNNTransformerHybrid`, defaulting to `backbone="hgt"` for production inference.
+5. Implement the combined/weighted loss for `impact_score` (Document 10 §8.2) combining the two classification losses.
+6. Run full training for the HGT backbone with Adam/AdamW + LR scheduling, dropout, edge dropout, and early stopping on validation AUC (Document 10 §8.2), using P2.2's `TrainingConfig` — identical settings to the Stage 1/2 runs (P2.3) so the three-way comparison is apples-to-apples.
+7. Run a hyperparameter tuning pass (grid or random search over learning rate, dropout, hidden dimension, number of layers) tracked in `ml/gnn/artifacts/hparam_search_results.csv`.
+8. Select the best configuration by validation AUC; run final evaluation against the held-out test split for all three architectures; confirm AUC-ROC ≥ 0.80 for both delay and shortage classification heads on the final HGT model.
+9. If the target is not met on the first pass, iterate: revisit class-imbalance handling, feature scaling (pair with Person 1 if a feature-quality issue is suspected), or architecture depth — this step is not optional; the task is not done until the target is met or a documented, escalated exception is raised to the team.
+10. Save the final trained model artifact to `ml/gnn/artifacts/model_v1.pt` (HGT, `model_version='hgt-v1'`) with an accompanying `model_v1_metadata.json` (hyperparameters, training date, dataset version, git commit, parameter count, metrics) — and equivalent metadata files for the `graphsage-v1`/`gat-v1` artifacts from P2.3, all three handed to Person 3 (P3.10) for `model_evaluation_runs`/`model_registry` persistence.
 
 ### Files to Create
 
@@ -1643,7 +1674,8 @@ None yet (serving is P2.5/P3.5).
 
 - `test_transformer_head.py::test_forward_pass_produces_three_outputs` — model output includes `delay_probability`, `shortage_risk`, `impact_score` for a batch of nodes.
 - `test_transformer_head.py::test_output_ranges_are_valid_probabilities` — all three outputs are in `[0, 1]`.
-- `backend/tests/integration/test_training_meets_auc_target.py::test_auc_roc_at_least_080` — loads `model_v1.pt`, evaluates against the held-out test split, asserts AUC-ROC ≥ 0.80 for both delay and shortage.
+- `backend/tests/integration/test_training_meets_auc_target.py::test_auc_roc_at_least_080` — loads `model_v1.pt` (HGT), evaluates against the held-out test split, asserts AUC-ROC ≥ 0.80 for both delay and shortage.
+- `backend/tests/integration/test_ablation_comparison.py::test_all_three_architectures_evaluated_on_same_split` — GraphSAGE, GAT, and HGT metrics all exist for the identical held-out test split, no confounding split difference.
 
 ### Regression Checklist
 
@@ -1829,7 +1861,7 @@ Document 10 §10 specifies the full evaluation methodology including calibration
 
 ### Implementation Checklist
 
-1. Implement `ml/gnn/evaluate.py::full_evaluation_report(model, test_split) -> EvaluationReport`: AUC-ROC, precision/recall at the operating threshold, and a calibration reliability diagram (predicted probability bucket vs. observed frequency) per Document 10 §10.
+1. Implement `ml/gnn/evaluate.py::full_evaluation_report(model, test_split) -> EvaluationReport`: AUC-ROC, precision/recall at the operating threshold, inference time, and a calibration reliability diagram (predicted probability bucket vs. observed frequency) per Document 10 §10 — run for all three ablation architectures (GraphSAGE, GAT, HGT) so Person 3's `model_evaluation_runs` persistence (P3.10) has a complete, comparable metric set per `model_version`.
 2. Generate and save the reliability diagram as `ml/gnn/artifacts/calibration_plot.png`.
 3. Perform the qualitative explanation-fidelity review: sample ≥15 high-risk predictions, manually inspect each explanation subgraph, and judge whether the highlighted entities match domain-plausible causes (e.g., a delayed shipment's explanation should highlight the actual originating supplier, not an unrelated warehouse) — record judgments in `docs/internal/explanation_fidelity_review.md`.
 4. Cross-check explanation subgraph availability against Document 1 §11's "100% of high-risk predictions" target across the full v1 dataset, not just the earlier spot-check from P2.5.
@@ -2124,6 +2156,119 @@ P2.7
 ### Unlocks
 
 P5.7 (Delivery 1 sign-off — Person 2's final gate contribution)
+
+---
+
+## P2.9 — Risk Intelligence Methodology: Confidence Estimation & Weighted Formula
+
+**Sprint:** S5 (2026-09-14 – 2026-09-27, parallel with P2.5) · **Owner:** Person 2
+
+### Objective
+
+Design the confidence-estimation mechanism and the transparent weighted risk formula that together let the Risk Intelligence Layer turn a raw model output into business-ready intelligence, and hand both off to Person 3 as an implementable spec.
+
+### Background
+
+Document 1 §8.18 (FR-RISKINT-01/02/03) and Document 10 §16/§18 define the Risk Intelligence Layer: it sits immediately downstream of Layer 2, computing `confidence`, `impact_score` (via `gnn_native` or `weighted_formula`), and `risk_category` — without retraining or replacing the GNN. This task is the methodology; Person 3's P3.10 is the service that implements it.
+
+### Repository Inspection Requirements
+
+- Confirm P2.4's `model_v1.pt` and P2.5's `InferenceService` are merged before designing confidence estimation against real model outputs, not a stub.
+- Read `docs/internal/model_architecture.md` (P2.1) to confirm the prediction head's output shape supports the chosen confidence method (softmax margin requires per-class probabilities, already produced).
+
+### Existing Code Assumptions
+
+- P2.5's `InferenceService` produces `delay_probability`, `shortage_risk`, `impact_score` per entity.
+
+### Implementation Checklist
+
+1. Implement `ml/gnn/confidence.py::estimate_confidence(model, entity_batch) -> float`: softmax-margin-based confidence (distance of the predicted probability from the 0.5 decision boundary, normalized to `[0,1]`), or MC-dropout variance across ~10 stochastic forward passes if dropout layers make that more informative — pick one, document the choice and rejected alternative in `docs/internal/risk_intelligence_notes.md`.
+2. Implement `ml/gnn/risk_formula.py::compute_weighted_formula(signals: RiskSignals) -> float`: `0.30*supplier_risk + 0.25*shipment_delay + 0.20*inventory_risk + 0.15*demand_spike + 0.10*financial_risk`, with `RiskSignals` sourced from the same features `ml/gnn/features.py` (P1.2) already derives (`reliability_history`/delay-probability for supplier/shipment risk, `stock_level`/`reorder_threshold` for inventory risk, recent order-volume deviation for demand spike; financial risk scoped to whatever financial fields Person 1's dataset actually has, per Document 1 §12).
+3. Tune the formula's weights against a validation slice, documenting any deviation from the illustrative 0.30/0.25/0.20/0.15/0.10 starting weights and the rationale.
+4. Write `docs/internal/risk_intelligence_handoff.md`: the exact function signatures, input/output types, and threshold-evaluation contract (`risk_category` boundaries) Person 3's `risk_intelligence_service` must implement — precise enough that P3.10 requires no further design decisions.
+5. Review the handoff spec with Person 3 in a short sync before P3.10 begins.
+
+### Files to Create
+
+- `ml/gnn/confidence.py`
+- `ml/gnn/risk_formula.py`
+- `docs/internal/risk_intelligence_notes.md`
+- `docs/internal/risk_intelligence_handoff.md`
+- `backend/tests/unit/test_confidence.py`, `test_risk_formula.py`
+
+### Files to Modify
+
+None outside newly created files.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- `RiskSignals` (dataclass: `supplier_risk`, `shipment_delay`, `inventory_risk`, `demand_spike`, `financial_risk`, all `float`).
+- Functions: `estimate_confidence()`, `compute_weighted_formula()`.
+
+### Database Tables
+
+None directly — informs Person 3's P3.10 writes to `risk_scores.confidence`/`impact_score`/`scoring_method` (Document 5 §6.13).
+
+### API Contracts
+
+None — this is a methodology/library task; P3.10 exposes it via `GET /api/v1/predictions`.
+
+### Integration Points
+
+- Person 3 (P3.10): implements `risk_intelligence_service` directly against this task's handoff spec.
+
+### External Dependencies
+
+None beyond what P2.1–P2.5 already introduced.
+
+### Error Handling
+
+- `compute_weighted_formula()` must handle a missing/unavailable signal (e.g., no financial data for a given supplier) by falling back to a documented default weight redistribution, not a crash or a silent zero.
+
+### Testing Requirements
+
+- `test_confidence.py::test_confidence_bounded_0_to_1` — output always in `[0,1]` across a range of fixture predictions.
+- `test_confidence.py::test_confident_prediction_scores_higher_than_borderline` — a fixture prediction near 0.5 scores lower confidence than one near 0.0/1.0.
+- `test_risk_formula.py::test_weighted_sum_matches_documented_formula` — known inputs produce the exact documented weighted sum within floating-point tolerance.
+- `test_risk_formula.py::test_missing_signal_falls_back_not_crashes` — a fixture with a missing financial signal still returns a valid score.
+
+### Regression Checklist
+
+- Re-run P2.5's inference tests to confirm neither new module alters `InferenceService`'s existing output.
+
+### Expected Output
+
+A documented, reviewed confidence-estimation method and weighted-formula implementation that Person 3 can implement against without further clarification.
+
+### Deliverables
+
+- `ml/gnn/confidence.py`, `ml/gnn/risk_formula.py`, fully tested.
+- `docs/internal/risk_intelligence_handoff.md`.
+
+### Definition of Done
+
+- [ ] Person 3 confirms the handoff spec is directly implementable.
+- [ ] All confidence/formula tests pass.
+- [ ] Weight-tuning rationale documented.
+
+### Git Commit Message
+
+```
+feat(ml): design confidence estimation and weighted risk formula (FR-RISKINT-01, FR-RISK-01)
+```
+
+### What MUST NOT Be Modified
+
+- Do not implement the `risk_intelligence_service` module or its API — that is Person 3's P3.10, which consumes this task's functions.
+- Do not modify `model_v1.pt` or retrain — this task only adds a post-hoc interpretation layer over existing model output.
+
+### Depends On
+
+P2.5
+
+### Unlocks
+
+P3.10
 
 ---
 
@@ -3070,6 +3215,250 @@ P5.7 (Delivery 1 sign-off — Person 3's final gate contribution)
 
 ---
 
+## P3.9 — Customer Service & API
+
+**Sprint:** S2 (2026-08-03 – 2026-08-16, alongside P3.2) · **Owner:** Person 3
+
+### Objective
+
+Implement the `customers` module (CRUD) and backfill `orders.customer_id` from the legacy `customer_name` field, so Person 4 and, later, Person 5's allocation optimizer (D5.8) have a first-class customer entity to build against.
+
+### Background
+
+Document 5 §6.24 defines `customers`; §6.9/§7.1 define the `orders.customer_id` additive-column-plus-backfill migration; FR-CUST-01 requires customers as first-class entities replacing the free-text field.
+
+### Repository Inspection Requirements
+
+- Confirm P1.1's `customers` DDL (part of the frozen Phase 1 schema) is applied.
+- Check whether Person 1 has already seeded any customer data as part of P1.1/P1.2 — coordinate rather than duplicate.
+
+### Existing Code Assumptions
+
+- P3.1's FastAPI foundation and modular-monolith layering exist.
+- `customers` and `orders.customer_id` (nullable) exist per the frozen migration.
+
+### Implementation Checklist
+
+1. Create `backend/app/modules/customers/` module: `controller.py`, `service.py`, `repository.py`, `dto.py`, `models.py`.
+2. Implement `Customer` SQLAlchemy model matching Document 5 §6.24 exactly (`id`, `name`, `priority_tier` enum, `contract_terms` JSONB, `is_active`, timestamps).
+3. Implement `CustomerService`: `create()`, `update()`, `get_by_id()`, `list(priority_tier=None)`.
+4. Implement `GET /api/v1/customers`, `POST /api/v1/customers`, `GET /api/v1/customers/{id}`, `PATCH /api/v1/customers/{id}` per Document 9 §8.3.
+5. Write and run the backfill migration (Document 5 §7.1, step 4): for each distinct `orders.customer_name`, create-or-match a `customers` row and populate `customer_id`; confirm zero orders are left with a null `customer_id`, then (in a later, separate migration, not this task) `orders.customer_id` becomes `NOT NULL`.
+6. Mirror `priority_tier` changes into `audit_log` (they affect allocation ranking outcomes downstream, per Document 5 §6.24).
+
+### Files to Create
+
+- `backend/app/modules/customers/{controller,service,repository,dto,models}.py`
+- `backend/migrations/versions/000X_customers_backfill.py`
+- `backend/tests/unit/test_customer_service.py`
+- `backend/tests/api/test_customer_endpoints.py`
+
+### Files to Modify
+
+- `backend/app/modules/graph_construction/models.py` or equivalent — none required; `orders` model gains `customer_id` via the migration only.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Model:** `Customer`.
+- **Service:** `CustomerService`.
+- **DTOs:** `CustomerCreateDTO`, `CustomerResponseDTO`, `CustomerUpdateDTO`.
+
+### Database Tables
+
+- `customers` (Document 5 §6.24) — new table.
+- `orders.customer_id` (Document 5 §6.9) — additive column + backfill.
+
+### API Contracts
+
+- `GET /api/v1/customers?priority_tier=strategic` — Bearer JWT (any role). Paginated envelope.
+- `POST /api/v1/customers` — Bearer JWT (`analyst`,`admin`). Errors: `422 VALIDATION_ERROR` (invalid `priority_tier`).
+- `GET /api/v1/customers/{id}` — Errors: `404 NOT_FOUND`.
+- `PATCH /api/v1/customers/{id}` — Bearer JWT (`admin`).
+
+### Integration Points
+
+- Person 4 (P4.9): consumes these endpoints for the Customers screen.
+- Person 5 (D5.8, Delivery 2): reads `customers`/`orders.customer_id` as allocation-solver input.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- Backfill row with no resolvable `customer_name`: create a new `customers` row rather than dropping the order's customer link (Document 5 risk DB-05).
+- Invalid `priority_tier` value: `422 VALIDATION_ERROR`.
+
+### Testing Requirements
+
+- `test_customer_service.py::test_create_and_list_by_priority_tier`.
+- `test_customer_endpoints.py::test_create_customer_invalid_tier_returns_422`.
+- `backend/tests/integration/test_customer_backfill.py::test_every_order_resolves_to_exactly_one_customer_post_backfill`.
+
+### Regression Checklist
+
+- Re-run P3.2's entity endpoint tests to confirm `orders` responses are unaffected until the Delivery 2 allocation feature consumes `customer_id`.
+
+### Expected Output
+
+`POST /api/v1/customers` creates a customer; every seeded order resolves to exactly one `customer_id` after the backfill migration runs.
+
+### Deliverables
+
+- `customers` module with full CRUD.
+- Backfill migration.
+
+### Definition of Done
+
+- [ ] All customer service/endpoint tests pass.
+- [ ] Zero orphaned orders post-backfill.
+- [ ] Priority-tier changes appear in `audit_log`.
+
+### Git Commit Message
+
+```
+feat(backend): implement customer entity, CRUD API, and orders.customer_id backfill (FR-CUST-01)
+```
+
+### What MUST NOT Be Modified
+
+- Do not drop `orders.customer_name` in this task — that is an intentionally deferred, separate migration (Document 5 §7.1, step 6) run only after every code path is confirmed off the legacy field.
+
+### Depends On
+
+P3.1, P1.1
+
+### Unlocks
+
+P4.9
+
+---
+
+## P3.10 — Evaluation, Model Governance & Risk Intelligence Services
+
+**Sprint:** S5–S6 (2026-09-14 – 2026-10-11, alongside P3.5/P3.6) · **Owner:** Person 3
+
+### Objective
+
+Persist evaluation metrics and model-governance metadata from Person 2's training pipeline, and implement the Risk Intelligence service that turns Person 2's confidence/formula methodology (P2.9) into `confidence`/`risk_category`/`scoring_method` on every prediction.
+
+### Background
+
+Document 5 §6.23/§6.25 define `model_evaluation_runs`/`model_registry`; Document 1 §8.15/§8.18/§8.21 define FR-EVAL-01/02, FR-RISKINT-01–03, FR-GOV-01/02; Document 9 §9.4–9.5 define the evaluation/governance/risk-intelligence-bearing endpoints.
+
+### Repository Inspection Requirements
+
+- Read Person 2's P2.6 evaluation report and P2.9 handoff spec (`docs/internal/risk_intelligence_handoff.md`) directly before implementing — this task's service must match that spec exactly, not a reinterpretation of it.
+- Confirm P3.5's live prediction endpoint is merged (this task extends its response shape).
+
+### Existing Code Assumptions
+
+- P2.6's per-architecture evaluation metrics and P2.9's confidence/formula functions exist and are callable (via a checked-in artifact/report Person 2 hands off, or directly if `ml/gnn/` is importable from `backend/`).
+- P3.5's `prediction` module returns a live `RiskScoreResponseDTO`.
+
+### Implementation Checklist
+
+1. Create `backend/app/modules/evaluation/` module: persist `model_evaluation_runs` rows (`model_version`, `architecture`, `metric_name`, `metric_value`, `dataset_split`) and `model_registry` rows (`model_version`, `architecture`, `training_dataset`, `training_timestamp`, `experiment_id`, `git_commit`, `hyperparameters`, `parameter_count`, `status`) from Person 2's training-run output for all three ablation architectures.
+2. Enforce `model_registry` immutability once `status='active'` at the repository layer — only further `status` transitions permitted thereafter (NFR-24).
+3. Implement `GET /api/v1/models/evaluation-runs`, `/comparison`, `/registry`, `/active` per Document 9 §9.4–9.5.
+4. Create `backend/app/modules/risk_intelligence/` module wrapping Person 2's `estimate_confidence()`/`compute_weighted_formula()` (P2.9): `RiskIntelligenceService.enrich(raw_prediction) -> EnrichedRiskScoreDTO` computing `impact_score` (via `gnn_native` or `weighted_formula`), `confidence`, and `risk_category` (threshold evaluation against configurable bounds, shared with `alert_thresholds` semantics).
+5. Extend `prediction`'s response (P3.5) to include `confidence`, `risk_category`, `scoring_method`, and `architecture` on every `GET /api/v1/predictions` item (Document 9 §9.1).
+6. Write `risk_scores.confidence`/`risk_category`/`scoring_method` on every persisted prediction row (Document 5 §6.13 additive columns).
+
+### Files to Create
+
+- `backend/app/modules/evaluation/{controller,service,repository,dto,models}.py`
+- `backend/app/modules/risk_intelligence/{controller,service,dto}.py`
+- `backend/migrations/versions/000X_evaluation_governance_risk_columns.py`
+- `backend/tests/unit/test_evaluation_service.py`, `test_risk_intelligence_service.py`
+- `backend/tests/api/test_evaluation_endpoints.py`
+
+### Files to Modify
+
+- `backend/app/modules/prediction/{controller,service,dto}.py` — add `confidence`/`risk_category`/`scoring_method`/`architecture` to the response.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Models:** `ModelEvaluationRun`, `ModelRegistry` (SQLAlchemy).
+- **Services:** `EvaluationService`, `RiskIntelligenceService`.
+- **DTOs:** `EvaluationRunResponseDTO`, `ModelRegistryResponseDTO`, `ArchitectureComparisonDTO`, `EnrichedRiskScoreDTO`.
+
+### Database Tables
+
+- `model_evaluation_runs` (Document 5 §6.23) — new table.
+- `model_registry` (Document 5 §6.25) — new table.
+- `risk_scores.confidence`, `.risk_category`, `.scoring_method` (Document 5 §6.13) — additive columns.
+
+### API Contracts
+
+- `GET /api/v1/models/evaluation-runs?architecture=&metric_name=` — Bearer JWT (any role) (Document 9 §9.4).
+- `GET /api/v1/models/comparison` — returns latest test-split metrics per architecture side by side (Document 9 §9.4).
+- `GET /api/v1/models/registry?status=`, `GET /api/v1/models/active` (Document 9 §9.5).
+- `GET /api/v1/predictions` — extended response incl. `confidence`/`risk_category`/`scoring_method`/`architecture` (Document 9 §9.1).
+
+### Integration Points
+
+- Person 2 (P2.6/P2.9): source of the metrics/governance/confidence-formula data this task persists and serves.
+- Person 4 (P4.10): consumes these endpoints for Model Comparison/Confidence Panel UI.
+- Person 5, Delivery 2 (D4.7): the Decision Intelligence Service reads `risk_category`/`confidence` as its routing input.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- Write attempt to a `model_registry` row with `status='active'` targeting any field other than `status`: rejected at the service layer.
+- Missing confidence/formula input for a given entity: `RiskIntelligenceService` falls back to `gnn_native` scoring method with a documented default confidence rather than failing the whole prediction response.
+
+### Testing Requirements
+
+- `test_evaluation_service.py::test_persist_one_row_per_metric_dataset_split`.
+- `test_evaluation_service.py::test_model_registry_rejects_field_edit_after_active`.
+- `test_evaluation_endpoints.py::test_comparison_returns_three_architectures`.
+- `test_risk_intelligence_service.py::test_enrich_populates_confidence_category_method`.
+- `test_risk_intelligence_service.py::test_category_thresholds_boundary_inclusive`.
+
+### Regression Checklist
+
+- Re-run P3.5's prediction endpoint tests to confirm the extended response shape doesn't break existing consumers (Person 4's Delivery 1 Risk Dashboard, P4.5).
+
+### Expected Output
+
+`GET /api/v1/models/comparison` returns all three ablation architectures' metrics side by side; every prediction response carries `confidence`, `risk_category`, and `scoring_method`.
+
+### Deliverables
+
+- `evaluation` and `risk_intelligence` modules.
+- Extended prediction response.
+
+### Definition of Done
+
+- [ ] All evaluation/risk-intelligence tests pass.
+- [ ] `model_registry` immutability verified.
+- [ ] Person 4 confirms the extended prediction response is directly consumable.
+
+### Git Commit Message
+
+```
+feat(backend): implement evaluation, model governance, and Risk Intelligence services (FR-EVAL-01/02, FR-GOV-01/02, FR-RISKINT-01-03)
+```
+
+### What MUST NOT Be Modified
+
+- Do not modify `ml/gnn/` — this task consumes Person 2's output, never recomputes it.
+- Do not silently change the weighted-formula weights from what P2.9 tuned — any deviation requires a joint sync.
+
+### Depends On
+
+P2.6, P2.9, P3.5
+
+### Unlocks
+
+P4.10
+
+---
+
 # 4. Delivery 1 — Person 4: Frontend & Visualization
 
 ## P4.1 — React Foundation & Login
@@ -3977,6 +4366,231 @@ P5.7 (Delivery 1 sign-off — Person 4's final gate contribution)
 
 ---
 
+## P4.9 — Customers Screen
+
+**Sprint:** S4 (2026-08-31 – 2026-09-13, alongside P4.4) · **Owner:** Person 4
+
+### Objective
+
+Build the Customers list/detail screen against Person 3's customer API, so priority tier and contract terms are visible and manageable ahead of Delivery 2's allocation feature.
+
+### Background
+
+Document 3 §6.20 defines the Customers screen; FR-CUST-01 requires customers as first-class, user-manageable entities.
+
+### Repository Inspection Requirements
+
+- Read `backend/app/modules/customers/dto.py` (P3.9) directly for the exact response shape before building.
+
+### Existing Code Assumptions
+
+- P3.9's customer CRUD API is live.
+- P4.2's shared `<AsyncState>`/`<DataTable>` components exist.
+
+### Implementation Checklist
+
+1. Implement `frontend/src/services/customerService.ts`: `listCustomers(priorityTier?)`, `getCustomer(id)`, `createCustomer()`, `updateCustomer(id)`.
+2. Implement `frontend/src/pages/customers/CustomersPage.tsx` per Document 3 §6.20: searchable list with priority-tier filter, master-detail layout.
+3. Implement `frontend/src/pages/customers/CustomerDetailPage.tsx`: profile fields, priority tier, contract terms, linked orders.
+4. Implement create/edit form (Analyst/Admin only per Document 3 §6.20 permissions).
+5. Implement loading/error/empty states via the shared `<AsyncState>` component.
+6. Add the "Customers" sidebar entry (Phase 1, not feature-flagged).
+
+### Files to Create
+
+- `frontend/src/services/customerService.ts`
+- `frontend/src/pages/customers/{CustomersPage,CustomerDetailPage,CustomerForm}.tsx`
+- `frontend/tests/pages/CustomersPage.test.tsx`
+
+### Files to Modify
+
+- `frontend/src/components/shell/Sidebar.tsx` — add "Customers" entry.
+- `frontend/src/routes/router.tsx` — add customers routes.
+- `frontend/src/pages/orders/DetailPage.tsx` — link to the associated customer.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Service:** `customerService`.
+- **Components:** `CustomersPage`, `CustomerDetailPage`, `CustomerForm`.
+
+### Database Tables
+
+None (frontend task).
+
+### API Contracts
+
+Consumes: `GET/POST/PATCH /api/v1/customers*` (Document 9 §8.3).
+
+### Integration Points
+
+- Person 3 (P3.9): API data source.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- Empty search results: "No customers found," distinct from a load error.
+- Invalid `priority_tier` submission: inline validation error, form values preserved.
+
+### Testing Requirements
+
+- `CustomersPage.test.tsx::renders list filtered by priority tier`.
+- `CustomersPage.test.tsx::create/edit form validates priority tier`.
+- `CustomersPage.test.tsx::renders empty state for no results`.
+
+### Regression Checklist
+
+- Re-run P4.4's Orders screen tests to confirm the new customer link doesn't break existing rendering.
+
+### Expected Output
+
+Customer list/detail renders against live data with correct priority-tier filtering.
+
+### Deliverables
+
+- Fully functional Customers screen.
+
+### Definition of Done
+
+- [ ] Customers screen renders against live P3.9 data.
+- [ ] All tests pass.
+
+### Git Commit Message
+
+```
+feat(frontend): implement Customers screen (Document 3 §6.20, FR-CUST-01)
+```
+
+### What MUST NOT Be Modified
+
+- Do not modify `backend/app/modules/customers/` — consume the contract only.
+
+### Depends On
+
+P3.9
+
+### Unlocks
+
+(none blocking within Delivery 1; supports Delivery 2's D3.7 Allocation UI design familiarity)
+
+---
+
+## P4.10 — Model Comparison, Confidence Panel & Risk Formula UI
+
+**Sprint:** S6 (2026-09-28 – 2026-10-11, alongside P4.6) · **Owner:** Person 4
+
+### Objective
+
+Build the Model Comparison screen and add the Confidence Panel and formula-breakdown popover to the Risk Dashboard, making the architecture ablation, model governance, and Risk Intelligence output visible and trustworthy to a non-technical user.
+
+### Background
+
+Document 3 §6.19 defines the Model Comparison screen and the cross-cutting Confidence Panel/Model Metadata Panel; FR-ABL-02, FR-EVAL-02, FR-GOV-01/02, FR-CONF-01 require this surface.
+
+### Repository Inspection Requirements
+
+- Read Person 3's `evaluation`/`risk_intelligence` DTOs (P3.10) directly before building.
+
+### Existing Code Assumptions
+
+- P3.10's evaluation/governance/risk-intelligence endpoints are live.
+- P4.5's Risk Dashboard exists (this task extends it).
+
+### Implementation Checklist
+
+1. Implement `frontend/src/services/modelService.ts`: `getComparison()`, `getEvaluationRuns(filters)`, `getActiveModel()`.
+2. Implement `frontend/src/pages/models/ModelComparisonPage.tsx` per Document 3 §6.19: three-architecture comparison cards (Precision/Recall/F1/ROC-AUC/inference-time, each annotated with its "why this stage" rationale from Document 10 §8.4), filterable evaluation-run history table, and a Model Metadata Panel (dataset, timestamp, experiment ID, git commit, hyperparameters, status) for the active model.
+3. Extend `RiskDashboardPage.tsx` (P4.5) with a `risk_category` badge column, filter, and a collapsed-by-default Confidence Panel (expand-on-demand) plus a formula-breakdown popover shown when `scoring_method='weighted_formula'`.
+4. Implement loading/error/empty states for all new components via `<AsyncState>`.
+5. Add the "Model Comparison" sidebar entry (Phase 1, not feature-flagged).
+
+### Files to Create
+
+- `frontend/src/services/modelService.ts`
+- `frontend/src/pages/models/ModelComparisonPage.tsx`
+- `frontend/src/components/models/{ArchitectureCard,ModelMetadataPanel,EvaluationRunTable}.tsx`
+- `frontend/src/components/risk/{ConfidencePanel,FormulaBreakdownPopover}.tsx`
+- `frontend/tests/pages/ModelComparisonPage.test.tsx`
+
+### Files to Modify
+
+- `frontend/src/pages/risk/RiskDashboardPage.tsx` (P4.5) — add `risk_category` badge/filter, Confidence Panel, formula popover.
+- `frontend/src/components/shell/Sidebar.tsx` — add "Model Comparison" entry.
+- `frontend/src/routes/router.tsx` — add the model-comparison route.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Service:** `modelService`.
+- **Components:** `ModelComparisonPage`, `ArchitectureCard`, `ModelMetadataPanel`, `EvaluationRunTable`, `ConfidencePanel`, `FormulaBreakdownPopover`.
+
+### Database Tables
+
+None (frontend task).
+
+### API Contracts
+
+Consumes: `GET /api/v1/models/comparison`, `/evaluation-runs`, `/registry`, `/active` (Document 9 §9.4–9.5); extended `GET /api/v1/predictions` (Document 9 §9.1).
+
+### Integration Points
+
+- Person 3 (P3.10): API data source.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- No evaluation runs recorded yet: "No evaluation runs recorded yet," distinct from a load error.
+
+### Testing Requirements
+
+- `ModelComparisonPage.test.tsx::renders three architecture cards with rationale`.
+- `ModelComparisonPage.test.tsx::renders model metadata panel for active model`.
+- Extended `RiskDashboardPage.test.tsx::confidence panel collapsed by default, expands on click`.
+- Extended `RiskDashboardPage.test.tsx::formula breakdown shown only for weighted_formula rows`.
+
+### Regression Checklist
+
+- Re-run P4.5's Risk Dashboard tests to confirm the new columns/panels don't break existing table behavior.
+
+### Expected Output
+
+Model Comparison renders all three architectures side by side from live data; every Risk Dashboard row exposes confidence on demand.
+
+### Deliverables
+
+- Model Comparison screen.
+- Risk Dashboard Confidence Panel + formula breakdown.
+
+### Definition of Done
+
+- [ ] Model Comparison renders against live P3.10 data.
+- [ ] Confidence Panel present on every risk row, collapsed by default.
+- [ ] All tests pass.
+
+### Git Commit Message
+
+```
+feat(frontend): implement Model Comparison screen and Confidence Panel (Document 3 §6.19, FR-CONF-01)
+```
+
+### What MUST NOT Be Modified
+
+- Do not modify `backend/app/modules/evaluation/` or `risk_intelligence/` — consume contracts only.
+
+### Depends On
+
+P3.10
+
+### Unlocks
+
+(none blocking within Delivery 1; establishes UI conventions Person 3 reuses in Delivery 2's D3.7)
+
+---
+
 # 5. Delivery 1 — Person 5: Integration, Testing & Deployment
 
 ## P5.1 — CI/CD & Repository Foundation
@@ -4533,7 +5147,7 @@ This is the consolidation point of the shared S7 hardening sprint: every person 
 
 ### Implementation Checklist
 
-1. Run the full Document 13 Phase 1 test suite: unit (all modules), integration (P5.3/P5.4), system (P5.5's flagship scenario), API (P5.2's contract suite + all endpoint-specific tests), UI (P4.7's audit), performance (NFR-01 via P2.7, NFR-02 via P4.7), security (P3.7's Document 12 §12 suite).
+1. Run the full Document 13 Phase 1 test suite: unit (all modules, incl. P2.9's confidence/formula tests and P3.9/P3.10's customer/evaluation/governance/risk-intelligence tests), integration (P5.3/P5.4, incl. the `orders.customer_id` backfill integrity check), system (P5.5's flagship scenario), API (P5.2's contract suite + all endpoint-specific tests, incl. `/customers`, `/models/*`), UI (P4.7's audit, incl. P4.9/P4.10's Customers/Model Comparison screens), performance (NFR-01 via P2.7, NFR-02 via P4.7), security (P3.7's Document 12 §12 suite, incl. `model_registry` post-`active` immutability, NFR-24).
 2. Produce a consolidated test report (`docs/internal/phase1_test_report.md`): pass/fail count per category, coverage summary, any known flaky test flagged and triaged.
 3. File a defect ticket (GitHub Issue or equivalent) for every failure found, tagged to the responsible owner; track to closure.
 4. Re-run the full suite after each defect fix; do not close this task until 100% green.
@@ -4577,11 +5191,11 @@ Full Document 13 Phase 1 suite, 100% green, as defined across every prior task's
 
 ### Regression Checklist
 
-Every single test written in Delivery 1 (P1.1–P4.8, P5.1–P5.5) green simultaneously on the same `main` commit.
+Every single test written in Delivery 1 (P1.1–P4.10, P5.1–P5.5) green simultaneously on the same `main` commit.
 
 ### Expected Output
 
-A consolidated, green Document 13 Phase 1 test report with formally confirmed NFR-01/NFR-02 compliance.
+A consolidated, green Document 13 Phase 1 test report with formally confirmed NFR-01/NFR-02 compliance, and confirmed coverage of the customer, evaluation, governance, and Risk Intelligence surfaces added in P2.9/P3.9/P3.10/P4.9/P4.10.
 
 ### Deliverables
 
@@ -4738,8 +5352,8 @@ This section states, plainly and per sprint, exactly what each person has in a w
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 1 | Frozen Phase 1 PostgreSQL schema (all 15 tables); a scenario-rich seeded dataset covering all 10 required business scenarios; `docs/internal/graph_schema_notes.md`. |
-| Person 2 | Frozen model architecture design (`docs/internal/model_architecture.md`); frozen `RiskScoreResponseDTO`/`ExplanationSubgraphResponseDTO` contract; empty but structurally correct `ml/gnn/`, `ml/serving/` module skeletons. |
+| Person 1 | Frozen Phase 1 PostgreSQL schema (all 18 tables, incl. `customers`, `model_evaluation_runs`, `model_registry`); a scenario-rich seeded dataset covering all 10 required business scenarios; `docs/internal/graph_schema_notes.md` (incl. `Customer`/`PLACED_BY`). |
+| Person 2 | Frozen model architecture design (`docs/internal/model_architecture.md`), framed as a three-stage GraphSAGE→GAT→HGT ablation; frozen `RiskScoreResponseDTO`/`ExplanationSubgraphResponseDTO` contract (incl. `confidence`/`risk_category`/`scoring_method` fields); empty but structurally correct `ml/gnn/`, `ml/serving/` module skeletons. |
 | Person 3 | A running FastAPI app with a fully functional `auth` module — real login, JWT issuance/refresh, account lockout, admin user CRUD — backed by the frozen schema; `backend/Dockerfile` and Compose service definitions. |
 | Person 4 | A running React app with routing, an authenticated shell with sidebar, and a fully functional Login screen integrated against real backend auth. |
 | Person 5 | A working GitHub Actions CI pipeline (lint, type-check, unit, integration, Docker build) gating every PR; branch protection on `main`; the Docker Compose foundation. |
@@ -4751,7 +5365,7 @@ This section states, plainly and per sprint, exactly what each person has in a w
 |---|---|
 | Person 1 | Cleaned, feature-engineered dataset (Document 10 §5 derivations); working single-call document parser (`parse_document()`) verified against two fixture PDFs; structured data-quality warning path. |
 | Person 2 | A fully functional (if not yet accurate) training loop scaffold: time-based split, class-weighted loss, checkpointing — runnable end-to-end against a fixture. |
-| Person 3 | All six entity families (`GET /api/v1/{entity}`, `GET /api/v1/{entity}/{id}`) live against real seeded data; working `POST /api/v1/documents` upload endpoint wired to Person 1's parser. |
+| Person 3 | All six entity families (`GET /api/v1/{entity}`, `GET /api/v1/{entity}/{id}`) live against real seeded data; working `POST /api/v1/documents` upload endpoint wired to Person 1's parser; `customers` module CRUD live and `orders.customer_id` backfilled (P3.9). |
 | Person 4 | Dashboard and all six entity screens fully built and state-complete (loading/error/empty/success) against realistic mock data; the shared `<AsyncState>` and `<DataTable>` components. |
 | Person 5 | Backend/frontend test harnesses fully configured; a passing, CI-enforced contract test covering all six entity families. |
 
@@ -4771,7 +5385,7 @@ This section states, plainly and per sprint, exactly what each person has in a w
 | Person | Delivers at End of Sprint |
 |---|---|
 | Person 1 | Incremental graph update pipeline (only affected nodes/edges recomputed), verified via before/after diff; idempotent Neo4j `MERGE` updates. |
-| Person 2 | **`model_v1.pt`** — the trained GNN-Transformer hybrid meeting the AUC-ROC ≥ 0.80 gate on held-out data, plus a full hyperparameter search log. |
+| Person 2 | **`model_v1.pt`** — the final HGT stage of the ablation, meeting the AUC-ROC ≥ 0.80 gate on held-out data, plus GraphSAGE/GAT stage artifacts and a full hyperparameter search log for all three. |
 | Person 3 | The `prediction` module fully scaffolded (controller/service/repository/DTOs/models) against Person 2's frozen contract, returning a validated mock response ready for Person 4 to integrate against. |
 | Person 4 | All six entity screens and the Dashboard running against real, live backend data (no more mocks in the production code path); working pagination and filters. |
 | Person 5 | A passing model-scoring integration test against Person 2's newly-trained model; a passing GNNExplainer-wrapper tolerance unit test; a draft flagship end-to-end scenario script. |
@@ -4781,8 +5395,8 @@ This section states, plainly and per sprint, exactly what each person has in a w
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 1 | A formalized graph-validation module (`validate_graph()`) surfacing orphan nodes, dangling edges, and degenerate features as structured, queryable warnings — zero false positives against the clean dataset. |
-| Person 2 | A live, stateless `InferenceService` returning delay probability, shortage risk, impact score, affected orders, a GNNExplainer-backed explanation subgraph, and a reusable embedding — all in one call, for any seeded entity. |
+| Person 1 | A formalized graph-validation module (`validate_graph()`) surfacing orphan nodes, dangling edges, and degenerate features as structured, queryable warnings — zero false positives against the clean dataset; ≥3 shortage scenarios with competing customer orders authored and validated. |
+| Person 2 | A live, stateless `InferenceService` returning delay probability, shortage risk, impact score, affected orders, a GNNExplainer-backed explanation subgraph, and a reusable embedding — all in one call, for any seeded entity; a documented confidence-estimation method and tuned weighted risk formula handed off to Person 3 (P2.9). |
 | Person 3 | Live `GET /api/v1/predictions` and `.../explanation` endpoints returning **real** model output, persisted as immutable `risk_scores`/`explanation_subgraphs` rows. |
 | Person 4 | A fully functional Risk Dashboard against live prediction data, and a risk-colored Supply Chain Graph with the Phase 1 basic explanation-subgraph highlight. |
 | Person 5 | Completed model-integration test suite (now including explanation/embedding assertions) against the live inference service. |
@@ -4793,9 +5407,9 @@ This section states, plainly and per sprint, exactly what each person has in a w
 | Person | Delivers at End of Sprint |
 |---|---|
 | Person 1 | A frozen, versioned "v1" demo dataset with full join-completeness coverage for all six entity screens, confirmed jointly with Person 4. |
-| Person 2 | A committed full evaluation report (AUC-ROC, calibration plot, explanation-fidelity review) confirming the model and its explanations are trustworthy at scale, not just on a spot-check. |
-| Person 3 | Full audit-log wiring across every authentication event, and completed Admin user-management endpoints, both enforced by RBAC. |
-| Person 4 | All 12 Phase 1 screens reachable and functional (Admin, Audit, Profile, Settings newly added); Phase 2 screens cleanly hidden behind a feature flag. |
+| Person 2 | A committed full evaluation report (AUC-ROC, calibration plot, explanation-fidelity review) covering all three ablation architectures side by side, confirming the model and its explanations are trustworthy at scale, not just on a spot-check. |
+| Person 3 | Full audit-log wiring across every authentication event, and completed Admin user-management endpoints, both enforced by RBAC; live `evaluation`/`risk_intelligence` services and `GET /api/v1/models/*` endpoints (P3.10), with every prediction now carrying `confidence`/`risk_category`/`scoring_method`. |
+| Person 4 | All 14 Phase 1 screens reachable and functional (Admin, Audit, Profile, Settings, Model Comparison, Customers newly added); Phase 2 screens cleanly hidden behind a feature flag. |
 | Person 5 | A complete, CI-integrated flagship end-to-end scenario test running unattended against a seeded environment, plus a cross-screen UI-state audit suite. |
 | **Milestone** | **M5 — Phase 1 Dashboard Complete**: all Phase 1 screens functional against live APIs. |
 
@@ -4805,7 +5419,7 @@ This section states, plainly and per sprint, exactly what each person has in a w
 |---|---|
 | Person 1 | ≥85% test coverage across all owned graph-construction modules; a documented, NFR-safe graph-rebuild performance profile; complete pipeline documentation. |
 | Person 2 | Inference latency tuned and confirmed at p95 ≤ 2s (NFR-01); a documented retraining trigger; a load-test-friendly batch-scoring entrypoint. |
-| Person 3 | Full Phase 1 security control set applied and verified: hardened refresh-token cookie, rate limiting (with `429` handling), zero hardcoded secrets, finalized staging/demo Docker Compose. |
+| Person 3 | Full Phase 1 security control set applied and verified: hardened refresh-token cookie, rate limiting (with `429` handling), zero hardcoded secrets, `model_registry` post-`active` immutability confirmed, finalized staging/demo Docker Compose. |
 | Person 4 | NFR-02 met (5,000-node graph render/interaction at p95 ≤ 500ms); full responsive pass to tablet width; accessibility pass across all 12 screens. |
 | Person 5 | A consolidated `docs/internal/phase1_test_report.md` showing the entire Document 13 Phase 1 suite green, with NFR-01/NFR-02 independently reconfirmed. |
 
@@ -4850,12 +5464,12 @@ Document 7 §6 defines the `evidence_chunks` schema exactly; §7 defines the chu
 
 ### Implementation Checklist
 
-1. Add the pgvector extension and the `evidence_chunks` table via a new Alembic migration (`0002_phase2_rag_schema.py`), matching Document 7 §6 exactly: `id`, `collection` enum(`incidents`,`contracts`,`supplier_history`), `source_document_id`, `supplier_id`/`order_id`/`shipment_id` (nullable metadata filter keys), `chunk_text`, `chunk_index`, `embedding VECTOR(d)`, `published_at`, `created_at`.
+1. Add the pgvector extension and the `evidence_chunks` table via a new Alembic migration (`0002_phase2_rag_schema.py`), matching Document 7 §6 exactly: `id`, `collection` enum(`incidents`,`contracts`,`supplier_history`), `source_document_id`, `supplier_id`/`order_id`/`shipment_id`/`customer_id` (nullable metadata filter keys — `customer_id` scopes evidence for the Delivery 2 allocation recommender's rationale, FR-CUST-03), `chunk_text`, `chunk_index`, `embedding VECTOR(d)`, `published_at`, `created_at`.
 2. Create `backend/app/modules/rag/` module skeleton: `controller.py`, `service.py`, `repository.py`, `dto.py`.
 3. Implement `app/modules/rag/chunking.py::chunk_document(text, chunk_size=400, overlap=50) -> list[Chunk]` — paragraph-aware recursive splitting per Document 7 §7 (not raw fixed-width splitting).
 4. Author or collect at least 10 real evidence documents across the three collections: SLA policy, shipment-delay SOP, customs-hold SOP, inventory-shortage SOP, escalation matrix, customer-notification policy, plus supplier-history narratives for at least 3 of Person 1's Delivery 1 seeded suppliers (reusing entity IDs from the frozen v1 dataset so metadata filtering in D1.2 has real, joinable references).
 5. Wire ingestion: PDF/text evidence sources go through the existing `parse_document()` extraction path (FR-GC-05 reuse) before chunking; directly-authored structured evidence (e.g., the escalation matrix) is chunked directly without the PDF step.
-6. Populate `collection`, `supplier_id`/`order_id`/`shipment_id` metadata correctly per document.
+6. Populate `collection`, `supplier_id`/`order_id`/`shipment_id`/`customer_id` metadata correctly per document.
 
 ### Files to Create
 
@@ -4969,7 +5583,7 @@ Document 7 §8 defines metadata filtering (`collection`, `supplier_id`, `order_i
 2. Backfill `embedding` for all chunks ingested in D1.1 via a one-time script (`scripts/backfill_embeddings.py`).
 3. Extend the ingestion path (D1.1's chunking flow) to call `embed_text()` synchronously at ingestion time for all future documents.
 4. Implement the B-tree composite index on (`supplier_id`, `collection`) and a B-tree index on `published_at` (Document 7 §10) via a migration.
-5. Implement `app/modules/rag/repository.py::filter_by_metadata(collection=None, supplier_id=None, order_id=None, shipment_id=None, published_after=None) -> QuerySet`, the pre-filtering stage ahead of vector search (Document 7 §8's flowchart: filter by `supplier_id` → filter by `collection` → optional `published_at` window → search).
+5. Implement `app/modules/rag/repository.py::filter_by_metadata(collection=None, supplier_id=None, order_id=None, shipment_id=None, customer_id=None, published_after=None) -> QuerySet`, the pre-filtering stage ahead of vector search (Document 7 §8's flowchart: filter by `supplier_id`/`customer_id` → filter by `collection` → optional `published_at` window → search).
 
 ### Files to Create
 
@@ -5512,6 +6126,7 @@ FR-LLM-01 requires combining the risk score, explanation subgraph, and retrieved
 4. Implement the LLM API client wrapper (`llm/client.py` or inline in `service.py`) using `LLM_API_KEY`/`LLM_MODEL_NAME` env vars (Document 11 §8), with the API call isolated so it is never reachable from the frontend (Document 2 §7 communication table).
 5. Implement `business_rules.py::validate_proposed_action(action) -> ValidatedAction | ValidationError` — the business-rule validation gate referenced in FR-LLM-03, checked before any LLM-proposed action can become an `action_request` (full `action_requests` creation itself is Person 4's D4.1, but the validation function lives here, in the LLM module, since it validates the LLM's own output against domain rules).
 6. Verify citation requirement (FR-LLM-04): every generated explanation includes at least one evidence citation when evidence was found; if retrieval returned zero results (per D1.3's contract), the explanation must explicitly state "no strong evidence found" rather than fabricate a claim (Document 4 §8, Document 7 risk VDB-02 mitigation).
+7. Implement `prompt_templates.py::build_decision_explanation_prompt(decision_intelligence_result, evidence) -> str` and `service.py::explain_optimizer_decision(action_request_id) -> ExplanationResultDTO`: for entities Person 4's Decision Intelligence Service (D4.7) routes to the optimizer, this task explains the already-computed decision — the prompt receives the optimizer's `objective_value`/`rationale` as read-only structured data (same untrusted-content framing as evidence) and the response schema has no field capable of overriding or re-deriving the numeric result (FR-OPT-03: the LLM never optimizes, only explains).
 
 ### Files to Create
 
@@ -5628,7 +6243,7 @@ FR-LLM-02 requires a recommended action alongside every explanation. Document 12
 
 ### Implementation Checklist
 
-1. Define `ProposedActionDTO` (Pydantic, strict schema): `action_type: Literal["raise_po","update_route","escalate","no_action"]`, `target_entity_type`, `target_entity_id`, `recommended_supplier_id: UUID | None`, `rationale: str`.
+1. Define `ProposedActionDTO` (Pydantic, strict schema): `action_type: Literal["raise_po","update_route","escalate","no_action"]`, `target_entity_type`, `target_entity_id`, `recommended_supplier_id: UUID | None`, `rationale: str` — deliberately with **no** field capable of carrying a numeric quantity/threshold override, so this schema structurally cannot smuggle an LLM-computed number into an optimizer-eligible decision (FR-OPT-03; this DTO is only ever used for the qualitative-recommendation path Person 4's Decision Intelligence Service (D4.7) routes to the LLM, never the optimizer path).
 2. Extend `prompt_templates.py::build_explanation_prompt()` (or add a sibling `build_action_recommendation_prompt()`) to instruct the LLM to respond with a JSON payload matching `ProposedActionDTO`'s schema exactly — using the LLM API's structured-output/function-calling mode if the provider supports it, rather than free-text-then-parse, per Document 12 §9's output-constraint control.
 3. Implement `LLMOrchestrationService.generate_recommended_action(entity_type, entity_id) -> ProposedActionDTO`, composing the explanation (D2.1) and the action recommendation in one coherent call (or two calls sharing context — implementer's choice, documented in the PR).
 4. Wire `validate_proposed_action()` (D2.1) as a mandatory post-processing step: every `ProposedActionDTO` returned by this function has already passed business-rule validation before the caller ever sees it.
@@ -6837,6 +7452,126 @@ D5.5 (Delivery 2 sign-off)
 
 ---
 
+## D3.7 — Optimizer Results, Allocation Screen & Decision Trace Panel
+
+**Sprint:** S17–S18 (2027-02-22 – 2027-03-21, after D5.7/D5.8/D4.7) · **Owner:** Person 3
+
+### Objective
+
+Extend the Recommendation UI with an Optimizer Results panel, build the Allocation screen, and add a Decision Trace Panel to the Alerts pending-approval queue, making Decision Intelligence/OR-Tools output legible to Rahul, Meera, and Neha.
+
+### Background
+
+Document 3 §6.13 (Recommendation, extended), §6.21 (Allocation), and the cross-cutting Decision Trace Panel (Document 3 §2) implement FR-OPT-01/02, FR-CUST-02/03, and FR-DEC-03.
+
+### Repository Inspection Requirements
+
+- Read `backend/app/modules/optimization/dto.py` (D5.7/D5.8) and `backend/app/modules/decision_intelligence/dto.py` (D4.7) directly before building.
+
+### Existing Code Assumptions
+
+- D5.7's safety-stock/PO-split endpoints and D5.8's customer-allocation endpoint exist.
+- D4.7's decision-trace API exists.
+- D3.4's Recommendation UI and D3.6's Alerts screen exist (this task extends both).
+
+### Implementation Checklist
+
+1. Extend `RecommendationPage.tsx` (D3.4) with an `OptimizerResultsPanel` component: optimal/infeasible badge, objective value, and rationale for safety-stock/PO-split decisions, sourced from `POST /api/v1/optimize/safety-stock`/`/po-split` (Document 9 §12.2).
+2. Implement `frontend/src/pages/allocation/AllocationPage.tsx` per Document 3 §6.21: shortage-flagged product selector, optimal-allocation badge with objective value and applied constraint set, ranked competing-orders table (customer, priority tier, order value, SLA penalty, proposed quantity) with editable quantities, client-side sum-vs-available-stock validation (US-CUST-02), "approve allocation" action.
+3. Implement `frontend/src/components/decisions/DecisionTracePanel.tsx`: expandable panel (collapsed by default, per UX-05) naming which of Risk Intelligence/Decision Intelligence/Optimization/LLM produced a given recommendation, embedded in the Alerts pending-approval queue (D3.6) via `GET /api/v1/approvals/{id}/decision-trace`.
+4. Add the "Allocation" sidebar entry (feature-flagged until this task ships).
+5. Implement loading/error/empty states for all new components via `<AsyncState>`.
+
+### Files to Create
+
+- `frontend/src/services/{optimizationService,allocationService}.ts`
+- `frontend/src/pages/allocation/AllocationPage.tsx`
+- `frontend/src/components/recommendation/OptimizerResultsPanel.tsx`
+- `frontend/src/components/allocation/{AllocationTable,ConstraintSummary}.tsx`
+- `frontend/src/components/decisions/DecisionTracePanel.tsx`
+- `frontend/tests/pages/AllocationPage.test.tsx`
+
+### Files to Modify
+
+- `frontend/src/pages/recommendation/RecommendationPage.tsx` (D3.4) — add `OptimizerResultsPanel`.
+- `frontend/src/pages/alerts/AlertsPage.tsx` (D3.6) — add `DecisionTracePanel` to the pending-approval queue.
+- `frontend/src/components/shell/Sidebar.tsx` — add "Allocation" entry.
+- `frontend/src/routes/router.tsx` — add the allocation route.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Services:** `optimizationService`, `allocationService`.
+- **Components:** `AllocationPage`, `AllocationTable`, `ConstraintSummary`, `OptimizerResultsPanel`, `DecisionTracePanel`.
+
+### Database Tables
+
+None (frontend task).
+
+### API Contracts
+
+Consumes: `POST /api/v1/optimize/safety-stock`/`/po-split`/`/customer-allocation`, `GET /api/v1/customers/allocations/{product_id}` (Document 9 §8.4, §12.2); `GET /api/v1/approvals/{id}/decision-trace` (Document 9 §13).
+
+### Integration Points
+
+- Person 5 (D5.7/D5.8): optimizer/allocation data source.
+- Person 4 (D4.7): decision-trace data source.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- Edited allocation quantities summing above available stock: submission blocked client-side with an inline message before it reaches the API (server-side validation is the authoritative backstop).
+- No shortage-flagged product selected: "No shortage-flagged product selected" prompt, not an error state.
+
+### Testing Requirements
+
+- `AllocationPage.test.tsx::blocks submission when edited quantities exceed available stock`.
+- `AllocationPage.test.tsx::renders optimal badge and constraint summary`.
+- `RecommendationPage.test.tsx::renders optimizer results panel with optimal/infeasible badge` (extends D3.4's suite).
+- `AlertsPage.test.tsx::decision trace panel expands to show contributing layers` (extends D3.6's suite).
+
+### Regression Checklist
+
+- Re-run D3.4's and D3.6's full test suites to confirm these extensions don't break existing Recommendation/Alerts behavior.
+
+### Expected Output
+
+Optimizer Results, Allocation, and Decision Trace Panel all render correctly against live Delivery 2 backend data.
+
+### Deliverables
+
+- Allocation screen.
+- Optimizer Results panel (Recommendation UI extension).
+- Decision Trace Panel (Alerts UI extension).
+
+### Definition of Done
+
+- [ ] Allocation screen blocks over-allocation submission client-side.
+- [ ] Optimizer Results and Decision Trace panels render against live data.
+- [ ] All tests pass.
+
+### Git Commit Message
+
+```
+feat(frontend): implement Optimizer Results, Allocation screen, and Decision Trace Panel (Document 3 §6.21, FR-CUST-02/03, FR-DEC-03)
+```
+
+### What MUST NOT Be Modified
+
+- Do not modify `backend/app/modules/optimization/` or `decision_intelligence/` — consume contracts only.
+
+### Depends On
+
+D3.4, D3.6, D5.7, D5.8, D4.7
+
+### Unlocks
+
+D5.5 (Delivery 2 sign-off)
+
+---
+
 # 9. Delivery 2 — Person 4: MCP & Enterprise Integration
 
 Person 4 rotates from Frontend & Visualization into MCP & Enterprise Integration — the domain swap partner to Person 3, per `docs/team_plan.md` §5.1/§6.2. Having spent Delivery 1 seeing the system through a user's eyes, Person 4 now owns the highest-stakes surface in the project: where an AI recommendation becomes a real action.
@@ -6865,7 +7600,7 @@ Document 5 §6.17 defines `action_requests`; Document 4 §10 defines the Approva
 
 ### Implementation Checklist
 
-1. Add `action_requests` table via migration (`0006_phase2_approval_schema.py`), matching Document 5 §6.17 exactly: `id`, `alert_id` (nullable), `source` enum(`llm_explanation`,`recommendation`,`chatbot`), `entity_type`, `entity_id`, `recommended_supplier_id` (nullable), `action_payload` JSONB, `status` enum(`pending`,`approved`,`rejected`,`executed`,`failed`), `rejection_reason` (nullable), `decided_by`, `decided_at`, `created_at`.
+1. Add `action_requests` table via migration (`0006_phase2_approval_schema.py`), matching Document 5 §6.17 exactly: `id`, `alert_id` (nullable), `source` enum(`llm_explanation`,`recommendation`,`chatbot`,`optimizer`), `entity_type`, `entity_id`, `recommended_supplier_id` (nullable), `action_payload` JSONB, `decision_trace` JSONB (nullable at the column level; the mandatory-non-empty-before-`approved`/`rejected` enforcement is added by D4.7, this same sprint — this task creates the column so D4.7 doesn't need a second migration), `status` enum(`pending`,`approved`,`rejected`,`executed`,`failed`), `rejection_reason` (nullable), `decided_by`, `decided_at`, `created_at`.
 2. Create `backend/app/modules/approval/` module: `controller.py`, `service.py`, `repository.py`, `dto.py`, `models.py`.
 3. Implement `ApprovalService.create_request(source, entity_type, entity_id, action_payload, recommended_supplier_id=None, alert_id=None) -> ActionRequest` — callable by Person 2's LLM module, Person 5's recommender, and Person 2's chatbot (three `source` values), each via this service's interface, not its repository.
 4. Implement `ApprovalService.approve(action_request_id, actor) -> ActionRequest`: sets `status='approved'`, `decided_by=actor.id`, `decided_at=now()` — enforces one-way status transitions (`pending → approved/rejected`), returns `409 CONFLICT` if already decided (Document 9 §13, Document 12 §11).
@@ -7526,6 +8261,125 @@ D5.5 (Delivery 2 sign-off)
 
 ---
 
+## D4.7 — Decision Intelligence Service
+
+**Sprint:** S16 (2027-02-08 – 2027-02-21, alongside D4.1) · **Owner:** Person 4
+
+### Objective
+
+Implement the `decision_intelligence` module: route each risk-intelligence record to the OR-Tools optimizer or the LLM, validate policy on every candidate recommendation regardless of source, and compose the decision trace persisted on every `action_requests` row.
+
+### Background
+
+Document 1 §8.19 (FR-DEC-01/02/03) and Document 10 §19 define the Decision Intelligence Layer, sitting between Risk Intelligence output and the Optimization/LLM services. Per the rotation (`docs/team_plan.md` §5.1), Person 4 owns Delivery 2 backend (MCP & Enterprise Integration is the natural extension point, since this module's output feeds directly into D4.1's approval workflow), while Person 3 owns the Delivery 2 frontend consumer (D3.7). This task builds on D4.1's `action_requests` schema — which already includes the `decision_trace` column and `optimizer` source value, added there specifically so this task doesn't need a second migration — rather than preceding it.
+
+### Repository Inspection Requirements
+
+- Read Person 3's `risk_intelligence` DTOs (P3.10, Delivery 1) directly — this task's routing input is exactly that shape.
+- Confirm D2.1's `llm` module and its `validate_proposed_action()` exist before extending policy validation to cover optimizer output too.
+- Confirm D4.1's `action_requests` migration (with `decision_trace`/`optimizer` already present) is merged before starting.
+
+### Existing Code Assumptions
+
+- P3.10's Risk Intelligence service (Delivery 1) produces `confidence`/`risk_category`/`scoring_method` per entity.
+- D2.1's LLM Orchestration Service exists.
+- D4.1's `action_requests` table, with `decision_trace` and the `optimizer` source value, exists.
+
+### Implementation Checklist
+
+1. Create `backend/app/modules/decision_intelligence/` module: `controller.py`, `service.py`, `constraint_prep.py`, `policy_validation.py`, `decision_trace.py`.
+2. Implement `DecisionIntelligenceService.route(risk_record) -> Literal["optimizer","llm"]`: a closed, explicit three-item routing table (safety-stock, PO-split, customer allocation → `"optimizer"`; everything else → `"llm"`, per Document 1 Risk R-13 — no implicit/inferred routing).
+3. Implement `constraint_prep.py::assemble_constraints(entity) -> ConstraintSet`: reads inventory, supplier/warehouse/production capacity, and lead time directly from PostgreSQL (Document 6 §14) for the optimizer-routed case.
+4. Implement `policy_validation.py::validate_candidate(recommendation, source) -> ValidationResult`, extending D2.1's LLM-only business-rule check to cover optimizer output too (FR-DEC-02) — every candidate, regardless of source, passes through this single validation path.
+5. Implement `decision_trace.py::compose_trace(risk_record, routing_decision, optimizer_result=None, llm_result=None) -> DecisionTraceDTO` (Document 8 §8's `DecisionTraceDTO` shape: `risk_intelligence`, `decision_intelligence`, `optimization`, `llm` sub-objects).
+6. Wire `ApprovalService.create_request()` (D4.1) to require a non-empty `decision_trace` for every row this service creates (NFR-23) — the column and enum value already exist from D4.1's migration; this step adds the application-layer enforcement only.
+
+### Files to Create
+
+- `backend/app/modules/decision_intelligence/{controller,service,constraint_prep,policy_validation,decision_trace}.py`
+- `backend/tests/unit/test_decision_intelligence_service.py`
+- `backend/tests/api/test_decision_intelligence_endpoints.py`
+
+### Files to Modify
+
+- `backend/app/modules/approval/service.py` (D4.1) — add the mandatory-non-empty `decision_trace` check to `create_request()`.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Service:** `DecisionIntelligenceService`.
+- **DTOs:** `ConstraintSet`, `DecisionTraceDTO` (per Document 8 §8), `RoutingDecisionDTO`.
+
+### Database Tables
+
+- `action_requests.decision_trace`, `action_source` enum's `optimizer` value (Document 5 §6.17) — both created by D4.1's migration; this task adds the write path and the mandatory-non-empty enforcement, not the schema itself.
+
+### API Contracts
+
+- `GET /api/v1/approvals/{id}/decision-trace` — Bearer JWT (`analyst`,`approver`,`admin`) (Document 9 §13).
+
+### Integration Points
+
+- Person 5 (D5.7/D5.8): receives the assembled constraint set for optimizer-routed entities.
+- Person 2 (D2.1/D2.2): receives qualitative-recommendation-routed entities, and explains optimizer-routed decisions.
+- Person 3 (D3.7): frontend consumer of the decision-trace API.
+
+### External Dependencies
+
+None new.
+
+### Error Handling
+
+- Ambiguous decision type not clearly matching the three-item routing table: defaults to `"llm"`, never forced into the optimizer (Document 1 Risk R-13).
+- Attempt to create an `action_requests` row with an empty `decision_trace`: rejected at the service layer (NFR-23).
+
+### Testing Requirements
+
+- `test_decision_intelligence_service.py::test_safety_stock_routes_to_optimizer`.
+- `test_decision_intelligence_service.py::test_unrecognized_type_defaults_to_llm`.
+- `test_decision_intelligence_service.py::test_optimizer_output_also_policy_validated`.
+- `test_decision_intelligence_endpoints.py::test_decision_trace_endpoint_returns_all_four_layers`.
+- `backend/tests/integration/test_action_request_requires_decision_trace.py::test_empty_trace_rejected`.
+
+### Regression Checklist
+
+- Re-run D4.1's approval tests to confirm the added `decision_trace` enforcement doesn't break existing approve/reject behavior for pre-existing `source` values.
+
+### Expected Output
+
+A safety-stock-eligible entity is routed to the optimizer, not the LLM; every resulting `action_requests` row carries a non-empty `decision_trace`.
+
+### Deliverables
+
+- `decision_intelligence` module.
+- Mandatory `decision_trace` enforcement on `action_requests` creation.
+
+### Definition of Done
+
+- [ ] Routing table is closed and tested for all three types plus the default case.
+- [ ] Every `action_requests` row has a non-empty `decision_trace`.
+- [ ] All tests pass.
+
+### Git Commit Message
+
+```
+feat(mcp): implement Decision Intelligence Service with routing, policy validation, and decision trace (FR-DEC-01/02/03)
+```
+
+### What MUST NOT Be Modified
+
+- Do not modify `backend/app/modules/llm/` to perform numeric optimization — the LLM explains only (FR-OPT-03); this module is the boundary that enforces that separation.
+- Do not re-run or duplicate D4.1's `action_requests` migration — the `decision_trace` column and `optimizer` enum value already exist from it.
+
+### Depends On
+
+D4.1 (`action_requests` schema), P5.7 (Risk Intelligence output), D2.1 (`validate_proposed_action()` to extend)
+
+### Unlocks
+
+D5.7, D5.8, D3.7 (indirect, via D5.7/D5.8)
+
+---
+
 # 10. Delivery 2 — Person 5: Advanced Graph AI
 
 Person 5 rotates from Integration, Testing & Deployment into Advanced Graph AI, per `docs/team_plan.md` §5.1: the whole-system view built while integration-testing every Delivery 1 track is exactly what's needed to extend Person 2's trained model (unmodified) into new decision-support features.
@@ -8046,7 +8900,7 @@ N/A — integration/verification task.
 
 ### Regression Checklist
 
-Every test written across all of Delivery 1 and Delivery 2 (P1.1–P5.7, D1.1–D5.4) green simultaneously on the same `main` commit.
+Every test written across all of Delivery 1 and Delivery 2 (P1.1–P5.7, D1.1–D5.4, D3.7, D4.7, D5.7, D5.8) green simultaneously on the same `main` commit.
 
 ### Expected Output
 
@@ -8076,7 +8930,7 @@ test(phase2): execute full Delivery 2 integration, confirm concurrent-load NFR-0
 
 ### Depends On
 
-D5.1, D5.2, D5.3, D5.4, D1.6, D2.6, D3.6, D4.5
+D5.1, D5.2, D5.3, D5.4, D1.6, D2.6, D3.6, D3.7, D4.5
 
 ### Unlocks
 
@@ -8198,6 +9052,231 @@ D5.5
 
 ---
 
+## D5.7 — OR-Tools Safety-Stock & PO-Split Solvers
+
+**Sprint:** S16–S17 (2027-02-08 – 2027-03-07, after D4.7) · **Owner:** Person 5
+
+### Objective
+
+Implement the OR-Tools constraint solvers for safety-stock sizing and purchase-order splitting, and their REST endpoints, given the constraint set Person 4's Decision Intelligence Service assembles.
+
+### Background
+
+Document 1 §8.16 (FR-OPT-01/02/03) scopes the optimization engine narrowly to safety-stock and PO-splitting (this task) plus customer allocation (D5.8) — explicitly not a general solver (Document 1 Risk R-12). Document 9 §12.2 defines the endpoint contracts.
+
+### Repository Inspection Requirements
+
+- Read `backend/app/modules/decision_intelligence/constraint_prep.py` (D4.7) directly for the exact `ConstraintSet` shape before implementing the solvers.
+
+### Existing Code Assumptions
+
+- D4.7's `DecisionIntelligenceService` and `ConstraintSet` exist.
+
+### Implementation Checklist
+
+1. Create `backend/app/modules/optimization/` module: `controller.py`, `service.py`, `solvers/safety_stock.py`, `solvers/po_split.py`.
+2. Implement `solvers/safety_stock.py::solve(constraint_set) -> SafetyStockResult`: OR-Tools CP-SAT or linear solver minimizing stockout risk subject to lead-time and demand-variance constraints, targeting a configurable service level.
+3. Implement `solvers/po_split.py::solve(constraint_set) -> POSplitResult`: OR-Tools solver splitting a required quantity across candidate suppliers subject to each supplier's capacity and lead time.
+4. Implement `POST /api/v1/optimize/safety-stock` and `POST /api/v1/optimize/po-split` (Document 9 §12.2): both return `{ optimal: true, ..., objective_value }` on success or `{ optimal: false, reason }` on infeasibility — never a forced/partial recommendation (NFR-20).
+5. Keep both solvers strictly scoped to their documented decision type — no routing, scheduling, or general multi-objective logic (Document 1 Risk R-12).
+
+### Files to Create
+
+- `backend/app/modules/optimization/{controller,service}.py`
+- `backend/app/modules/optimization/solvers/{safety_stock,po_split}.py`
+- `backend/tests/unit/test_safety_stock_solver.py`, `test_po_split_solver.py`
+- `backend/tests/api/test_optimization_endpoints.py`
+
+### Files to Modify
+
+None outside newly created files.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- **Service:** `OptimizationService`.
+- **DTOs:** `SafetyStockResult`, `POSplitResult` (both carrying `optimal: bool`, `objective_value: float | None`, `rationale: str`).
+
+### Database Tables
+
+None new — reads `inventory`, `suppliers`, `shipments` via the constraint set D4.7 already assembled.
+
+### API Contracts
+
+- `POST /api/v1/optimize/safety-stock` — Bearer JWT (`analyst`,`approver`,`admin`). Request/response per Document 9 §12.2.
+- `POST /api/v1/optimize/po-split` — same auth, per Document 9 §12.2.
+
+### Integration Points
+
+- Person 4 (D4.7): caller, supplies the constraint set and routes the result into the approval workflow.
+- Person 3 (D3.7): frontend consumer via the Optimizer Results panel.
+
+### External Dependencies
+
+- Google OR-Tools (`ortools` Python package).
+
+### Error Handling
+
+- No feasible solution: return `{ optimal: false, reason: "..." }` in a `200 OK`, never a `500` or a forced approximate answer (NFR-20).
+
+### Testing Requirements
+
+- `test_safety_stock_solver.py::test_feasible_case_returns_optimal_threshold`.
+- `test_safety_stock_solver.py::test_infeasible_case_returns_optimal_false`.
+- `test_po_split_solver.py::test_split_respects_supplier_capacity`.
+- `test_optimization_endpoints.py::test_infeasible_returns_200_not_500`.
+
+### Regression Checklist
+
+- Re-run D4.7's tests to confirm the constraint-set contract is consumed exactly as frozen.
+
+### Expected Output
+
+A feasible request returns an optimal decision with objective value; an infeasible request returns `optimal: false`, never a forced recommendation.
+
+### Deliverables
+
+- `optimization` module with safety-stock and PO-split solvers.
+
+### Definition of Done
+
+- [ ] All solver/endpoint tests pass.
+- [ ] Infeasible cases never produce a forced recommendation.
+
+### Git Commit Message
+
+```
+feat(optimization): implement OR-Tools safety-stock and PO-split solvers (FR-OPT-01/02/03)
+```
+
+### What MUST NOT Be Modified
+
+- Do not expand solver scope beyond safety-stock/PO-splitting (Document 1 Risk R-12) — no routing, scheduling, or general optimization.
+- Do not modify `backend/app/modules/llm/` — the LLM explains this task's output, never computes it.
+
+### Depends On
+
+D4.7
+
+### Unlocks
+
+D3.7 (Optimizer Results UI)
+
+---
+
+## D5.8 — OR-Tools Customer Allocation Solver
+
+**Sprint:** S17 (2027-02-22 – 2027-03-07, after D5.7) · **Owner:** Person 5
+
+### Objective
+
+Implement the customer-allocation solver: maximize protected customer value across competing orders for a shortage-flagged product, subject to inventory and capacity constraints — a genuinely constrained optimization problem, not a priority sort.
+
+### Background
+
+Document 1 §8.17 (FR-CUST-02) and Document 10 §17 specify the objective (strategic importance, SLA compliance, revenue protection, penalty avoidance) and constraints (inventory, supplier/warehouse/production capacity, lead time). This replaced an earlier simpler ranking-by-priority approach specifically because a ranking cannot express multi-order capacity constraints simultaneously.
+
+### Repository Inspection Requirements
+
+- Read Person 1's shortage scenario fixtures (P1.5, Delivery 1) directly — these are this task's primary test fixtures, not synthetic ones authored fresh.
+- Read `backend/app/modules/customers/models.py` (P3.9, Delivery 1) for the exact `Customer`/`orders.customer_id` shape.
+
+### Existing Code Assumptions
+
+- P3.9's `customers`/`orders.customer_id` schema (Delivery 1) exists and is populated.
+- D4.7's constraint-set assembly includes customer priority/contract data for the allocation case.
+- P1.5's shortage scenarios (≥3, Delivery 1) exist in the seeded dataset.
+
+### Implementation Checklist
+
+1. Implement `backend/app/modules/optimization/solvers/customer_allocation.py::solve(constraint_set) -> AllocationResult`: OR-Tools solver maximizing `Σ (allocated_qty_i × customer_value_i)` where `customer_value_i` weights `priority_tier`, `order_value`, and `contract_terms` penalty exposure, subject to `Σ allocated_qty_i ≤ available_stock` and the assembled capacity/lead-time constraints.
+2. Implement the documented fallback (NFR-21): where a competing customer's priority/contract data is missing, default to FIFO-by-`placed_at` for that customer's contribution to the objective, rather than failing the whole allocation.
+3. Implement `POST /api/v1/optimize/customer-allocation` and back `GET /api/v1/customers/allocations/{product_id}` (Document 9 §8.4, §12.2) with this solver's output.
+4. Validate against all of Person 1's ≥3 shortage scenarios (P1.5): confirm the allocation respects every constraint and sums to ≤ available stock in each case.
+
+### Files to Create
+
+- `backend/app/modules/optimization/solvers/customer_allocation.py`
+- `backend/tests/unit/test_customer_allocation_solver.py`
+- `backend/tests/integration/test_allocation_against_shortage_scenarios.py`
+
+### Files to Modify
+
+- `backend/app/modules/optimization/controller.py` (D5.7) — add the `/customer-allocation` route.
+- `backend/app/modules/customers/controller.py` (P3.9) — wire `GET /api/v1/customers/allocations/{product_id}` to this solver.
+
+### Classes / Components / Controllers / Services / Models / DTOs
+
+- `AllocationResult` (DTO: `allocations: list[{order_id, customer_id, allocated_qty}]`, `objective_value`, `optimal: bool`, `constraints_applied`).
+
+### Database Tables
+
+None new — reads `customers`, `orders`, `inventory`, `suppliers`, `warehouses`, `factories` via the constraint set.
+
+### API Contracts
+
+- `POST /api/v1/optimize/customer-allocation` — Bearer JWT (`analyst`,`approver`,`admin`) (Document 9 §12.2).
+- `GET /api/v1/customers/allocations/{product_id}` — same auth (Document 9 §8.4).
+
+### Integration Points
+
+- Person 1 (P1.5, Delivery 1): shortage-scenario fixtures.
+- Person 4 (D4.7): constraint-set supplier.
+- Person 3 (D3.7): frontend consumer via the Allocation screen.
+
+### External Dependencies
+
+- Google OR-Tools (shared with D5.7).
+
+### Error Handling
+
+- Missing customer priority/contract data: documented FIFO fallback (NFR-21), never a failed allocation.
+- Requested allocation exceeding available stock: solver caps total allocation at `available_stock`, never over-allocates.
+
+### Testing Requirements
+
+- `test_customer_allocation_solver.py::test_maximizes_protected_value_within_stock_limit`.
+- `test_customer_allocation_solver.py::test_missing_customer_data_falls_back_to_fifo`.
+- `test_allocation_against_shortage_scenarios.py::test_all_p1_5_scenarios_respect_constraints` — runs against all ≥3 of Person 1's shortage fixtures.
+
+### Regression Checklist
+
+- Re-run D5.7's tests to confirm the shared `optimization` module/controller isn't broken by this addition.
+
+### Expected Output
+
+A shortage scenario with capacity constraints produces an allocation that respects every constraint and sums to ≤ available stock; missing customer data falls back to FIFO-by-date.
+
+### Deliverables
+
+- Customer-allocation solver.
+- `GET /api/v1/customers/allocations/{product_id}` backed by real optimization.
+
+### Definition of Done
+
+- [ ] All of Person 1's shortage scenarios produce a constraint-respecting allocation.
+- [ ] Missing-data fallback verified.
+- [ ] All tests pass.
+
+### Git Commit Message
+
+```
+feat(optimization): implement OR-Tools customer allocation solver (FR-CUST-02, NFR-21)
+```
+
+### What MUST NOT Be Modified
+
+- Do not implement this as a simple priority sort — the objective/constraint formulation is the point (Document 10 §17).
+
+### Depends On
+
+D4.7, P1.5, P3.9
+
+### Unlocks
+
+D3.7 (Allocation UI)
+
+---
+
 # Delivery 2 — Sprint Delivery Summary
 
 The same "what do I actually have in my hands right now" view as the Delivery 1 summary above, for every Delivery 2 sprint. Role labels below use each person's Delivery 2 identity (Person 1 = RAG & Vector DB, Person 2 = LLM & Chatbot, Person 3 = Advanced Frontend, Person 4 = MCP & Enterprise Integration, Person 5 = Advanced Graph AI), per the rotation in Section 5.1.
@@ -8266,15 +9345,16 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 4 | A fully functional Approval Workflow backend (mandatory approval gate, required-reason-on-reject, `409` on double-decision) and the MCP Execution Service with a working ERP sandbox adapter, auto-triggered on approval. |
-| Person 5 | The documented, validated `SIMILAR_TO` Cypher query and REST-vs-Cypher consistency verification for the recommender. |
+| Person 4 | A fully functional Approval Workflow backend (mandatory approval gate, required-reason-on-reject, `409` on double-decision, `action_requests` schema incl. `decision_trace`/`optimizer` source from the start) and the MCP Execution Service with a working ERP sandbox adapter, auto-triggered on approval; the Decision Intelligence Service (routing, policy validation, decision trace) live (D4.7). |
+| Person 5 | The documented, validated `SIMILAR_TO` Cypher query and REST-vs-Cypher consistency verification for the recommender; OR-Tools safety-stock/PO-split solvers live against Person 4's constraint set (D5.7, into S17). |
 
 ## Sprint S17 (2027-02-22 – 2027-03-07)
 
 | Person | Delivers at End of Sprint |
 |---|---|
 | Person 4 | Alert threshold evaluation (breach → exactly one alert row) and threshold-configuration endpoints; the Notification Service with async Slack/email dispatch and delivery-outcome logging. |
-| **Milestone** | **M10 — Agentic Layer Live**: approval workflow, MCP execution against sandbox ERP, alerts, and notifications all functional. |
+| Person 5 | The OR-Tools customer-allocation solver (D5.8), validated against all of Person 1's Delivery 1 shortage scenarios. |
+| **Milestone** | **M10 — Agentic Layer Live**: approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions all functional. |
 
 ## Sprint S18 (2027-03-08 – 2027-03-21)
 
@@ -8282,7 +9362,7 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 |---|---|
 | Person 1 | Finalized RAG documentation and confirmed retrieval-latency headroom under concurrent chatbot/dashboard/simulator load. |
 | Person 2 | A documented chatbot evaluation report confirming ≥90% answer relevance. |
-| Person 3 | The completed Alerts screen and a full responsive/UI-test pass across all five Phase 2 screens. |
+| Person 3 | The completed Alerts screen and a full responsive/UI-test pass across all five Phase 2 screens; Optimizer Results panel, Allocation screen, and Decision Trace Panel live against Person 5's/Person 4's Delivery 2 backend (D3.7). |
 | Person 4 | A formally verified, adversarially-tested approval-gate integrity guarantee ("0 actions executed without a recorded human approval"), plus zero open Karan/Rahul UAT defects. |
 | Person 5 | A consolidated `docs/internal/phase2_test_report.md` showing the entire Document 13 suite (Phase 1 + Phase 2) green under confirmed concurrent-load NFR-01 compliance; all six persona UAT scripts passing against a deployed, rehearsed staging/demo environment. |
 | **Milestone** | **M11 — Phase 2 Sign-off** — the entire team's Delivery 2 output is frozen, tested, deployed, and demo-ready. The project is complete. |
@@ -8295,7 +9375,7 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 - **Task template legend:** Section 0.7. **Global definitions:** Section 0.8.
 - **Full dependency graph:** immediately following the Project Overview, before Section 1.
 - Consistent with and traceable to: `docs/problem_statement.md`, `docs/01_Product_Requirement_Document.md` through `docs/14_Project_Roadmap.md`, and `docs/team_plan.md`.
-- This document contains 69 fully specified tasks (39 Delivery 1, 30 Delivery 2) across 5 people and 2 deliveries, plus two Sprint Delivery Summaries covering all 18 sprints (S1–S18).
+- This document contains 78 fully specified tasks (44 Delivery 1: P1.1–P1.8, P2.1–P2.9, P3.1–P3.10, P4.1–P4.10, P5.1–P5.7; 34 Delivery 2: D1.1–D1.6, D2.1–D2.6, D3.1–D3.7, D4.1–D4.7, D5.1–D5.8) across 5 people and 2 deliveries, plus two Sprint Delivery Summaries covering all 18 sprints (S1–S18). The 9 tasks added beyond the original 69 (P2.9, P3.9, P3.10, P4.9, P4.10, D3.7, D4.7, D5.7, D5.8) integrate the approved architecture enhancement (research ablation, Risk Intelligence, model governance, customer entity, Decision Intelligence, OR-Tools optimization) while preserving every person's original domain and the Delivery 1→2 rotation.
 - No task in this document should be started without first re-reading its **Repository Inspection Requirements** and **Depends On** sections against the actual current state of the repository — this document specifies intent and contract; the repository is always the source of truth for current state.
 
 **END OF TASK PLANNER**

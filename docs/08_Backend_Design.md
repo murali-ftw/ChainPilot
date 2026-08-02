@@ -55,7 +55,25 @@ backend/
 │   │   │   ├── service.py
 │   │   │   ├── repository.py
 │   │   │   ├── dto.py
-│   │   │   └── models.py             # risk_scores, explanation_subgraphs
+│   │   │   └── models.py             # risk_scores (raw GNN output), explanation_subgraphs
+│   │   ├── risk_intelligence/
+│   │   │   ├── controller.py         # /api/v1/risk-intelligence/* (also folded into predictions response)
+│   │   │   ├── service.py            # confidence estimation, threshold eval, risk_category assignment
+│   │   │   ├── risk_formula.py       # transparent weighted risk formula (FR-RISK-01), business aggregation
+│   │   │   ├── confidence.py         # confidence estimation (FR-RISKINT-01)
+│   │   │   └── dto.py
+│   │   ├── evaluation/
+│   │   │   ├── controller.py         # /api/v1/models/*
+│   │   │   ├── service.py
+│   │   │   ├── repository.py
+│   │   │   ├── dto.py
+│   │   │   └── models.py             # model_evaluation_runs, model_registry (FR-GOV-01/02)
+│   │   ├── customers/
+│   │   │   ├── controller.py         # /api/v1/customers/*
+│   │   │   ├── service.py            # CRUD (Phase 1) + allocation ranking (Phase 2)
+│   │   │   ├── repository.py
+│   │   │   ├── dto.py
+│   │   │   └── models.py             # customers
 │   │   ├── rag/                      # Phase 2
 │   │   │   ├── controller.py
 │   │   │   ├── service.py
@@ -77,6 +95,16 @@ backend/
 │   │   ├── recommendation/           # Phase 2
 │   │   │   ├── controller.py         # /api/v1/recommendations/*
 │   │   │   └── service.py
+│   │   ├── decision_intelligence/    # Phase 2
+│   │   │   ├── controller.py         # /api/v1/decisions/*
+│   │   │   ├── service.py            # optimizer-vs-LLM routing (FR-DEC-01)
+│   │   │   ├── policy_validation.py  # business-rule/policy checks on every candidate (FR-DEC-02)
+│   │   │   ├── constraint_prep.py    # assembles OR-Tools constraint sets
+│   │   │   └── decision_trace.py     # records contributing layers (FR-DEC-03)
+│   │   ├── optimization/             # Phase 2
+│   │   │   ├── controller.py         # /api/v1/optimize/*
+│   │   │   ├── service.py            # OR-Tools solver invocation (FR-OPT-01)
+│   │   │   └── solvers/              # safety_stock.py, po_split.py, customer_allocation.py
 │   │   ├── approval/                 # Phase 2
 │   │   │   ├── controller.py         # /api/v1/approvals/*
 │   │   │   ├── service.py
@@ -123,13 +151,18 @@ Each module in `app/modules/` maps 1:1 to a component in Document 2, Section 4, 
 |---|---|---|
 | `auth` | Auth Service | Phase 1 |
 | `graph_construction` | Graph Construction Service | Phase 1 |
-| `prediction` | GNN-Transformer Inference Service | Phase 1 |
+| `prediction` | GNN-Transformer Inference Service — raw Graph Intelligence output only | Phase 1 |
+| `risk_intelligence` | Risk Intelligence Service (confidence, weighted formula, threshold eval, categorization) | Phase 1 |
+| `evaluation` | Evaluation Service (incl. `model_registry` governance) | Phase 1 |
+| `customers` | Customer Service | Phase 1 (CRUD), Phase 2 (data feed to optimizer) |
 | `audit` | (cross-cutting) | Phase 1 |
 | `rag` | RAG Retrieval Service | Phase 2 |
-| `llm` | LLM Orchestration Service | Phase 2 |
+| `llm` | LLM Orchestration Service — explanation only, never numeric optimization (FR-OPT-03) | Phase 2 |
 | `chatbot` | Chatbot Service | Phase 2 |
 | `simulation` | (part of Prediction, exposed separately) | Phase 2 |
 | `recommendation` | (part of Prediction, exposed separately) | Phase 2 |
+| `decision_intelligence` | Decision Intelligence Service (routing, policy validation, constraint prep, decision trace) | Phase 2 |
+| `optimization` | Optimization Service (OR-Tools: safety-stock, PO-split, customer allocation) | Phase 2 |
 | `approval` | (part of MCP Execution Service's approval gate) | Phase 2 |
 | `mcp_execution` | MCP Execution Service | Phase 2 |
 | `alerts` | (part of MCP Execution Service) | Phase 2 |
@@ -143,7 +176,7 @@ flowchart LR
     CTRL --> SVC["Service\nBusiness logic, orchestration,\ncross-module calls"]
     SVC --> REPO["Repository\nSQLAlchemy queries only,\nno business logic"]
     REPO --> DB[("PostgreSQL")]
-    SVC --> EXT["External clients\n(GNN Inference, RAG, LLM, MCP)"]
+    SVC --> EXT["External clients\n(GNN Inference, RAG, LLM,\nOptimization, MCP)"]
 ```
 
 - **Controller:** validates the request shape via a Pydantic DTO, calls exactly one service method, maps the service result/exception to an HTTP response. No business logic.
@@ -163,12 +196,41 @@ class RiskScoreResponseDTO(BaseModel):
     delay_probability: float | None
     shortage_risk: float | None
     impact_score: float
+    confidence: float | None
+    risk_category: Literal["low", "medium", "high", "critical"]
+    scoring_method: Literal["gnn_native", "weighted_formula"]
     model_version: str
+    architecture: str
     scored_at: datetime
 
 class ExplanationSubgraphResponseDTO(BaseModel):
     nodes: list[ExplanationNodeDTO]
     edges: list[ExplanationEdgeDTO]
+
+class EvaluationRunResponseDTO(BaseModel):
+    model_version: str
+    architecture: Literal["graphsage", "gat", "heterogeneous_graph_transformer"]
+    metric_name: str
+    metric_value: float
+    dataset_split: Literal["train", "validation", "test"]
+    evaluated_at: datetime
+
+class ModelRegistryResponseDTO(BaseModel):
+    model_version: str
+    architecture: str
+    training_dataset: str | None
+    training_timestamp: datetime
+    experiment_id: str | None
+    git_commit: str | None
+    hyperparameters: dict | None
+    parameter_count: int | None
+    status: Literal["training", "evaluating", "candidate", "active", "archived"]
+
+class DecisionTraceDTO(BaseModel):
+    risk_intelligence: dict            # confidence, risk_category, scoring_method inputs
+    decision_intelligence: dict        # routing decision, policy checks applied
+    optimization: dict | None          # solver objective/constraints, if optimizer-routed
+    llm: dict | None                   # explanation source, citations, if LLM-routed
 ```
 
 ## 9. Validation
@@ -241,6 +303,9 @@ Authorization is enforced at the controller layer (via dependency) as the single
 | BD-01 | Modular-monolith boundaries could erode over time if a service reaches into another module's repository | Code review convention + import-linting rule restricting cross-module repository imports | Phase 1 |
 | BD-02 | Introducing Redis in Phase 2 adds an operational dependency not present in Phase 1 | Scoped narrowly to caching/queueing (Section 10–11); Phase 1 functionality has no dependency on it | Phase 2 |
 | BD-03 | Background jobs (Section 11) failing silently could leave the graph or alerts stale without visibility | Job run status logged and exposed via the monitoring approach in Document 2, Section 11 | Phase 1 (graph job), Phase 2 (alert/notification jobs) |
+| BD-04 | `optimization` module's solver logic could expand informally beyond safety-stock/PO-splitting/allocation scope | Solver models isolated under `optimization/solvers/`, one file per decision type, reviewed against Document 1, Section 8.16 scope boundary before any addition | Phase 2 |
+| BD-05 | `decision_intelligence`'s routing logic (`service.py`) silently drifts into performing the optimization itself, blurring the "LLM never optimizes" boundary (FR-OPT-03) | `decision_intelligence` module never imports `optimization/solvers/` internals directly — it only calls `OptimizationService`'s public interface and passes results through, enforced by the same cross-module import-linting rule as BD-01 | Phase 2 |
+| BD-06 | `risk_intelligence` module recomputes confidence/categorization inconsistently between the prediction response path and any batch/report path | Both paths call the same `RiskIntelligenceService` methods — no duplicate confidence/categorization logic exists outside that module | Phase 1 |
 
 ## 15. Future Extension
 

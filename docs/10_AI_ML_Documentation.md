@@ -10,12 +10,12 @@ Consistent with: Documents 1–9
 
 ## 1. Purpose
 
-This document specifies the machine learning design: feature engineering, graph construction inputs, node/edge features, training procedure, inference serving, evaluation methodology, metrics, explainability, and the recommendation mechanism. It is the ML-level contract implementing Layer 2 (GNN × Transformer) of the problem statement, and its Phase 2 consumers (RAG grounding context, Alternative-Supplier Recommender).
+This document specifies the machine learning design: feature engineering, graph construction inputs, node/edge features, training procedure, inference serving, evaluation methodology, metrics, explainability, model governance, the Risk Intelligence and Decision Intelligence methodologies, and the recommendation/optimization mechanisms. It is the ML-level contract implementing Layer 2 (GNN × Transformer / Graph Intelligence) of the problem statement, plus the two intelligence layers immediately downstream of it, and Phase 2 consumers (RAG grounding context, Alternative-Supplier Recommender).
 
 ## 2. Scope
 
-- **Phase 1:** feature engineering, graph construction, GNN-Transformer model, training, inference, evaluation, explainability (GNNExplainer).
-- **Phase 2:** the same trained model reused (not redesigned) for the What-If Simulator (re-inference on perturbed graph) and the Alternative-Supplier Recommender (embedding similarity) — no new model architecture is introduced for either.
+- **Phase 1:** feature engineering, graph construction, GNN-Transformer model trained and evaluated as a progressive, evidence-based architecture ablation (GraphSAGE → GAT → HGT, Section 8.4) with governance metadata (Section 8.5), inference (incl. confidence signal, Section 9), persisted evaluation metrics (Section 10), explainability (GNNExplainer), the transparent weighted risk formula as a business aggregation layer (Section 16), and the Risk Intelligence methodology (Section 18).
+- **Phase 2:** the same trained model reused (not redesigned) for the What-If Simulator (re-inference on perturbed graph) and the Alternative-Supplier Recommender (embedding similarity) — no new model architecture is introduced for either. The Decision Intelligence methodology (Section 19) and the OR-Tools optimization engine, including customer allocation as a constrained optimization problem (Section 17), similarly reuse Layer 2's/Risk Intelligence's outputs as solver inputs rather than introducing a new predictive model; the LLM explains these outputs but never computes them.
 
 ## 3. Assumptions
 
@@ -111,12 +111,46 @@ flowchart LR
 
 Phase 1: manual/scheduled retraining as new historical data accumulates. Continuous/automated retraining (MLOps pipeline) is explicitly Future Scope per Document 1, Section 15 — not required for the prototype.
 
+### 8.4 Architecture Ablation Methodology (FR-ABL-01/02)
+
+Section 8.1's encoder progression is not presented as a given — it is demonstrated by training and evaluating all three stages on the same held-out test set, and each stage exists to answer a specific research question the prior stage left open:
+
+| Stage | Architecture | `model_version` (example) | Why this stage was run | Documented limitation motivating the next stage |
+|---|---|---|---|---|
+| 1 | GraphSAGE | `graphsage-v1` | Establishes whether neighborhood aggregation over the supply-chain graph beats row-by-row baselines at all, using simple mean/pooling aggregation with no attention | Every neighbor is weighted equally — the model cannot express that one supplier's delay matters more than another's to a given product's risk |
+| 2 | GAT (Graph Attention Network) | `gat-v1` | Adds attention so the model learns *which* neighbors matter for a given prediction, directly testing whether attention improves over Stage 1's uniform aggregation | Treats the graph as effectively homogeneous — a `SUPPLIES` edge and a `SHIPS_TO` edge, or a `Supplier` node and a `Warehouse` node, are not distinguished by the attention mechanism |
+| 3 | Heterogeneous Graph Transformer (HGT) — **final** | `hgt-v1` | Chosen because the supply chain graph is natively multi-typed (7+ node types, 8+ edge types per Document 6, Sections 5–6); HGT's type-aware attention is the first stage that models "this is a supplier-to-component relationship, weighted differently than a shipment-to-warehouse relationship" directly | Highest computational cost of the three — justified only because Stages 1–2 demonstrate the need, not assumed up front |
+
+- Each stage is trained under identical data split, loss function, and regularization settings (Section 8.2) so the comparison isolates the effect of the encoder architecture, not confounding training-procedure differences.
+- Each stage's evaluation metrics (Section 10) are persisted to `model_evaluation_runs` (Document 5, Section 6.23) under its own `model_version`/`architecture` pair, immutable and append-only.
+- The Model Comparison screen (Document 3, Section 6.19) and its backing endpoint (Document 9, Section 9.4) surface all three side by side, along with this rationale, so the final architecture selection is a documented comparison rather than an asserted choice.
+- **Delivery Phase:** Phase 1
+
+### 8.5 Model Governance Metadata (FR-GOV-01/02)
+
+Alongside `model_evaluation_runs`, each training run writes one `model_registry` row (Document 5, Section 6.25):
+
+| Field | Source | Purpose |
+|---|---|---|
+| `training_dataset` | Dataset snapshot identifier used for that run | Reproducibility — which data produced this model |
+| `training_timestamp` | Training pipeline start time | When the model was trained, independent of when it was evaluated |
+| `experiment_id` | Training pipeline run ID | Cross-reference to experiment tracking logs (Document 2, Section 10) |
+| `git_commit` | Git SHA of the training code at run time | Reproducibility — which code version produced this model |
+| `hyperparameters` | Training config (learning rate, layers, dropout, etc.) | Reproducibility and comparison across runs |
+| `parameter_count` | Model's total trainable parameter count | Cost/complexity comparison across the ablation (Section 8.4) |
+| `status` | Lifecycle state (`training`/`evaluating`/`candidate`/`active`/`archived`) | Which model version is currently serving inference (Section 9) |
+
+This is intentionally lightweight — a version, dataset reference, experiment ID, git commit, and hyperparameters per run — not a full MLOps registry with automated promotion/rollback (Document 1, Section 12 assumption). The training pipeline writes these fields directly; they are never entered manually, so they cannot drift from what was actually run (Document 1, Risk R-14).
+
+- **Delivery Phase:** Phase 1
+
 ## 9. Inference
 
 Served by the GNN Inference Service (Document 2, Section 4; Document 8's `ml/serving/`):
 
-- Loads the latest trained model artifact and the current `HeteroData` snapshot (Section 6).
+- Loads the latest trained model artifact — the `model_registry` row with `status='active'` (Section 8.5) — and the current `HeteroData` snapshot (Section 6).
 - Runs a forward pass to produce delay probability, shortage risk, and impact score per entity (FR-GNN-01–03).
+- Computes a raw confidence signal (e.g., prediction-head softmax margin or MC-dropout variance across a small number of stochastic forward passes) alongside the scores; this raw signal is what the Risk Intelligence Layer (Section 18) turns into the `confidence` value exposed on `risk_scores` (FR-RISKINT-01) — the inference service produces the signal, Risk Intelligence owns its interpretation and exposure.
 - Traces affected products/orders via graph reachability from the flagged entity (FR-GNN-04).
 - Returns node embeddings alongside scores (FR-GNN-06) for Phase 2 reuse.
 - Inference is stateless per request and does not mutate the persisted graph, satisfying NFR-01's latency target by avoiding any write path in the hot request.
@@ -130,8 +164,9 @@ Served by the GNN Inference Service (Document 2, Section 4; Document 8's `ml/ser
 | Calibration | Predicted probability vs. observed frequency (reliability diagram) | Reasonably calibrated so a "78%" delay probability is interpretable at face value in the chatbot's plain-language explanation (Phase 2) |
 | Explanation fidelity (qualitative) | GNNExplainer subgraph | Evaluator review — does the highlighted subgraph match domain-plausible causes | Phase 1 |
 | Embedding usefulness (qualitative) | Alternative-supplier recommendations | ≥ 80% judged plausible by evaluator (Document 1, Section 11) | Phase 2 |
+| Inference time (`metric_name='inference_time_ms'`) | Per-entity forward-pass latency, measured at evaluation time | Reported per architecture — a direct cost input to the ablation comparison (Section 8.4), alongside `model_registry.parameter_count` (Section 8.5) | Phase 1 |
 
-Evaluation runs are logged per Document 2, Section 11 (Monitoring — "model performance").
+Evaluation runs are logged per Document 2, Section 11 (Monitoring — "model performance"), and persisted as `model_evaluation_runs` rows (Document 5, Section 6.23) — Precision, Recall, F1, ROC-AUC, and inference time for the classification heads, plus MAE/RMSE/MAPE if a regression head (e.g., future demand forecasting) is added — keyed by `model_version` and `architecture` so results are queryable and comparable across the ablation (Section 8.4), not only visible in training logs (FR-EVAL-01/02). Parameter count and other governance facts live on `model_registry` (Section 8.5) rather than as a repeated metric row, since they are per-model constants, not per-evaluation measurements.
 
 ## 11. What-If Simulation Support
 
@@ -164,14 +199,78 @@ The trained model from Section 8 is reused unmodified:
 | ML-02 | Time-based split still risks leakage if graph features implicitly encode future information (e.g., an already-updated `reliability_history`) | Feature computation windowed strictly to information available as-of the snapshot date used for that training example | Phase 1 |
 | ML-03 | GNNExplainer subgraphs may be unstable (different runs highlight different nodes) for borderline predictions | Explanation only surfaced with the associated confidence; qualitative evaluator review (Section 10) catches gross instability before demo | Phase 1 |
 | ML-04 | Embedding-based recommendations may reflect graph structure bias (e.g., recommend suppliers only because they're well-connected, not genuinely similar) | Component-type filter (FR-REC-02) as a hard constraint before similarity ranking, reducing spurious matches | Phase 2 |
+| ML-05 | Architecture ablation (Section 8.4) could show GraphSAGE/GAT outperforming the final HGT on a given metric, undermining the intended narrative | Comparison is reported honestly regardless of outcome — the ablation's purpose is evidence, not a foregone conclusion; final architecture selection documents the actual trade-off observed | Phase 1 |
+| ML-06 | Weighted-formula risk scores (Section 16) and GNN-native scores could diverge meaningfully for the same entity, confusing users switching between them | `scoring_method` always displayed alongside `impact_score` (Document 3, Section 6.4); divergence is expected and documented, not treated as a bug | Phase 1 |
 
 ## 15. Future Extension
 
 An automated retraining/MLOps pipeline (Document 1, Section 15) would slot in at Section 8.3's "Retraining Trigger" without changing the model architecture (Section 8.1) or the inference contract (Section 9) that Document 2's GNN Inference Service exposes.
 
+## 16. Transparent Weighted Risk Formula — a Business Aggregation Layer, Not a GNN Replacement (FR-RISK-01/02)
+
+**This is not an alternative model — it is a business-facing aggregation step that sits downstream of the GNN, inside the Risk Intelligence Layer (Section 18).** The GNN (Sections 8–9) still learns the relational representation and still produces `gnn_native` scores; the formula never replaces it, is never trained, and consumes the GNN's own signals as inputs:
+
+```text
+Graph -> HGT -> Learned Embeddings -> Risk Signals
+  (Supplier Risk, Shipment Risk, Inventory Risk, Demand Risk, Financial Risk)
+-> Weighted Business Formula -> Overall Business Risk
+
+Overall Risk =
+0.30 × Supplier Risk
++ 0.25 × Shipment Delay
++ 0.20 × Inventory Risk
++ 0.15 × Demand Spike
++ 0.10 × Financial Risk
+```
+
+- **Component signals:** Supplier Risk and Shipment Delay derive from the same `reliability_history`/delay-probability signals the GNN encoder consumes (Section 5); Inventory Risk derives from `stock_level`/`reorder_threshold` (Section 5); Demand Spike derives from recent order-volume deviation; Financial Risk is a placeholder signal scoped to whatever financial indicator fields are actually present in the dataset (consistent with Document 1, Section 12's data-availability principle).
+- **Weights:** the values above are illustrative starting points, tuned against validation data before being finalized — not a permanently fixed constant (Document 1, Section 12 assumption).
+- **Method tagging:** every `risk_scores` row records `scoring_method` (`gnn_native` or `weighted_formula`, Document 5, Section 6.13) so the two computation paths are never conflated (FR-RISK-02); this is a traceability decision, not only a formula choice.
+- **No new model:** the formula is deterministic arithmetic over existing signals, computed in `risk_intelligence/risk_formula.py` (Document 8, Section 5) — it does not require training, evaluation, or a `model_version` of its own.
+- **Delivery Phase:** Phase 1
+
+## 17. Optimizer & Allocation Scoring (ML-Adjacent)
+
+All three OR-Tools decision types below consume Layer 2's / Risk Intelligence's existing outputs as inputs to a separate, non-learned constraint-solving procedure — none introduces a new predictive model, and the LLM never computes any of these numbers (FR-OPT-03):
+
+- **Safety-stock sizing and PO-splitting (FR-OPT-01):** the constraint solver takes `shortage_risk`/`delay_probability` outputs, current inventory, lead time, and demand signals (Section 5) as constraints/objective inputs; it does not consume or produce embeddings, and its output is an optimal-or-infeasible solver result, not a probability.
+- **Customer allocation (FR-CUST-02) — a constrained optimization problem, not a ranking function:** given a shortage-flagged product (identified via FR-GNN-04's affected-orders trace), the solver **maximizes** a weighted objective of protected customer value — strategic importance (`customers.priority_tier`), SLA compliance, revenue protection (`orders.order_value`), and penalty avoidance (`customers.contract_terms`) — **subject to** inventory (`inventory.stock_level`), supplier capacity (`suppliers.capacity_score`), warehouse capacity (`warehouses.capacity_units`), lead time (`suppliers.lead_time_days`), and production capacity (`factories.capacity_units_per_day`) constraints, all already present in the Phase 1 schema (Document 5). This replaced an earlier, simpler ranking-by-priority approach specifically because a ranking cannot express capacity constraints across multiple competing orders simultaneously — only a solver can. Where priority/contract data is missing for a given customer, the constraint set falls back to a documented default (e.g., FIFO by order date, Document 1 NFR-21).
+- **Delivery Phase:** Phase 2
+
+## 18. Risk Intelligence Methodology
+
+Implements Document 1, Section 8.18 (FR-RISKINT-01/02/03) as a deterministic, auditable transformation of Layer 2's raw output — no additional training or evaluation is required for anything in this section:
+
+| Responsibility | Mechanism | Delivery Phase |
+|---|---|---|
+| Confidence estimation | Consumes the raw confidence signal produced at inference time (Section 9) — softmax margin or MC-dropout variance — and normalizes it to `[0,1]` for the `confidence` column | Phase 1 |
+| Feature attribution / explanation preparation | Packages the GNNExplainer subgraph (Section 12) into the response shape the dashboard overlay and chatbot consume — no new attribution computation | Phase 1 |
+| Business aggregation | Computes `impact_score` via `gnn_native` (direct model output) or `weighted_formula` (Section 16) | Phase 1 |
+| Threshold evaluation | Compares `impact_score` against configurable thresholds (shared with `alert_thresholds`, Document 5 Section 6.15) | Phase 1 |
+| Risk categorization | Assigns `risk_category` (`low`/`medium`/`high`/`critical`) from the threshold evaluation result | Phase 1 |
+
+This layer is intentionally free of learned parameters — every step is deterministic given Layer 2's output, which is what makes it fully auditable (NFR-22).
+
+## 19. Decision Intelligence Methodology
+
+Implements Document 1, Section 8.19 (FR-DEC-01/02/03), sitting between a risk-intelligence record and the Optimization/LLM services:
+
+- **Recommendation-path routing (FR-DEC-01):** a flagged entity routes to the Optimization Service (Section 17) if and only if its response is one of the three closed-form decision types (safety-stock, PO-split, customer allocation); everything else routes to the LLM Orchestration Service for a qualitative recommendation. This routing table is explicit and closed — anything not on the three-item list defaults to the LLM path, per Document 1, Risk R-13.
+- **Policy validation (FR-DEC-02):** every candidate recommendation, from either path, is checked against business rules before becoming approval-eligible — this generalizes the LLM-specific validation already required by FR-LLM-03 to cover optimizer output as well, so neither path bypasses governance.
+- **Decision trace (FR-DEC-03):** records which of Risk Intelligence, Decision Intelligence, Optimization, and LLM contributed to a given recommendation, persisted on `action_requests.decision_trace` (Document 5, Section 6.17) and surfaced on the approval detail view (Document 9, Section 13).
+- **No numeric optimization by the LLM:** the LLM Orchestration Service's role, even for optimizer-routed decisions, is limited to explaining the already-computed optimal solution in plain language — it receives the solver's output as input, never re-derives or overrides it (FR-OPT-03).
+- **Delivery Phase:** Phase 2
+
+## 20. Risks (Risk Intelligence / Decision Intelligence)
+
+| ID | Risk | Mitigation | Delivery Phase |
+|---|---|---|---|
+| ML-07 | Confidence signal (Section 18) is a relative, comparative measure, not a calibrated probability, and could be over-interpreted by a user as ground-truth certainty | UI displays confidence as a labeled, bounded signal (Document 3), not phrased as a guarantee; documented explicitly as a limitation (`problem_statement.md`, Section 8) | Phase 1 |
+| ML-08 | Decision Intelligence routing (Section 19) misclassifies a decision type at the boundary (e.g., a partially-defined allocation scenario) | Routing table is a closed, reviewed three-item list (FR-DEC-01); anything ambiguous defaults to the LLM path rather than being forced into the optimizer | Phase 2 |
+
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 14. **Future Extension:** Section 15.
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 14 (core ML), Section 20 (Risk/Decision Intelligence). **Future Extension:** Section 15. **Weighted Risk Formula:** Section 16. **Optimizer & Allocation Scoring:** Section 17. **Risk Intelligence Methodology:** Section 18. **Decision Intelligence Methodology:** Section 19.
 - Baseline for Document 13 (Testing Documentation — model evaluation test cases).

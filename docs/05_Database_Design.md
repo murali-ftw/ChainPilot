@@ -47,6 +47,7 @@ erDiagram
     ORDERS ||--o{ ORDER_ITEMS : "contains"
     PRODUCTS ||--o{ ORDER_ITEMS : "ordered as"
     ORDERS ||--o{ SHIPMENTS : "fulfilled by"
+    CUSTOMERS ||--o{ ORDERS : "places"
     DOCUMENTS }o--|| SUPPLIERS : "references"
 
     SUPPLIERS ||--o{ RISK_SCORES : "scored"
@@ -60,8 +61,13 @@ erDiagram
     ALERTS ||--o{ NOTIFICATIONS : "sends"
     ACTION_REQUESTS ||--o{ ACTION_LOG : "executed as"
     SUPPLIERS ||--o{ ACTION_REQUESTS : "recommended alternative"
+    ORDERS ||--o{ ACTION_REQUESTS : "allocation target"
 
     CHAT_SESSIONS ||--o{ CHAT_MESSAGES : "contains"
+
+    MODEL_EVALUATION_RUNS }o--|| RISK_SCORES : "loosely joined by model_version"
+    MODEL_REGISTRY }o--|| RISK_SCORES : "loosely joined by model_version"
+    MODEL_REGISTRY }o--|| MODEL_EVALUATION_RUNS : "loosely joined by model_version"
 ```
 
 ## 6. Table Specifications
@@ -230,17 +236,19 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | order_number | VARCHAR(100) | NOT NULL, UNIQUE |
-| customer_name | VARCHAR(255) | NOT NULL |
+| customer_id | UUID | NOT NULL, FK → `customers(id)` (Section 6.24) |
+| customer_name | VARCHAR(255) | DEPRECATED — retained temporarily as a denormalized display fallback during migration; dropped in a follow-up migration once `customer_id` is backfilled (Section 7) |
 | status | order_status ENUM(`open`,`fulfilled`,`cancelled`,`at_risk`) | NOT NULL, default `open` |
 | placed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 | due_at | TIMESTAMPTZ | NULL |
+| order_value | NUMERIC(14,2) | NULL — used as a ranking input for shortage allocation (FR-CUST-02) |
 | created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
-- **Indexes:** UNIQUE index on `order_number`; index on `status`; index on `due_at`.
-- **Relationships:** parent of `order_items.order_id`; referenced by `shipments.order_id`, `risk_scores` (entity_type='order').
+- **Indexes:** UNIQUE index on `order_number`; index on `status`; index on `due_at`; index on `customer_id`.
+- **Relationships:** parent of `order_items.order_id`; child of `customers`; referenced by `shipments.order_id`, `risk_scores` (entity_type='order'), `action_requests` (allocation target, entity_type='order').
 - **Audit:** status transitions tracked via `updated_at`; `at_risk` transitions also written to `audit_log` for traceability back to a `risk_scores` row.
-- **Delivery Phase:** Phase 1
+- **Delivery Phase:** Phase 1 (table); `customer_id` added and backfilled Phase 1, `customer_name` dropped in a deferred follow-up migration (Section 7)
 
 ### 6.10 `order_items`
 
@@ -314,13 +322,17 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | delay_probability | NUMERIC(5,4) | NULL, CHECK (0 <= delay_probability <= 1) |
 | shortage_risk | NUMERIC(5,4) | NULL, CHECK (0 <= shortage_risk <= 1) |
 | impact_score | NUMERIC(5,4) | NOT NULL, CHECK (0 <= impact_score <= 1) |
-| model_version | VARCHAR(50) | NOT NULL |
+| confidence | NUMERIC(5,4) | NULL, CHECK (0 <= confidence <= 1) — Risk Intelligence Layer output (FR-RISKINT-01) |
+| risk_category | risk_category ENUM(`low`,`medium`,`high`,`critical`) | NOT NULL, default `low` — Risk Intelligence Layer categorization (FR-RISKINT-02) |
+| scoring_method | scoring_method ENUM(`gnn_native`,`weighted_formula`) | NOT NULL, default `weighted_formula` |
+| model_version | VARCHAR(50) | NOT NULL — e.g. `graphsage-v1`, `gat-v1`, `hgt-v1` per the architecture ablation (FR-ABL-01) |
 | scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
-- **Indexes:** composite index on (`entity_type`, `entity_id`, `scored_at` DESC) — primary access pattern for both current score and trend timeline; index on `impact_score` for Risk Dashboard sorting.
-- **Relationships:** polymorphic reference to `suppliers`/`products`/`orders`/`shipments` via (`entity_type`,`entity_id`); parent of `explanation_subgraphs.risk_score_id`, `alerts.risk_score_id`.
+- **Indexes:** composite index on (`entity_type`, `entity_id`, `scored_at` DESC) — primary access pattern for both current score and trend timeline; index on `impact_score` for Risk Dashboard sorting; index on `model_version` (architecture comparison, FR-ABL-02); index on `risk_category` (Risk Dashboard triage filtering, FR-RISKINT-02).
+- **Relationships:** polymorphic reference to `suppliers`/`products`/`orders`/`shipments` via (`entity_type`,`entity_id`); parent of `explanation_subgraphs.risk_score_id`, `alerts.risk_score_id`; loosely joined to `model_evaluation_runs.model_version` and `model_registry.model_version` (Sections 6.23, 6.25, not a hard FK).
 - **Audit:** immutable — rows are append-only, forming the trend history by construction; never updated in place.
-- **Delivery Phase:** Phase 1 (table + scoring); Phase 2 (trend timeline consumption)
+- **Delivery Phase:** Phase 1 (table + scoring, incl. `scoring_method`, `confidence`, `risk_category` — the Risk Intelligence Layer's output columns); Phase 2 (trend timeline consumption)
+- **Migration:** `scoring_method`, `confidence`, and `risk_category` are additive columns with defaults; no backfill risk for existing rows (Enhancement Addendum §4.3).
 
 ### 6.14 `explanation_subgraphs`
 
@@ -383,11 +395,12 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | alert_id | UUID | NULL, FK → `alerts(id)` |
-| source | action_source ENUM(`llm_explanation`,`recommendation`,`chatbot`) | NOT NULL |
+| source | action_source ENUM(`llm_explanation`,`recommendation`,`chatbot`,`optimizer`) | NOT NULL |
 | entity_type | entity_type ENUM(`supplier`,`product`,`order`,`shipment`) | NOT NULL |
 | entity_id | UUID | NOT NULL |
 | recommended_supplier_id | UUID | NULL, FK → `suppliers(id)` |
-| action_payload | JSONB | NOT NULL — structured description of the proposed action |
+| action_payload | JSONB | NOT NULL — structured description of the proposed action (e.g. optimizer PO-split/safety-stock/allocation output, incl. objective and constraint values) |
+| decision_trace | JSONB | NULL — records which layer(s) (Risk Intelligence, Decision Intelligence, Optimization, LLM) contributed to this recommendation (FR-DEC-03) |
 | status | action_status ENUM(`pending`,`approved`,`rejected`,`executed`,`failed`) | NOT NULL, default `pending` |
 | rejection_reason | TEXT | NULL, required when `status='rejected'` (enforced at application layer) |
 | decided_by | UUID | NULL, FK → `users(id)` |
@@ -395,9 +408,9 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
 - **Indexes:** index on `status`; index on (`entity_type`, `entity_id`).
-- **Relationships:** optional child of `alerts`; optional reference to `suppliers` (recommender integration, FR-REC-04); `decided_by` FK to `users`; parent of `action_log.action_request_id`.
+- **Relationships:** optional child of `alerts`; optional reference to `suppliers` (recommender integration, FR-REC-04); `decided_by` FK to `users`; parent of `action_log.action_request_id`. Customer allocation decisions (FR-CUST-02/03) reuse this table with `entity_type='order'` and `source='optimizer'` — no dedicated allocation table is introduced.
 - **Audit:** every status transition, and the deciding user, is authoritative audit data in this table itself, additionally mirrored into `audit_log` for a unified cross-entity audit view (NFR-15).
-- **Delivery Phase:** Phase 2
+- **Delivery Phase:** Phase 2. **Migration:** `ALTER TYPE action_source ADD VALUE 'optimizer';` and `ADD COLUMN decision_trace JSONB` — both additive, non-breaking.
 
 ### 6.18 `action_log`
 
@@ -492,11 +505,91 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 - **Audit:** this table *is* the audit mechanism; it is append-only and never updated or deleted by the application.
 - **Delivery Phase:** Phase 1 (authentication events); Phase 2 (approval and action events)
 
+### 6.23 `model_evaluation_runs`
+
+**Purpose:** Persisted classification/regression evaluation metrics for every training run, keyed by architecture and model version — the source of the architecture ablation comparison (FR-ABL-01/02) and evaluation history API (FR-EVAL-01/02).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| model_version | VARCHAR(50) | NOT NULL |
+| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer` |
+| metric_name | VARCHAR(50) | NOT NULL — e.g. `precision`, `recall`, `f1`, `roc_auc`, `mae`, `rmse`, `mape` |
+| metric_value | NUMERIC(10,6) | NOT NULL |
+| dataset_split | dataset_split ENUM(`train`,`validation`,`test`) | NOT NULL, default `test` |
+| evaluated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`model_version`, `metric_name`); index on `architecture` — primary access pattern for the ablation comparison (FR-ABL-02).
+- **Relationships:** loosely joined to `risk_scores.model_version` (not a hard FK — evaluation runs may exist before any scores are logged under that version).
+- **Audit:** immutable, append-only, one row per (`model_version`, `metric_name`, `dataset_split`); satisfies NFR-19.
+- **Delivery Phase:** Phase 1
+
+### 6.24 `customers`
+
+**Purpose:** First-class customer entity with priority tier and contract attributes (FR-CUST-01), replacing the free-text `orders.customer_name` field and supplying the ranking inputs for shortage allocation (FR-CUST-02).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| name | VARCHAR(255) | NOT NULL |
+| priority_tier | customer_priority_tier ENUM(`strategic`,`standard`,`low`) | NOT NULL, default `standard` |
+| contract_terms | JSONB | NULL — SLA days, penalty clause, contract value; scoped to only the fields actually available in the project's dataset (Document 1, Section 12 assumption) |
+| is_active | BOOLEAN | NOT NULL, default `true` |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+| updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** index on `priority_tier` (primary access pattern for allocation ranking, FR-CUST-02); index on `is_active`.
+- **Relationships:** parent of `orders.customer_id`.
+- **Audit:** `updated_at` tracked; priority-tier changes also written to `audit_log` since they directly affect allocation ranking outcomes.
+- **Delivery Phase:** Phase 1 (table + CRUD); Phase 2 (consumed by allocation ranking)
+
+### 6.25 `model_registry`
+
+**Purpose:** Lightweight model-governance record per trained model version (FR-GOV-01/02) — the source of Model Metadata panels and the currently `active` model lookup. Deliberately not a full MLOps registry: no automated promotion/rollback, just the facts a reviewer needs to trust a model version.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| model_version | VARCHAR(50) | NOT NULL, UNIQUE |
+| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer` |
+| training_dataset | VARCHAR(255) | NULL — reference/description of the dataset snapshot used |
+| training_timestamp | TIMESTAMPTZ | NOT NULL |
+| experiment_id | VARCHAR(100) | NULL |
+| git_commit | VARCHAR(40) | NULL |
+| hyperparameters | JSONB | NULL |
+| parameter_count | BIGINT | NULL |
+| purpose | VARCHAR(255) | NULL — e.g. `ablation baseline`, `final candidate` |
+| status | model_status ENUM(`training`,`evaluating`,`candidate`,`active`,`archived`) | NOT NULL, default `training` |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** UNIQUE index on `model_version`; index on `status` (primary access pattern for the "currently active model" lookup); index on `architecture`.
+- **Relationships:** loosely joined to `risk_scores.model_version` and `model_evaluation_runs.model_version` (Section 6.23, not a hard FK — same polymorphic-by-convention pattern used throughout this schema).
+- **Audit:** immutable once `status` reaches `active`, per NFR-24 — only further `status` transitions (e.g. `active` → `archived`) are permitted after that point; all other fields are write-once at insert.
+- **Delivery Phase:** Phase 1
+
 ## 7. Migration Strategy
 
-- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `orders`, `order_items`, `shipments`, `documents`, `risk_scores`, `explanation_subgraphs`, `audit_log`.
-- Phase 2 migration set adds: `alert_thresholds`, `alerts`, `action_requests`, `action_log`, `chat_sessions`, `chat_messages`, `notifications` — purely additive, no Phase 1 table is altered in a breaking way (Document 2, Section 3.1 additive-architecture principle).
+- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents`, `risk_scores` (incl. `scoring_method`, `confidence`, `risk_category`), `explanation_subgraphs`, `model_evaluation_runs`, `model_registry`, `audit_log`.
+- Phase 2 migration set adds: `alert_thresholds`, `alerts`, `action_requests` (incl. `optimizer` enum value on `source`, `decision_trace` column), `action_log`, `chat_sessions`, `chat_messages`, `notifications` — purely additive, no Phase 1 table is altered in a breaking way (Document 2, Section 3.1 additive-architecture principle).
 - Migrations are managed via a version-controlled tool (e.g., Alembic) per Document 11 (Implementation Guide).
+
+### 7.1 Enhancement Migration Sequence
+
+The five Enhancement Addendum changes apply in this order, consolidating the additive-vs-breaking distinction:
+
+| Order | Change | Type |
+|---|---|---|
+| 1 | Add `scoring_method` to `risk_scores` | Additive column |
+| 2 | Create `model_evaluation_runs` | New table |
+| 3 | Create `customers` | New table |
+| 4 | Add `orders.customer_id`, backfill from `orders.customer_name`, enforce NOT NULL | Additive + backfill |
+| 5 | Extend `action_source` enum with `optimizer` | Additive enum value |
+| 6 | Drop `orders.customer_name` | Breaking (deferred, run only after backfill is verified and no code path reads it directly) |
+| 7 | Add `confidence`, `risk_category` to `risk_scores` | Additive columns |
+| 8 | Create `model_registry` | New table |
+| 9 | Add `decision_trace` to `action_requests` | Additive column |
+
+All steps are additive except Step 6, which is intentionally sequenced last and separately, consistent with the additive-architecture principle above.
 
 ## 8. Risks
 
@@ -505,6 +598,11 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | DB-01 | Polymorphic `entity_type`/`entity_id` references (in `risk_scores`, `action_requests`, `audit_log`) bypass native FK integrity | Application-layer validation enforces referential integrity; covered explicitly in Document 8 repository layer and Document 13 test cases | Phase 1 |
 | DB-02 | High-frequency `risk_scores` inserts (one per entity per model run) could grow the table quickly | Index strategy (Section 6.13) supports efficient trend queries; retention/archival policy considered under Future Extension | Phase 1 |
 | DB-03 | `action_requests.rejection_reason` required-when-rejected rule is not a native CHECK constraint | Enforced at the application/service layer (Document 8); covered by Document 13 validation test cases | Phase 2 |
+| DB-04 | `risk_scores.scoring_method` conflated by downstream code assuming a single scoring source | Column is NOT NULL with a default from day one (Section 6.13); API responses (Document 9) surface it explicitly | Phase 1 |
+| DB-05 | `orders.customer_name` drop (migration step 6, Section 7.1) breaks a code path not yet updated to `customer_id` | Sequenced as a separate, later migration only after grepping the codebase for direct `customer_name` reads | Phase 1/2 |
+| DB-06 | Customer priority/contract data (`customers.contract_terms`) unavailable or incomplete in the project's dataset | `contract_terms` scoped to only the fields actually present rather than left as an aspirational JSONB blob (Document 1, Section 12 assumption) | Phase 2 |
+| DB-07 | `model_registry` row edited after `status='active'`, undermining governance trust | Application layer permits only `status` updates once a row is `active` (NFR-24); enforced in the repository layer (Document 8), covered by Document 13 test cases | Phase 1 |
+| DB-08 | `action_requests.decision_trace` left NULL for an approved/rejected row, breaking audit coverage | Service layer populates `decision_trace` at creation time for every `action_requests` row (Document 8), not optional/best-effort (NFR-23) | Phase 2 |
 
 ## 9. Future Extension
 
