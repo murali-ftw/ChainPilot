@@ -14,7 +14,7 @@ This document specifies how the system is actually built and shipped by a five-p
 
 ## 2. Scope
 
-Covers the full 15-week Phase 1 build and the Phase 2 extension workflow through March 2027, consistent with Document 1's delivery strategy.
+Covers the full 15-week Phase 1 build and the Phase 2 extension workflow through early April 2027, consistent with Document 1's delivery strategy.
 
 ## 3. Assumptions
 
@@ -170,6 +170,7 @@ Because the schema strategy (Document 5, Section 7) is additive-only, rollback r
 | IG-03 | Manual deployment steps (Section 13) are error-prone without a dedicated ops team | Steps scripted (`Makefile`/shell scripts) rather than run ad hoc, reducing manual-step risk | Phase 1 |
 | IG-04 | Enhancement Addendum schema changes (Document 5, Section 7.1) — `customers`, `model_evaluation_runs`, `scoring_method`, `orders.customer_id` backfill — are additive but sequence-sensitive | Migration order enforced exactly as Document 5, Section 7.1 lists it; `orders.customer_name` drop (step 6) run only as a separate, later migration after backfill verification | Phase 1 |
 | IG-05 | `model_registry`, `confidence`/`risk_category` on `risk_scores`, and `decision_trace` on `action_requests` (Document 5, Section 7) are new/additive but easy to miss if the training pipeline or Decision Intelligence Service isn't updated in lockstep with the migration | Migration and the code path that populates the new columns land in the same PR, gated by the CI build/test check (Section 9) — a migration without a populating code path fails integration tests (Document 13) | Phase 1 (schema), Phase 2 (`decision_trace`) |
+| IG-06 | New backend modules (Document 8, Section 5) — `analytics/` (SPOF, segmentation, concentration, Phase 1) and the planned `lead_time/`, `link_prediction/`, `promise_date/` modules (Phase 2, `updates/New_Features.md`) — land without the migrations they depend on (Document 5, Sections 6.26–6.34) | Each module's migration and code path land in the same PR (same discipline as IG-05); the Layer 2 upgrade's own modules (Transformer 1/2, Markov scoping) are explicitly excluded from any Phase 1 or Phase 2 module addition until committed — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid** | Phase 1 (`analytics/`), Phase 2 (`lead_time/`, `link_prediction/`, `promise_date/`) |
 
 ## 16. Future Extension
 

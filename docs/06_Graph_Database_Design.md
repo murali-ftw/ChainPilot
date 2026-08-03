@@ -31,6 +31,7 @@ Document 5 (source tables), Document 4 Section 6 (Graph Construction Flow), Docu
 | Node Type | Source Table (Document 5) | Key Properties | Delivery Phase |
 |---|---|---|---|
 | `Supplier` | `suppliers` | `id`, `country`, `capacity_score`, `lead_time_days`, `reliability_history` | Phase 1 |
+| `Supplier` (pending amendment) | `suppliers` | `tier`, `is_frontier` — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full definition: `updates/Supplier_Risk_Prediction.md` §7.1, Document 5 §6.36. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
 | `Component` | `components` | `id`, `component_type`, `unit_cost` | Phase 1 |
 | `Product` | `products` | `id`, `sku`, `category` | Phase 1 |
 | `Factory` | `factories` | `id`, `location`, `capacity_units_per_day` | Phase 1 |
@@ -55,6 +56,7 @@ All node types additionally carry a `risk_embedding` vector property populated a
 | `ORDERED` | `Order → Product` | `order_items` | `quantity` | Phase 1 |
 | `PLACED_BY` | `Order → Customer` | `orders.customer_id` | — | Phase 1 |
 | `SIMILAR_TO` | `Supplier → Supplier` | derived at inference time from embedding cosine similarity (not persisted from PostgreSQL) | `similarity_score` | Phase 2 (Alternative-Supplier Recommender) |
+| `SUB_SUPPLIES` | `Supplier → Supplier` | `supplier_relationships` (Document 5 §6.36) — sparse tier-2+ upstream/downstream edges | `tier`, `source`, `confidence` | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
 
 ```mermaid
 flowchart LR
@@ -69,7 +71,10 @@ flowchart LR
     ORD -->|ORDERED| PROD
     ORD -->|PLACED_BY| CUST["Customer"]
     SUP -.SIMILAR_TO\nPhase 2.-> SUP
+    SUP -.SUB_SUPPLIES\nNot committed.-> SUP
 ```
+
+**`SUB_SUPPLIES` status:** every reference to this edge type — here, in Document 5 §6.36, and anywhere else it is mentioned — carries the same tag: **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full specification: `updates/Supplier_Risk_Prediction.md` §6.3, §7.2, §7.7.
 
 ## 7. Node and Edge Properties — Tensor Encoding
 

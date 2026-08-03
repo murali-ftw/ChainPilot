@@ -14,7 +14,7 @@ This document specifies every screen in the React dashboard: its purpose, compon
 
 ## 2. Scope
 
-21 screens are specified: Login, Dashboard, Supply Chain Graph, Risk Dashboard, Supplier, Warehouse, Orders, Shipments, Products, Inventory, Model Comparison, Customers, Chatbot, What-if Simulator, Recommendation, Allocation, Alerts, Admin, Audit, Profile, Settings. Each is tagged with a Delivery Phase; Phase 2 screens are stubbed but hidden behind feature flags in the Phase 1 build to avoid dead UI surface. Three cross-cutting components — a **Confidence Panel**, a **Model Metadata Panel**, and a **Decision Trace Panel** — are not separate screens; they are embedded wherever their underlying data appears (Risk Dashboard, Supplier/Supply-Chain-Graph detail, Model Comparison, and the Alerts/Approval detail view respectively), per Document 1's confidence/governance/decision-audit requirements (FR-CONF-01/02, FR-GOV-01/02, FR-DEC-03).
+22 screens are specified: Login, Dashboard, Supply Chain Graph, Risk Dashboard, Supplier, Warehouse, Orders, Shipments, Products, Inventory, Model Comparison, Customers, Analytics, Chatbot, What-if Simulator, Recommendation, Allocation, Alerts, Admin, Audit, Profile, Settings. Each is tagged with a Delivery Phase; Phase 2 screens are stubbed but hidden behind feature flags in the Phase 1 build to avoid dead UI surface. Three cross-cutting components — a **Confidence Panel**, a **Model Metadata Panel**, and a **Decision Trace Panel** — are not separate screens; they are embedded wherever their underlying data appears (Risk Dashboard, Supplier/Supply-Chain-Graph detail, Model Comparison, and the Alerts/Approval detail view respectively), per Document 1's confidence/governance/decision-audit requirements (FR-CONF-01/02, FR-GOV-01/02, FR-DEC-03). Two further cross-cutting panels are embedded in existing screens rather than being separate screens: a **Lead-Time Prediction panel** (Shipments detail, Section 6.8, Phase 2) and a **Hidden-Dependency Insights panel** (Supply Chain Graph, Section 6.3 — Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid, since it visualizes Transformer 2's output per `updates/Supplier_Risk_Prediction.md`).
 
 ## 3. Assumptions
 
@@ -48,6 +48,7 @@ flowchart LR
         NAV --> INV["Inventory"]
         NAV --> MODCMP["Model Comparison"]
         NAV --> CUST["Customers"]
+        NAV --> ANALYTICS["Analytics\n(SPOF, Segmentation, Concentration)"]
         NAV --> CHAT["Chatbot*"]
         NAV --> SIM["What-if Simulator*"]
         NAV --> REC["Recommendation*"]
@@ -102,7 +103,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | Interactive, risk-colored visualization of the full heterogeneous supply chain graph (FR-DASH-01). |
-| Components | D3 force-directed/graph canvas, node-type legend, risk-color legend, zoom/pan controls, node detail side panel on selection, explainability overlay toggle* (Phase 2), what-if entry point* (Phase 2). |
+| Components | D3 force-directed/graph canvas, node-type legend, risk-color legend, zoom/pan controls, node detail side panel on selection, explainability overlay toggle* (Phase 2), what-if entry point* (Phase 2), **Hidden-Dependency Insights toggle**† — highlights the strongest `hidden_dependency_links` supplier pairs (Transformer 2's discovered correlations, `updates/Supplier_Risk_Prediction.md` Section 6.3) as dashed cross-graph edges with attention-weight tooltips. |
 | Layout | Full-width canvas with a collapsible right-hand detail panel. |
 | Navigation | Selecting a node opens its detail panel; "view full record" links to the corresponding entity screen (Supplier/Warehouse/Order/etc.). |
 | Validation | N/A (visualization screen); simulator input validation is specified under 6.11. |
@@ -111,7 +112,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Empty State | "No graph data available" if no entities exist yet. |
 | Permissions | All authenticated roles (view); simulation controls restricted per Section 6.11. |
 | Responsive Behaviour | Detail panel collapses to a bottom sheet below tablet width; canvas remains pan/zoomable via touch. |
-| Delivery Phase | Phase 1 (graph view); explainability overlay and simulator entry points Phase 2 |
+| Delivery Phase | Phase 1 (graph view); explainability overlay and simulator entry points Phase 2; †Hidden-Dependency Insights toggle — Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
 
 ### 6.4 Risk Dashboard
 
@@ -182,7 +183,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | List and detail view of shipments, including delay probability. |
-| Components | Shipment list (filter by route/status/risk), detail view (origin/destination, carrier, ETA, delay probability, linked order). |
+| Components | Shipment list (filter by route/status/risk), detail view (origin/destination, carrier, ETA, delay probability, linked order), **Lead-Time Prediction panel*** (Phase 2) — predicted delay in days (`lead_time_predictions`, `updates/New_Features.md` F-05), shown alongside the existing binary delay probability, not replacing it. |
 | Layout | Master-detail list/table. |
 | Navigation | Detail links to Orders and Suppliers. |
 | Validation | Filter/date constraints. |
@@ -191,7 +192,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Empty State | "No shipments found." |
 | Permissions | All authenticated roles (view). |
 | Responsive Behaviour | Table → stacked cards. |
-| Delivery Phase | Phase 1 |
+| Delivery Phase | Phase 1 (core list/detail); Lead-Time Prediction panel Phase 2 |
 
 ### 6.9 Products
 
@@ -358,7 +359,7 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Attribute | Specification |
 |---|---|
 | Purpose | Side-by-side comparison of the GraphSAGE, GAT, and Heterogeneous Graph Transformer architectures, with the documented research rationale for each stage (Document 10, Section 8.4), justifying the final architecture selection (FR-ABL-02) and surfacing persisted evaluation history (FR-EVAL-02) and model governance (FR-GOV-01/02). |
-| Components | Architecture comparison table/cards (Precision, Recall, F1, ROC-AUC, inference time per architecture) each annotated with its "why this stage / documented limitation" rationale, evaluation-run history list filterable by `model_version`/`metric_name`, regression metrics (MAE/RMSE/MAPE) shown if applicable, and a **Model Metadata Panel** (training dataset, timestamp, experiment ID, git commit, hyperparameters, parameter count, lifecycle `status`) sourced from `GET /api/v1/models/registry` / `/active` (Document 9, Section 9.5). |
+| Components | Architecture comparison table/cards (Precision, Recall, F1, ROC-AUC, inference time per architecture) each annotated with its "why this stage / documented limitation" rationale, evaluation-run history list filterable by `model_version`/`metric_name`/**`task`** (Document 5, Section 6.23 `task` column — distinguishes `risk_prediction` from supplementary tasks like `lead_time_regression`, `supplier_segmentation`, `link_prediction`, `component_criticality`, etc., per `updates/New_Features.md` Section 5.1), regression metrics (MAE/RMSE/MAPE) shown if applicable, and a **Model Metadata Panel** (training dataset, timestamp, experiment ID, git commit, hyperparameters, parameter count, lifecycle `status`) sourced from `GET /api/v1/models/registry` / `/active` (Document 9, Section 9.5). |
 | Layout | Three-column comparison card row (one per architecture, each with its rationale) above a filterable evaluation-run history table and a Model Metadata Panel for the currently active model. |
 | Navigation | Sidebar entry; links to Risk Dashboard for the currently active `model_version`. |
 | Validation | Filter inputs constrained to known `architecture`/`metric_name` enum values. |
@@ -400,6 +401,22 @@ Each screen is documented with: Purpose, Components, Layout, Navigation, Validat
 | Permissions | View: Analyst, Approver, Admin. Approve/adjust: Approver, Admin only. |
 | Responsive Behaviour | Table converts to stacked card rows below tablet width. |
 | Delivery Phase | Phase 2 |
+
+### 6.22 Analytics
+
+| Attribute | Specification |
+|---|---|
+| Purpose | Supplementary, non-ML analytical readouts that reuse the existing graph and structured data: single-point-of-failure (SPOF) analysis, supplier segmentation, and geographic/spend concentration (`updates/New_Features.md`, F-01–F-04). |
+| Components | Four tabs: **SPOF** (per-supplier reachable product/order counts and order-value share, `spof_analysis`, FR-SPOF-01/02), **Segmentation** (supplier segment cluster cards with dominant real-world traits, `supplier_segments`, FR-SEG-01/02), **Geographic Concentration** (exposure-share bar chart by country/location, `geographic_exposure_snapshots`, FR-GEO-01), **Spend Concentration** (top-vendor share by component type, `spend_concentration_snapshots`, FR-SPEND-01). Every tab carries a persistent banner: **"Graph/SQL analysis — not a model output"** (Section 10, ML-19 equivalent UX control), so these findings are never mistaken for ML results. |
+| Layout | Tabbed single-column layout; each tab is a full-width chart/table. |
+| Navigation | Sidebar entry; SPOF/concentration rows link to the relevant Supplier detail screen. |
+| Validation | N/A (read-only). |
+| Loading State | Skeleton chart/table per tab while its snapshot loads. |
+| Error State | Retry-capable error banner per tab, independent of the other three. |
+| Empty State | "No analysis computed yet" per tab if the corresponding batch job has not yet run. |
+| Permissions | All authenticated roles (view) — spend/SPOF concentration findings reveal sole-source dependencies, so export/download (if added later) should be restricted per Document 12's forthcoming note on this screen. |
+| Responsive Behaviour | Tabs collapse to a dropdown selector below tablet width; charts scale to full width. |
+| Delivery Phase | Phase 1 |
 
 ## 7. Cross-Cutting UX Rules
 

@@ -338,6 +338,25 @@ Reads-facing endpoint over the Decision Intelligence → Optimization pipeline (
 **Errors:** `404 NOT_FOUND` (no model currently `active`), `422 VALIDATION_ERROR` (invalid `status` filter).
 **Delivery Phase:** Phase 1
 
+### 9.6 Analytics Endpoints (Phase 1) — `updates/New_Features.md` F-01–F-04
+
+**`GET /api/v1/analytics/spof?supplier_id=`**
+
+| Field | Value |
+|---|---|
+| Authentication | Bearer JWT (any role) |
+
+**Response `200 OK`:** `{ "items": [ { "supplier_id": "a1b2...", "reachable_product_count": 12, "reachable_order_count": 340, "pct_of_total_order_value": 0.47 } ] }`
+
+**`GET /api/v1/analytics/segments`** — returns each supplier's `segment_label` and `embedding_model_version` (`supplier_segments`, Document 5 §6.27).
+
+**`GET /api/v1/analytics/concentration/geographic`** — returns `geographic_exposure_snapshots` (Document 5 §6.28), latest snapshot per `dimension`/`dimension_value`.
+
+**`GET /api/v1/analytics/concentration/spend`** — returns `spend_concentration_snapshots` (Document 5 §6.29), latest snapshot per `component_type`.
+
+**Errors (all four):** `422 VALIDATION_ERROR` (unknown filter value). No `404` for an empty result set — an empty `items` array is a valid, non-error response.
+**Delivery Phase:** Phase 1
+
 ## 10. Chatbot Endpoints (Phase 2)
 
 ### 10.1 `POST /api/v1/chat/sessions`
@@ -430,6 +449,24 @@ All three endpoints below are invoked by the Decision Intelligence Service once 
 
 **Errors (all three):** `422 VALIDATION_ERROR` (no optimal/feasible solution — surfaced as `{ "optimal": false, "reason": "..." }` in a `200 OK`, not forced into a recommendation, per NFR-20).
 **Delivery Phase:** Phase 2 — approving any result creates an `action_requests` row with `source='optimizer'` and a populated `decision_trace` via the Approval Endpoints (Section 13).
+
+### 12.3 Supplementary Prediction Endpoints (Phase 2) — `updates/New_Features.md` F-05, F-08, F-09
+
+**`GET /api/v1/predictions/shipments/{shipment_id}/lead-time`**
+
+**Response `200 OK`:** `{ "shipment_id": "sh1...", "predicted_delay_days": 4.2, "model_version": "hgt-v1" }` (`lead_time_predictions`, Document 5 §6.30).
+
+**`GET /api/v1/orders/{order_id}/promise-date-feasibility?requested_date=`**
+
+**Response `200 OK`:** `{ "order_id": "o1...", "requested_date": "2026-12-01", "feasible": true, "predicted_ship_date": "2026-11-28", "binding_constraint": null }` (`promise_date_feasibility`, Document 5 §6.32).
+
+**`GET /api/v1/analytics/hidden-links?supplier_id=`**
+
+Surfaces top-k link-prediction candidates for a supplier — from `link_prediction_scores` (Document 5 §6.33, F-09's dedicated decoder), distinct from `hidden_dependency_links` (Document 5 §6.38, Transformer 2's attention weights — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid**; this endpoint does not expose that table until the Layer 2 upgrade itself is committed).
+
+**Response `200 OK`:** `{ "items": [ { "node_a_id": "s1...", "node_b_id": "s2...", "predicted_probability": 0.81, "decoder": "distmult" } ] }`
+**Errors (all three):** `404 NOT_FOUND` (no prediction exists yet for this entity).
+**Delivery Phase:** Phase 2
 
 ## 13. Approval Endpoints (Phase 2)
 

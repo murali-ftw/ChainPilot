@@ -162,7 +162,7 @@ flowchart TD
 
 ## 5. Interactive Chatbot and Extended Decision-Support Features
 
-These eight additions are deliberately **not** new architectural layers. Each one reuses an output that a layer already produces, so they add usability and demo strength without adding modeling risk.
+These eight additions are deliberately **not** new architectural layers. Each one reuses an output that a layer already produces, so they add usability and demo strength without adding modeling risk. A small set of supplementary analytical features — single-point-of-failure analysis, supplier segmentation, and geographic/spend concentration analysis — extend the dashboard the same way, reading directly off Layer 1's graph and Layer 2's embeddings without adding a new modeling layer (see `updates/New_Features.md`).
 
 ### 5.1 Interactive Chatbot
 

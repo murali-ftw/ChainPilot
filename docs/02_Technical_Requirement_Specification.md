@@ -162,10 +162,13 @@ flowchart TB
 | Data processing | Pandas, Scikit-learn, NetworkX | Phase 1 |
 | ML framework | PyTorch, PyTorch Geometric | Phase 1 |
 | GNN architectures | GraphSAGE / GAT baseline, Heterogeneous Graph Transformer, trained and evaluated as a progressive ablation | Phase 1 |
+| Supplier segmentation | Scikit-learn (k-means clustering, silhouette/Davies-Bouldin scoring) over existing supplier embeddings — `updates/New_Features.md` F-02 | Phase 1 |
+| Single-point-of-failure analysis | NetworkX (graph traversal/reachability, no model) — `updates/New_Features.md` F-01 | Phase 1 |
 | Evaluation metrics | Scikit-learn (Precision/Recall/F1/ROC-AUC, MAE/RMSE/MAPE) | Phase 1 |
 | Explainability | GNNExplainer | Phase 1 |
 | What-if support | Monte Carlo simulation utilities over trained model | Phase 2 |
-| Optimization | Google OR-Tools (constraint solver) | Phase 2 |
+| Hidden link prediction decoder | DistMult or two-layer MLP scoring function over node-embedding pairs — `updates/New_Features.md` F-09 | Phase 2 (full pretrain-finetune pipeline); Phase 1 stretch experiment possible |
+| Optimization | Google OR-Tools — **CP-SAT solver specifically, not the LP/MIP solver**, since allocation units are discrete integers — `updates/Supplier_Risk_Prediction.md` Section 6.5 | Phase 2 |
 | Vector database | pgvector (co-located with PostgreSQL) or Weaviate | Phase 2 |
 | Embedding model | Embedding model via LLM API provider | Phase 2 |
 | LLM | LLM API (chat/completion) | Phase 2 |

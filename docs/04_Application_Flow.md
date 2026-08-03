@@ -14,15 +14,15 @@ This document specifies the end-to-end operational flows that tie the components
 
 ## 2. Scope
 
-Thirteen flows, tagged by Delivery Phase:
+Eighteen flows, tagged by Delivery Phase:
 
 | Flow | Delivery Phase |
 |---|---|
 | Authentication Flow | Phase 1 |
 | Graph Construction Flow | Phase 1 |
 | Prediction Flow | Phase 1 |
-| RAG Flow | Phase 2 |
-| Chatbot Flow | Phase 2 |
+| RAG Flow | Phase 2 (a thin single-supplier slice ships Phase 1, per Document 1 Section 2.1 item 20 — same flow, reduced scope) |
+| Chatbot Flow | Phase 2 (one-turn Q&A slice ships Phase 1, per Document 1 Section 2.1 item 20) |
 | Approval Flow | Phase 2 |
 | Alert Flow | Phase 2 |
 | MCP Flow | Phase 2 |
@@ -32,6 +32,10 @@ Thirteen flows, tagged by Delivery Phase:
 | Optimizer Flow (Section 19) | Phase 2 |
 | Customer Allocation Flow (Section 20) | Phase 2 |
 | Decision Intelligence Flow (Section 21) | Phase 2 |
+| SPOF Analysis Flow (Section 22) | Phase 1 |
+| Supplier Segmentation Flow (Section 23) | Phase 1 |
+| What-If Simulator Flow (Section 24) | Phase 2 |
+| Alternative-Supplier Recommender Flow (Section 25) | Phase 2 |
 
 Risk Intelligence (confidence, business aggregation, categorization) is not a separate flow — it is an explicit step inside the Prediction Flow (Section 7), since it runs synchronously on every prediction request rather than being independently triggered.
 
@@ -493,9 +497,102 @@ sequenceDiagram
 - **Failure handling:** an ambiguous decision type that doesn't clearly match one of the three closed-form types defaults to the LLM path rather than being forced into the optimizer (Document 1, Risk R-13); a missing `decision_trace` blocks the row from being marked ready for approval (NFR-23).
 - **Delivery Phase:** Phase 2
 
+## 22. SPOF Analysis Flow
+
+**Trigger:** Scheduled batch job (or on-demand refresh from the Analytics screen, Document 3 Section 6.22).
+
+```mermaid
+flowchart TD
+    A["Scheduled/on-demand trigger"] --> B["Build NetworkX DiGraph\nfrom same source as HeteroData (Document 6 §6)"]
+    B --> C["For each Supplier: BFS/DFS forward\nalong SUPPLIES->USED_IN->STOCKED_AT/ORDERED->PLACED_BY"]
+    C --> D["Aggregate reachable product/order counts,\norder-value share"]
+    D --> E["Persist to spof_analysis (Document 5)"]
+    E --> F["Analytics screen: SPOF tab"]
+```
+
+- **Steps:** trigger → build traversal graph from the same structured source Graph Construction uses → per-supplier reachability computation (no ML) → aggregate and persist → surface on the Analytics screen (FR-SPOF-01/02).
+- **Failure handling:** a failed traversal run leaves the prior `spof_analysis` snapshot visible with a "stale as of" indicator, rather than blanking the tab.
+- **Delivery Phase:** Phase 1
+
+## 23. Supplier Segmentation Flow
+
+**Trigger:** Scheduled batch job, run after any new model becomes `active` (Document 5, Section 6.25) so segmentation reflects current embeddings.
+
+```mermaid
+flowchart TD
+    A["New model_registry row reaches status=active"] --> B["Load risk_embedding\nfor every Supplier node"]
+    B --> C["Standardize + k-means\n(k chosen via silhouette sweep)"]
+    C --> D["Profile cluster traits\n(country, component type, capacity band)"]
+    D --> E["Persist to supplier_segments,\ntagged by embedding_model_version"]
+    E --> F["Analytics screen: Segmentation tab"]
+```
+
+- **Steps:** new active model → load embeddings only, no re-inference → cluster → qualitative trait profiling → persist tagged by `embedding_model_version` → surface on the Analytics screen (FR-SEG-01/02).
+- **Failure handling:** clustering failure (e.g., degenerate embedding set) leaves the prior segmentation visible rather than an empty tab; logged for review.
+- **Delivery Phase:** Phase 1
+
+## 24. What-If Simulator Flow
+
+**Trigger:** User selects an entity and perturbs a feature on the What-if Simulator screen (Document 3, Section 6.12). *(This flow was previously undocumented — Document 3's screen spec and Document 1's FR-SIM-01–04 existed without a corresponding Document 4 flow; added here to close that gap, not as new scope from this merge.)*
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant FE as What-if Simulator Screen
+    participant GW as API Gateway
+    participant GNN as GNN Inference Service
+    participant GS as Graph Store
+
+    U->>FE: Select entity + edit feature (e.g., lead_time_days)
+    FE->>GW: POST /api/v1/simulate (entity_type, entity_id, feature_overrides)
+    GW->>GNN: Forward request
+    GNN->>GS: Load current graph snapshot (read-only)
+    GNN->>GNN: Apply feature_overrides to an in-memory copy only
+    GNN->>GNN: Re-run forward pass on the perturbed copy
+    GNN-->>GW: baseline + simulated impact_score, shifted entities
+    GW-->>FE: 200 OK
+    FE->>FE: Render before/after comparison
+    Note over GS: Persisted graph snapshot is never written to (FR-SIM-04)
+```
+
+- **Steps:** select entity → edit feature within validated bounds (FR-SIM-01) → re-run inference on a temporary in-memory copy, no retraining (FR-SIM-02) → return baseline vs. simulated scores and shifted downstream entities (FR-SIM-03) → discard the copy at session end, persisted graph unchanged (FR-SIM-04).
+- **Failure handling:** an out-of-range feature value is rejected client-side and server-side (`422 VALIDATION_ERROR`, Document 9 Section 11.1) before any re-scoring is attempted.
+- **Delivery Phase:** Phase 2
+
+## 25. Alternative-Supplier Recommender Flow
+
+**Trigger:** User requests alternatives for a flagged supplier from the Supplier detail screen or Recommendation screen (Document 3, Sections 6.5, 6.13). *(Previously undocumented — Document 3's screen spec and Document 1's FR-REC-01–04 existed without a corresponding Document 4 flow; added here to close that gap, not as new scope from this merge.)*
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant FE as Recommendation Screen
+    participant GW as API Gateway
+    participant REC as Recommendation Service
+    participant GS as Graph Store (embeddings)
+
+    U->>FE: Request alternatives for flagged Supplier X
+    FE->>GW: GET /api/v1/recommendations/suppliers/{supplier_id}
+    GW->>REC: Forward request
+    REC->>GS: Load Supplier X's embedding + candidate pool
+    REC->>REC: Cosine similarity ranking, filtered by matching component_type
+    REC-->>GW: Ranked candidates + similarity_score + impact_score
+    GW-->>FE: 200 OK
+    FE->>U: Render ranked cards
+    opt User approves a candidate
+        U->>FE: "Approve: raise PO with Supplier Y"
+        FE->>GW: Create action_request pre-filled with Supplier Y
+        GW->>GW: Route into Approval Flow (Section 10)
+    end
+```
+
+- **Steps:** request alternatives → load Supplier X's embedding (no re-inference, reuses Layer 2's existing output, FR-GNN-06) → rank candidates by cosine similarity, filtered by component-type match (FR-REC-01/02) → return similarity score and risk comparison (FR-REC-03) → optional one-step approval pre-filled with the recommended supplier (FR-REC-04), routing into the standard Approval Flow.
+- **Failure handling:** no candidate matches the required component type → `404 NOT_FOUND` / `422 VALIDATION_ERROR` (Document 9, Section 12.1), rendered as the Recommendation screen's "no suitable alternatives found" empty state (Document 3, Section 6.13).
+- **Delivery Phase:** Phase 2
+
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 16. **Future Extension:** Section 17. **Evaluation Flow:** Section 18. **Optimizer Flow:** Section 19. **Customer Allocation Flow:** Section 20. **Decision Intelligence Flow:** Section 21.
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 16. **Future Extension:** Section 17. **Evaluation Flow:** Section 18. **Optimizer Flow:** Section 19. **Customer Allocation Flow:** Section 20. **Decision Intelligence Flow:** Section 21. **SPOF Analysis Flow:** Section 22. **Supplier Segmentation Flow:** Section 23. **What-If Simulator Flow:** Section 24. **Alternative-Supplier Recommender Flow:** Section 25.
 - Baseline for Document 8 (Backend Design) and Document 9 (REST API Documentation).

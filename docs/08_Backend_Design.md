@@ -52,10 +52,16 @@ backend/
 │   │   │   └── models.py             # suppliers, components, products, ... (Document 5)
 │   │   ├── prediction/
 │   │   │   ├── controller.py         # /api/v1/predictions/*
-│   │   │   ├── service.py
+│   │   │   ├── service.py            # GNN-Transformer head now attends globally over all node embeddings, not only immediate-neighborhood ones (Document 10 §8.1 correction) — closes the 4-hop BOM reach gap
 │   │   │   ├── repository.py
 │   │   │   ├── dto.py
 │   │   │   └── models.py             # risk_scores (raw GNN output), explanation_subgraphs
+│   │   ├── analytics/                 # Phase 1 — SPOF, segmentation, concentration (updates/New_Features.md)
+│   │   │   ├── controller.py         # /api/v1/analytics/*
+│   │   │   ├── spof_service.py       # NetworkX traversal (FR-SPOF-01/02)
+│   │   │   ├── segmentation_service.py # k-means over supplier embeddings (FR-SEG-01/02)
+│   │   │   ├── concentration_service.py # geographic + spend concentration SQL aggregates (FR-GEO-01, FR-SPEND-01)
+│   │   │   └── models.py             # spof_analysis, supplier_segments, geographic_exposure_snapshots, spend_concentration_snapshots
 │   │   ├── risk_intelligence/
 │   │   │   ├── controller.py         # /api/v1/risk-intelligence/* (also folded into predictions response)
 │   │   │   ├── service.py            # confidence estimation, threshold eval, risk_category assignment
@@ -74,6 +80,15 @@ backend/
 │   │   │   ├── repository.py
 │   │   │   ├── dto.py
 │   │   │   └── models.py             # customers
+│   │   ├── lead_time/                 # Phase 2 (planned) — updates/New_Features.md F-05
+│   │   │   ├── service.py            # regression head over Shipment embeddings
+│   │   │   └── models.py             # lead_time_predictions
+│   │   ├── link_prediction/           # Phase 2 (planned) — updates/New_Features.md F-09
+│   │   │   ├── service.py            # DistMult/MLP decoder over node-embedding pairs
+│   │   │   └── models.py             # link_prediction_scores
+│   │   ├── promise_date/              # Phase 2 (planned) — updates/New_Features.md F-08
+│   │   │   ├── service.py            # deterministic combination: lead_time + inventory + capacity
+│   │   │   └── models.py             # promise_date_feasibility
 │   │   ├── rag/                      # Phase 2
 │   │   │   ├── controller.py
 │   │   │   ├── service.py
@@ -156,7 +171,11 @@ Each module in `app/modules/` maps 1:1 to a component in Document 2, Section 4, 
 | `evaluation` | Evaluation Service (incl. `model_registry` governance) | Phase 1 |
 | `customers` | Customer Service | Phase 1 (CRUD), Phase 2 (data feed to optimizer) |
 | `audit` | (cross-cutting) | Phase 1 |
-| `rag` | RAG Retrieval Service | Phase 2 |
+| `analytics` | SPOF, segmentation, concentration analysis (`updates/New_Features.md` F-01–F-04) | Phase 1 |
+| `lead_time` | Lead-time regression head (`updates/New_Features.md` F-05) | Phase 2 (planned) |
+| `link_prediction` | Hidden link prediction decoder (`updates/New_Features.md` F-09) | Phase 2 (planned; standalone experiment possible as a Phase 1 stretch) |
+| `promise_date` | Order promise-date feasibility (`updates/New_Features.md` F-08) | Phase 2 (planned) |
+| `rag` | RAG Retrieval Service | Phase 2 (a thin single-supplier slice ships Phase 1, per Document 1 §2.1 item 20) |
 | `llm` | LLM Orchestration Service — explanation only, never numeric optimization (FR-OPT-03) | Phase 2 |
 | `chatbot` | Chatbot Service | Phase 2 |
 | `simulation` | (part of Prediction, exposed separately) | Phase 2 |

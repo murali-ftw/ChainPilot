@@ -35,3 +35,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Study Materials
+study_materials/

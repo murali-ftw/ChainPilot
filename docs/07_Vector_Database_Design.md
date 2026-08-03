@@ -119,6 +119,8 @@ Per FR-RAG-04, new evidence must be indexed without downtime:
 
 If the volume/variety of unstructured evidence grows materially, this design supports adding new `collection` values (e.g., `regulatory_filings`) without schema changes — only new ingestion sources feeding the same `evidence_chunks` structure, consistent with Document 1, Section 15.
 
+**Phase 2 consideration, no structural change required now:** whether SPOF findings (`spof_analysis`, Document 5 §6.26) or, if the Layer 2 upgrade is ever built, hidden-dependency-link explanations (`hidden_dependency_links`, Document 5 §6.38 — Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid) should be summarized into retrievable evidence chunks, so the chatbot could cite a discovered structural pattern the same way it cites an incident report today. This would be a new `collection` value under the existing `evidence_chunks` schema (Section 6) — no redesign — and is worth evaluating only once both the RAG pipeline and (if ever committed) the Layer 2 upgrade exist.
+
 ---
 
 ## Document Control

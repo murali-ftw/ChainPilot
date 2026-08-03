@@ -63,6 +63,7 @@ flowchart TD
 
 - **Enforcement point:** exclusively server-side, at the controller layer (Document 8, Section 13) — frontend role-based hiding (Document 3, Section 7) is UX only and is never trusted as a security boundary.
 - **Privilege escalation prevention:** role changes are `admin`-only (Section 7, `PATCH /api/v1/users/{id}`) and are themselves audit-logged (Section 12).
+- **New analytical tables, light touch:** SPOF (`spof_analysis`) and spend-concentration (`spend_concentration_snapshots`, Document 5 Sections 6.26, 6.29) findings reveal sole-source dependency and single-point-of-failure information that is operationally sensitive — a competitor or malicious actor learning "three suppliers carry 47% of order value" could target that concentration. Phase 1 scope keeps these readable by every existing authenticated role (Analyst/Approver/Admin), the same as other operational data (Document 3, Section 6.22) — no new restriction is introduced now. Flagged here as worth revisiting if the Analytics screen ever grows an export/download capability, which would warrant tighter scoping than read-only in-app viewing.
 
 **Delivery Phase:** Phase 1 (roles + admin/analyst enforcement); Phase 2 (approver-gated endpoints active)
 

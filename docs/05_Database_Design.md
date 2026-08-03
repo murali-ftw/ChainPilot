@@ -68,6 +68,22 @@ erDiagram
     MODEL_EVALUATION_RUNS }o--|| RISK_SCORES : "loosely joined by model_version"
     MODEL_REGISTRY }o--|| RISK_SCORES : "loosely joined by model_version"
     MODEL_REGISTRY }o--|| MODEL_EVALUATION_RUNS : "loosely joined by model_version"
+
+    SUPPLIERS ||--o{ SPOF_ANALYSIS : "traversed (Phase 1)"
+    SUPPLIERS ||--o{ SUPPLIER_SEGMENTS : "clustered (Phase 1)"
+    SUPPLIERS ||--o{ SPEND_CONCENTRATION_SNAPSHOTS : "top vendor (Phase 1)"
+
+    SHIPMENTS ||--o{ LEAD_TIME_PREDICTIONS : "predicted (Phase 2)"
+    COMPONENTS ||--o{ COMPONENT_CRITICALITY_SCORES : "scored (Phase 2)"
+    ORDERS ||--o{ PROMISE_DATE_FEASIBILITY : "checked (Phase 2)"
+    ORDERS ||--o{ ORDER_RISK_EXPOSURE : "exposed by (Phase 2)"
+    SUPPLIERS ||--o{ ORDER_RISK_EXPOSURE : "endangers (Phase 2)"
+    SUPPLIERS ||--o{ SUPPLIER_DYADIC_RISK : "reweighted (Phase 2)"
+    RISK_SCORES ||--o{ SUPPLIER_DYADIC_RISK : "reweighted by (Phase 2)"
+
+    SUPPLIERS ||--o{ SUPPLIER_RELATIONSHIPS : "not committed"
+    SUPPLIERS ||--o{ NODE_DEPTH_ATTENTION : "not committed"
+    SUPPLIERS ||--o{ HIDDEN_DEPENDENCY_LINKS : "not committed"
 ```
 
 ## 6. Table Specifications
@@ -117,6 +133,7 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 - **Relationships:** parent of `components.supplier_id`, `shipments.supplier_id`; referenced by `risk_scores` (entity_type='supplier'), `action_requests.recommended_supplier_id`.
 - **Audit:** row-level changes captured via `updated_at`; material changes (e.g., deactivation) also written to `audit_log`.
 - **Delivery Phase:** Phase 1
+- **Pending amendment (not part of this table's Phase 1 columns above):** `tier SMALLINT NOT NULL DEFAULT 1`, `is_frontier BOOLEAN NOT NULL DEFAULT false` — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full definition in Section 6.36.
 
 ### 6.3 `components`
 
@@ -518,11 +535,13 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | metric_value | NUMERIC(10,6) | NOT NULL |
 | dataset_split | dataset_split ENUM(`train`,`validation`,`test`) | NOT NULL, default `test` |
 | evaluated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+| task | VARCHAR(50) | NOT NULL, default `'risk_prediction'` — distinguishes which task this metric row belongs to now that supplementary tasks also write here (`lead_time_regression`, `component_criticality`, `link_prediction`, `supplier_segmentation`, `order_at_risk`, `inductive_generalization`, `depth_attention`, etc., per `updates/New_Features.md` §5.1); existing ablation rows backfill to the default |
+| run_type | run_type ENUM(`unbiased`,`shallow_regularized`) | NULL — NULL for rows predating this distinction; independent of `task` above, only populated for rows logged by the Layer 2 upgrade's Transformer 1 dual-run methodology (`updates/Supplier_Risk_Prediction.md` §7.6) |
 
-- **Indexes:** composite index on (`model_version`, `metric_name`); index on `architecture` — primary access pattern for the ablation comparison (FR-ABL-02).
+- **Indexes:** composite index on (`model_version`, `task`, `metric_name`) — supersedes the original (`model_version`, `metric_name`) index now that `task` is the primary filter dimension; index on `architecture` — primary access pattern for the ablation comparison (FR-ABL-02).
 - **Relationships:** loosely joined to `risk_scores.model_version` (not a hard FK — evaluation runs may exist before any scores are logged under that version).
-- **Audit:** immutable, append-only, one row per (`model_version`, `metric_name`, `dataset_split`); satisfies NFR-19.
-- **Delivery Phase:** Phase 1
+- **Audit:** immutable, append-only, one row per (`model_version`, `task`, `metric_name`, `dataset_split`); satisfies NFR-19.
+- **Delivery Phase:** Phase 1 (table, `task` column); `run_type` column — Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid (it exists only to support the Layer 2 upgrade's dual-run methodology)
 
 ### 6.24 `customers`
 
@@ -567,10 +586,270 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 - **Audit:** immutable once `status` reaches `active`, per NFR-24 — only further `status` transitions (e.g. `active` → `archived`) are permitted after that point; all other fields are write-once at insert.
 - **Delivery Phase:** Phase 1
 
+### 6.26 `spof_analysis` (new — Phase 1)
+
+**Purpose:** persists single-point-of-failure traversal results per supplier — pure graph traversal, no model (`updates/New_Features.md` F-01, FR-SPOF-01/02).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| reachable_product_count | INTEGER | NOT NULL, CHECK (`reachable_product_count >= 0`) |
+| reachable_order_count | INTEGER | NOT NULL, CHECK (`reachable_order_count >= 0`) |
+| reachable_order_value | NUMERIC(14,2) | NULL |
+| pct_of_total_order_value | NUMERIC(5,4) | NULL, CHECK (0 <= pct_of_total_order_value <= 1) |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** index on `supplier_id`; index on `pct_of_total_order_value` DESC.
+- **Relationships:** child of `suppliers`.
+- **Delivery Phase:** Phase 1
+
+### 6.27 `supplier_segments` (new — Phase 1)
+
+**Purpose:** persists k-means cluster assignments over supplier embeddings (`updates/New_Features.md` F-02, FR-SEG-01/02).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| segment_label | SMALLINT | NOT NULL |
+| embedding_model_version | VARCHAR(50) | NOT NULL — the `model_version` whose `risk_embedding` this clustering was computed from |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`supplier_id`, `embedding_model_version`); index on `segment_label`.
+- **Relationships:** child of `suppliers`; loosely joined to `model_registry.model_version`.
+- **Delivery Phase:** Phase 1
+
+### 6.28 `geographic_exposure_snapshots` (new — Phase 1)
+
+**Purpose:** persists geographic concentration aggregates over time (`updates/New_Features.md` F-03, FR-GEO-01).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| dimension | geo_dimension ENUM(`supplier_country`,`factory_location`) | NOT NULL |
+| dimension_value | VARCHAR(100) | NOT NULL |
+| exposure_share | NUMERIC(5,4) | NOT NULL, CHECK (0 <= exposure_share <= 1) |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`dimension`, `computed_at` DESC).
+- **Relationships:** none (aggregate, not entity-linked).
+- **Delivery Phase:** Phase 1
+
+### 6.29 `spend_concentration_snapshots` (new — Phase 1)
+
+**Purpose:** persists per-component-type sole-source exposure over time (`updates/New_Features.md` F-04, FR-SPEND-01).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| component_type | VARCHAR(100) | NOT NULL |
+| top_supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| top_supplier_share | NUMERIC(5,4) | NOT NULL, CHECK (0 <= top_supplier_share <= 1) |
+| total_spend | NUMERIC(14,2) | NULL |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** index on `component_type`; index on `top_supplier_share` DESC.
+- **Relationships:** references `suppliers`.
+- **Delivery Phase:** Phase 1
+
+**No schema change for FR-ONBOARD-01 (new-supplier onboarding, F-07):** reuses `risk_scores` (Section 6.13, `entity_type='supplier'`) exactly as-is.
+
+### 6.30 `lead_time_predictions` (new — Phase 2)
+
+**Purpose:** persists the continuous lead-time regression output per shipment (`updates/New_Features.md` F-05).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| shipment_id | UUID | NOT NULL, FK → `shipments(id)` |
+| predicted_delay_days | NUMERIC(6,2) | NOT NULL |
+| model_version | VARCHAR(50) | NOT NULL |
+| predicted_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`shipment_id`, `predicted_at` DESC); index on `model_version`.
+- **Relationships:** child of `shipments`; loosely joined to `model_evaluation_runs` (`task='lead_time_regression'`).
+- **Delivery Phase:** Phase 2
+
+### 6.31 `component_criticality_scores` (new — Phase 2)
+
+**Purpose:** persists the component-level criticality regression output and its proxy-label lineage (`updates/New_Features.md` F-06).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| component_id | UUID | NOT NULL, FK → `components(id)` |
+| criticality_score | NUMERIC(5,4) | NOT NULL, CHECK (0 <= criticality_score <= 1) |
+| proxy_label_source | VARCHAR(50) | NOT NULL, default `'spof_traversal'` — records that Section 6.26's traversal measure was the training target, not a real historical outcome |
+| model_version | VARCHAR(50) | NOT NULL |
+| scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`component_id`, `scored_at` DESC).
+- **Relationships:** child of `components`.
+- **Delivery Phase:** Phase 2
+
+### 6.32 `promise_date_feasibility` (new — Phase 2)
+
+**Purpose:** persists the deterministic order-feasibility verdict combining lead-time prediction with inventory/capacity constraints (`updates/New_Features.md` F-08).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| order_id | UUID | NOT NULL, FK → `orders(id)` |
+| requested_date | DATE | NOT NULL |
+| feasible | BOOLEAN | NOT NULL |
+| predicted_ship_date | DATE | NULL |
+| binding_constraint | VARCHAR(50) | NULL — e.g. `inventory`, `factory_capacity`, `warehouse_capacity`, `lead_time`; NULL when `feasible=true` with margin |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`order_id`, `computed_at` DESC).
+- **Relationships:** child of `orders`.
+- **Delivery Phase:** Phase 2
+
+### 6.33 `link_prediction_scores` (new — Phase 2)
+
+**Purpose:** persists scored candidate node pairs from the dedicated link-prediction decoder (`updates/New_Features.md` F-09) — distinct from, and complementary to, Section 6.38's `hidden_dependency_links` (Transformer 2's attention weights).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| node_a_type | entity_type ENUM | NOT NULL — reuses Section 6.13's enum |
+| node_a_id | UUID | NOT NULL |
+| node_b_type | entity_type ENUM | NOT NULL |
+| node_b_id | UUID | NOT NULL |
+| predicted_edge_type | VARCHAR(50) | NOT NULL — e.g. `SUB_SUPPLIES` |
+| predicted_probability | NUMERIC(6,5) | NOT NULL, CHECK (0 <= predicted_probability <= 1) |
+| decoder | VARCHAR(20) | NOT NULL, CHECK (`decoder IN ('distmult','mlp')`) |
+| model_version | VARCHAR(50) | NOT NULL |
+| scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`node_a_type`, `node_a_id`, `node_b_type`, `node_b_id`, `model_version`); index on `predicted_probability` DESC.
+- **Relationships:** polymorphic reference, same pattern as `risk_scores`.
+- **Delivery Phase:** Phase 2 (full persistence at scale); a Phase 1 stretch experiment may log a small number of rows here without full production integration.
+
+### 6.34 `order_risk_exposure` (new — Phase 2)
+
+**Purpose:** persists the (order, endangering-supplier) pair-level exposure score from the order-at-risk readout head (`updates/Other_Tools.md` NP-02; `updates/New_Features.md` F-11) — richer than the existing order-level `risk_scores` row.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| order_id | UUID | NOT NULL, FK → `orders(id)` |
+| endangering_supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| exposure_score | NUMERIC(5,4) | NOT NULL, CHECK (0 <= exposure_score <= 1) |
+| model_version | VARCHAR(50) | NOT NULL |
+| scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`order_id`, `scored_at` DESC); index on `endangering_supplier_id`.
+- **Relationships:** links `orders` and `suppliers`.
+- **Delivery Phase:** Phase 2
+
+### 6.35 `supplier_dyadic_risk` (new — Phase 2)
+
+**Purpose:** persists Markov Claim B's relationship-specific reweighting of a supplier's global risk score (`updates/Supplier_Risk_Prediction.md` §6.4, §7.5) — kept separate from Section 6.13's global `risk_scores` row so the two are never conflated. Unlike the rest of the Layer 2 upgrade, Claim B is **Phase 2**, not "Not committed," per that document's Section 2.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| risk_score_id | UUID | NOT NULL, FK → `risk_scores(id)` — the Layer 2 global/node-level score this row reweights, unmodified |
+| order_volume_share | NUMERIC(5,4) | NULL, CHECK (0 <= order_volume_share <= 1) |
+| contract_priority_weight | NUMERIC(5,4) | NULL, CHECK (0 <= contract_priority_weight <= 1) — derived from `customers.priority_tier`/`contract_terms` |
+| fulfilment_preference_weight | NUMERIC(5,4) | NULL, CHECK (0 <= fulfilment_preference_weight <= 1) |
+| dyadic_risk_score | NUMERIC(5,4) | NOT NULL, CHECK (0 <= dyadic_risk_score <= 1) |
+| scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`supplier_id`, `scored_at` DESC).
+- **Relationships:** child of `suppliers` and `risk_scores`.
+- **Audit:** immutable, append-only, mirroring `risk_scores`.
+- **Delivery Phase:** Phase 2 (gated on `customers`/`contract_terms` consumption, already Phase-2-scoped per Section 6.24)
+
+### 6.36 `suppliers` tier/frontier amendment, and `supplier_relationships` (new) — Not Committed
+
+**Delivery Phase for everything in this subsection: Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full rationale: `updates/Supplier_Risk_Prediction.md` §6.3, §7.1–7.2.
+
+**`suppliers` amendment:**
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| tier | SMALLINT | NOT NULL, default `1`, CHECK (`tier >= 1`) — 1 = directly observed (tier-1); 2+ = a partially-observed supplier reached only via a `supplier_relationships` row below |
+| is_frontier | BOOLEAN | NOT NULL, default `false` — `true` when this node's further-upstream suppliers are not recorded in the graph at all |
+
+**`supplier_relationships` (new):**
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| upstream_supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| downstream_supplier_id | UUID | NOT NULL, FK → `suppliers(id)`, CHECK (`downstream_supplier_id <> upstream_supplier_id`) |
+| tier | SMALLINT | NOT NULL, CHECK (`tier >= 2`) |
+| source | VARCHAR(50) | NULL — e.g. `self_reported`, `audit_disclosure` |
+| confidence | NUMERIC(5,4) | NULL, CHECK (0 <= confidence <= 1) |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** index on `upstream_supplier_id`; index on `downstream_supplier_id`.
+- **Relationships:** links `suppliers` to `suppliers`; source of the `SUB_SUPPLIES` graph edge (Document 6).
+
+### 6.37 `node_depth_attention` (new) — Not Committed
+
+**Purpose:** persists Transformer 1's per-node depth attention weights (`updates/Supplier_Risk_Prediction.md` §6.2, §7.3) — the source of the Markov Claim A evidence.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| entity_type | entity_type ENUM | NOT NULL — scoped to `supplier` in this document's initial scope |
+| entity_id | UUID | NOT NULL |
+| model_version | VARCHAR(50) | NOT NULL |
+| run_type | run_type ENUM(`unbiased`,`shallow_regularized`) | NOT NULL |
+| depth_weights | JSONB | NOT NULL — array of 4 floats `[w1,w2,w3,w4]` summing to 1 |
+| cv_fold | SMALLINT | NULL |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** composite index on (`entity_type`, `entity_id`, `model_version`, `run_type`); index on `run_type`.
+- **Relationships:** loosely joined to `risk_scores.model_version`.
+- **Delivery Phase:** Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid
+
+### 6.38 `hidden_dependency_links` (new) — Not Committed
+
+**Purpose:** persists Transformer 2's discovered supplier-pair attention weights (`updates/Supplier_Risk_Prediction.md` §6.3, §7.4).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| supplier_a_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| supplier_b_id | UUID | NOT NULL, FK → `suppliers(id)`, CHECK (`supplier_b_id <> supplier_a_id`) |
+| attention_weight | NUMERIC(6,5) | NOT NULL |
+| model_version | VARCHAR(50) | NOT NULL |
+| detected_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** UNIQUE composite index on (`supplier_a_id`, `supplier_b_id`, `model_version`); index on `attention_weight` DESC.
+- **Relationships:** links `suppliers` to `suppliers`.
+- **Delivery Phase:** Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid (computation + persistence); Phase 2 (dashboard surfacing)
+
+### 6.39 Appendix — Speculative Schema Not Scheduled to Any Migration Set
+
+**`demand_forecasts`** (`updates/New_Features.md` §5.13) is recorded here **for design continuity only**. It must **not** appear in the Phase 1, Phase 2, or "Not committed" migration sets in Section 7 — demand forecasting (F-12) is **Not in scope — documented as a future extension idea only, no committed delivery phase.**
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| entity_type | forecast_entity_type ENUM(`product`,`component`) | NOT NULL |
+| entity_id | UUID | NOT NULL |
+| forecast_period | DATE | NOT NULL |
+| framing | VARCHAR(30) | NOT NULL, CHECK (`framing IN ('oem_release_bias','aftermarket_demand','demand_spike_signal')`) |
+| predicted_value | NUMERIC(14,2) | NOT NULL |
+| actual_value | NUMERIC(14,2) | NULL |
+| model_version | VARCHAR(50) | NOT NULL |
+| forecasted_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+This schema is not created by any migration until F-12 is itself committed to a plan.
+
 ## 7. Migration Strategy
 
-- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents`, `risk_scores` (incl. `scoring_method`, `confidence`, `risk_category`), `explanation_subgraphs`, `model_evaluation_runs`, `model_registry`, `audit_log`.
-- Phase 2 migration set adds: `alert_thresholds`, `alerts`, `action_requests` (incl. `optimizer` enum value on `source`, `decision_trace` column), `action_log`, `chat_sessions`, `chat_messages`, `notifications` — purely additive, no Phase 1 table is altered in a breaking way (Document 2, Section 3.1 additive-architecture principle).
+- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents`, `risk_scores` (incl. `scoring_method`, `confidence`, `risk_category`), `explanation_subgraphs`, `model_evaluation_runs` (incl. `task` column, Section 6.23), `model_registry`, `audit_log`, `spof_analysis`, `supplier_segments`, `geographic_exposure_snapshots`, `spend_concentration_snapshots` (Sections 6.26–6.29).
+- Phase 2 migration set adds: `alert_thresholds`, `alerts`, `action_requests` (incl. `optimizer` enum value on `source`, `decision_trace` column), `action_log`, `chat_sessions`, `chat_messages`, `notifications`, `lead_time_predictions`, `component_criticality_scores`, `promise_date_feasibility`, `link_prediction_scores`, `order_risk_exposure`, `supplier_dyadic_risk` (Sections 6.30–6.35) — purely additive, no Phase 1 table is altered in a breaking way (Document 2, Section 3.1 additive-architecture principle).
+- **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid:** `suppliers.tier`/`suppliers.is_frontier`, `supplier_relationships`, `node_depth_attention`, `hidden_dependency_links`, `model_evaluation_runs.run_type` (Sections 6.23, 6.36–6.38). **Do not run these migrations until the Layer 2 upgrade itself is committed.**
+- **Explicitly not scheduled to any migration set:** `demand_forecasts` (Section 6.39) — recorded for design continuity only; **Not in scope — documented as a future extension idea only, no committed delivery phase.**
 - Migrations are managed via a version-controlled tool (e.g., Alembic) per Document 11 (Implementation Guide).
 
 ### 7.1 Enhancement Migration Sequence

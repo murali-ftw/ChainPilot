@@ -20,6 +20,29 @@ Task IDs are inherited unchanged from `docs/team_plan.md`: `P<person>.<n>` for D
 
 ---
 
+## Scope Notes
+
+Full detail for the items below: `updates/Supplier_Risk_Prediction.md`, `updates/New_Features.md`, `updates/Other_Tools.md`.
+
+**New Phase 1 work items (rebalanced scope, target 2026-11-15 per `docs/14_Project_Roadmap.md` Sprint S8/S9/M6):**
+- Single-point-of-failure (SPOF) analysis — supplier graph traversal, no model (FR-SPOF-01/02, `updates/New_Features.md` F-01).
+- Supplier segmentation — k-means over existing embeddings (FR-SEG-01/02, F-02).
+- Geographic and spend concentration analysis — pure SQL (FR-GEO-01, FR-SPEND-01, F-03/F-04).
+- New-supplier onboarding risk demo — reuses the trained model, no new head (FR-ONBOARD-01, F-07).
+- A thin single-supplier RAG + LLM + Chatbot vertical slice (Document 1, Section 2.1, item 20).
+
+These map onto the `analytics/` backend module (Document 8, Section 5) and the Analytics screen (Document 3, Section 6.22); no existing P1.x–P5.x task entry below currently references them by name.
+
+**Phase 2 / not-committed items (do not schedule against any P1.x–P5.x/D1.x–D5.x task without first checking the phase tag):**
+- Lead-time regression, component criticality, promise-date feasibility, hidden link prediction, order-at-risk readout (Tier 2/3 features, `updates/New_Features.md` F-05, F-06, F-08, F-09, F-11) — Phase 2.
+- **The Layer 2 architecture upgrade** (HGT intermediate-layer retention, Transformer 1 depth attention, Transformer 2 type-constrained global attention, Markov Claims A and B, the fourth ablation stage) — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.**
+
+**Explicit removal:** demand forecasting was never referenced by name in any P1.x–P5.x or D1.x–D5.x task entry below (checked; no entry required correction). It remains **Not in scope — documented as a future extension idea only, no committed delivery phase**, per `updates/New_Features.md` F-12. If a future edit to this document ever adds a task referencing demand forecasting, it must not be scheduled until that phase status changes.
+
+Sprint/deadline dates below are reconciled against `docs/14_Project_Roadmap.md` as of this update — no residual inconsistency remains.
+
+---
+
 # 0. Project Overview
 
 ## 0.1 Purpose of This Document
@@ -950,7 +973,7 @@ P1.6 (also runs in informal parallel support of P2.5)
 
 ## P1.6 — Entity Screen Data Support
 
-**Sprint:** S6 (2026-10-11) · **Owner:** Person 1
+**Sprint:** S6 (2026-09-28 – 2026-10-11) · **Owner:** Person 1
 
 ### Objective
 
@@ -1166,7 +1189,7 @@ P1.8, P5.6
 
 ## P1.8 — Phase 1 Sign-off Support
 
-**Sprint:** S8 (2026-10-26 – 2026-11-01) · **Owner:** Person 1
+**Sprint:** S9 (2026-11-09 – 2026-11-15) · **Owner:** Person 1
 
 ### Objective
 
@@ -1840,7 +1863,7 @@ P2.6, P3.5, P4.5, P5.4
 
 ## P2.6 — Model Evaluation
 
-**Sprint:** S6 (2026-10-11) · **Owner:** Person 2
+**Sprint:** S6 (2026-09-28 – 2026-10-11) · **Owner:** Person 2
 
 ### Objective
 
@@ -2057,7 +2080,7 @@ P2.8, P5.6
 
 ## P2.8 — Phase 1 Sign-off Support
 
-**Sprint:** S8 (2026-10-26 – 2026-11-01) · **Owner:** Person 2
+**Sprint:** S9 (2026-11-09 – 2026-11-15) · **Owner:** Person 2
 
 ### Objective
 
@@ -2882,7 +2905,7 @@ P3.6, P4.5, P5.5
 
 ## P3.6 — Audit & Admin Hardening
 
-**Sprint:** S6 (2026-10-11) · **Owner:** Person 3
+**Sprint:** S6 (2026-09-28 – 2026-10-11) · **Owner:** Person 3
 
 ### Objective
 
@@ -3114,7 +3137,7 @@ P3.8, P5.6
 
 ## P3.8 — Phase 1 Sign-off Support
 
-**Sprint:** S8 (2026-10-26 – 2026-11-01) · **Owner:** Person 3
+**Sprint:** S9 (2026-11-09 – 2026-11-15) · **Owner:** Person 3
 
 ### Objective
 
@@ -4038,7 +4061,7 @@ P4.6, P5.5
 
 ## P4.6 — Admin, Audit, Profile, Settings
 
-**Sprint:** S6 (2026-10-11) · **Owner:** Person 4
+**Sprint:** S6 (2026-09-28 – 2026-10-11) · **Owner:** Person 4
 
 ### Objective
 
@@ -4266,7 +4289,7 @@ P4.8, P5.6
 
 ## P4.8 — Phase 1 Sign-off Support
 
-**Sprint:** S8 (2026-10-26 – 2026-11-01) · **Owner:** Person 4
+**Sprint:** S9 (2026-11-09 – 2026-11-15) · **Owner:** Person 4
 
 ### Objective
 
@@ -5230,7 +5253,7 @@ P5.7
 
 ## P5.7 — UAT & Phase 1 Demo Prep
 
-**Sprint:** S8 (2026-10-26 – 2026-11-01) · **Owner:** Person 5
+**Sprint:** S9 (2026-11-09 – 2026-11-15) · **Owner:** Person 5
 
 ### Objective
 
@@ -5423,7 +5446,7 @@ This section states, plainly and per sprint, exactly what each person has in a w
 | Person 4 | NFR-02 met (5,000-node graph render/interaction at p95 ≤ 500ms); full responsive pass to tablet width; accessibility pass across all 12 screens. |
 | Person 5 | A consolidated `docs/internal/phase1_test_report.md` showing the entire Document 13 Phase 1 suite green, with NFR-01/NFR-02 independently reconfirmed. |
 
-## Sprint S8 (2026-10-26 – 2026-11-01)
+## Sprint S9 (2026-11-09 – 2026-11-15)
 
 | Person | Delivers at End of Sprint |
 |---|---|
@@ -5442,7 +5465,7 @@ Delivery 2 begins only after M6 (Phase 1 MVP Sign-off, P5.7) passes. Person 1 ro
 
 ## D1.1 — Evidence Schema & Chunking
 
-**Sprint:** S9 (2026-11-02 – 2026-11-15) · **Owner:** Person 1
+**Sprint:** S10 (2026-11-16 – 2026-11-29) · **Owner:** Person 1
 
 ### Objective
 
@@ -5670,7 +5693,7 @@ D1.3
 
 ## D1.3 — Hybrid Search & Ranking
 
-**Sprint:** S10 (2026-11-16 – 2026-11-29) · **Owner:** Person 1
+**Sprint:** S11 (2026-11-30 – 2026-12-13) · **Owner:** Person 1
 
 ### Objective
 
@@ -5890,7 +5913,7 @@ D1.5
 
 ## D1.5 — Retrieval Evaluation
 
-**Sprint:** S12 (2026-12-14 – 2026-12-27, buffer sprint) · **Owner:** Person 1
+**Sprint:** S13 (2026-12-28 – 2027-01-10, buffer sprint) · **Owner:** Person 1
 
 ### Objective
 
@@ -5902,7 +5925,7 @@ Document 1 §11 sets "≥90% of LLM explanations cite at least one retrieved evi
 
 ### Repository Inspection Requirements
 
-- Note this task falls in S12, the documented "buffer / low-velocity sprint (holiday period)" per Document 14 §6 — scope accordingly, prioritizing evaluation rigor over new feature surface.
+- Note this task falls in S13, the documented "buffer / low-velocity sprint (holiday period)" per Document 14 §6 — scope accordingly, prioritizing evaluation rigor over new feature surface.
 
 ### Existing Code Assumptions
 
@@ -5993,7 +6016,7 @@ D1.6, D2.1, D2.4
 
 ## D1.6 — RAG Hardening & Sign-off Support
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 1
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 1
 
 ### Objective
 
@@ -6001,7 +6024,7 @@ Support Person 5's final AI pipeline integration and Person 2's chatbot with ret
 
 ### Background
 
-This is Person 1's slot in the shared Delivery 2 final sprint, mirroring P1.7/P1.8's role in Delivery 1's S7/S8.
+This is Person 1's slot in the shared Delivery 2 final sprint, mirroring P1.7/P1.8's role in Delivery 1's S7/S9.
 
 ### Repository Inspection Requirements
 
@@ -6098,7 +6121,7 @@ Person 2 rotates from GNN + Transformer AI Development into LLM & Chatbot, per `
 
 ## D2.1 — LLM Orchestration Foundation
 
-**Sprint:** S11 (2026-11-30 – 2026-12-13) · **Owner:** Person 2
+**Sprint:** S12 (2026-12-14 – 2026-12-27) · **Owner:** Person 2
 
 ### Objective
 
@@ -6223,7 +6246,7 @@ D2.2
 
 ## D2.2 — Recommended-Action Generation
 
-**Sprint:** S11 (2026-11-30 – 2026-12-13) · **Owner:** Person 2
+**Sprint:** S12 (2026-12-14 – 2026-12-27) · **Owner:** Person 2
 
 ### Objective
 
@@ -6332,7 +6355,7 @@ D2.3, D4.1
 
 ## D2.3 — Chatbot Intent Classification
 
-**Sprint:** S13 (2026-12-28 – 2027-01-10) · **Owner:** Person 2
+**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 2
 
 ### Objective
 
@@ -6442,7 +6465,7 @@ D2.4
 
 ## D2.4 — Retrieve-Then-Generate Pipeline
 
-**Sprint:** S13 (2026-12-28 – 2027-01-10) · **Owner:** Person 2
+**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 2
 
 ### Objective
 
@@ -6665,7 +6688,7 @@ D2.6
 
 ## D2.6 — Explanation Quality & Sign-off Support
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 2
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 2
 
 ### Objective
 
@@ -6677,7 +6700,7 @@ Document 1 §11 sets "≥90% judged relevant/correct by evaluator" as the Phase 
 
 ### Repository Inspection Requirements
 
-- Confirm D2.1–D2.5 are all merged and have been in continuous use throughout S13–S17 by Person 3's chatbot UI and Person 4's approval integration.
+- Confirm D2.1–D2.5 are all merged and have been in continuous use throughout S14–S17 by Person 3's chatbot UI and Person 4's approval integration.
 
 ### Existing Code Assumptions
 
@@ -6772,7 +6795,7 @@ Person 3 rotates from Backend & AI Serving into Advanced Frontend Features — a
 
 ## D3.1 — Chatbot UI
 
-**Sprint:** S13 (2026-12-28 – 2027-01-10) · **Owner:** Person 3
+**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 3
 
 ### Objective
 
@@ -6895,7 +6918,7 @@ D3.2
 
 ## D3.2 — Explainability Overlay
 
-**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 3
+**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 3
 
 ### Objective
 
@@ -7000,7 +7023,7 @@ D3.6
 
 ## D3.3 — What-If Simulator UI
 
-**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 3
+**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 3
 
 ### Objective
 
@@ -7115,7 +7138,7 @@ D3.6
 
 ## D3.4 — Recommendation UI
 
-**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 3
+**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 3
 
 ### Objective
 
@@ -7230,7 +7253,7 @@ D3.6
 
 ## D3.5 — Risk Trend Timeline UI
 
-**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 3
+**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 3
 
 ### Objective
 
@@ -7340,7 +7363,7 @@ D3.6
 
 ## D3.6 — Advanced UI Hardening & Sign-off Support
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 3
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 3
 
 ### Objective
 
@@ -7578,7 +7601,7 @@ Person 4 rotates from Frontend & Visualization into MCP & Enterprise Integration
 
 ## D4.1 — Approval Workflow Backend
 
-**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 4
+**Sprint:** S17 (2027-02-22 – 2027-03-07) · **Owner:** Person 4
 
 ### Objective
 
@@ -7705,7 +7728,7 @@ D4.2
 
 ## D4.2 — MCP Execution Service & ERP Sandbox Adapter
 
-**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 4
+**Sprint:** S17 (2027-02-22 – 2027-03-07) · **Owner:** Person 4
 
 ### Objective
 
@@ -7825,7 +7848,7 @@ D4.5 (also informally supports D4.3's downstream alert-to-approval linkage)
 
 ## D4.3 — Alert Evaluation & Thresholds
 
-**Sprint:** S17 (2027-02-22 – 2027-03-07) · **Owner:** Person 4
+**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 4
 
 ### Objective
 
@@ -7945,7 +7968,7 @@ D4.4
 
 ## D4.4 — Notification Service
 
-**Sprint:** S17 (2027-02-22 – 2027-03-07) · **Owner:** Person 4
+**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 4
 
 ### Objective
 
@@ -8056,7 +8079,7 @@ D3.6, D4.5
 
 ## D4.5 — Security & Idempotency Hardening
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 4
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 4
 
 ### Objective
 
@@ -8162,7 +8185,7 @@ D4.6, D5.5 (Delivery 2 sign-off)
 
 ## D4.6 — Enterprise Integration Sign-off Support
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 4
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 4
 
 ### Objective
 
@@ -8263,7 +8286,7 @@ D5.5 (Delivery 2 sign-off)
 
 ## D4.7 — Decision Intelligence Service
 
-**Sprint:** S16 (2027-02-08 – 2027-02-21, alongside D4.1) · **Owner:** Person 4
+**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 4
 
 ### Objective
 
@@ -8386,7 +8409,7 @@ Person 5 rotates from Integration, Testing & Deployment into Advanced Graph AI, 
 
 ## D5.1 — What-If Simulator Backend
 
-**Sprint:** S14 (2027-01-11 – 2027-01-24) · **Owner:** Person 5
+**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 5
 
 ### Objective
 
@@ -8504,7 +8527,7 @@ D3.3, D5.5
 
 ## D5.2 — Alternative-Supplier Recommender
 
-**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 5
+**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 5
 
 ### Objective
 
@@ -8619,7 +8642,7 @@ D3.4, D5.4, D5.5
 
 ## D5.3 — Risk Trend Logging
 
-**Sprint:** S15 (2027-01-25 – 2027-02-07) · **Owner:** Person 5
+**Sprint:** S16 (2027-02-08 – 2027-02-21) · **Owner:** Person 5
 
 ### Objective
 
@@ -8832,7 +8855,7 @@ D5.5
 
 ## D5.5 — Final AI Pipeline Integration
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 5
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 5
 
 ### Objective
 
@@ -8940,7 +8963,7 @@ D5.6
 
 ## D5.6 — Advanced AI Sign-off Support
 
-**Sprint:** S18 (2027-03-08 – 2027-03-21) · **Owner:** Person 5
+**Sprint:** S19 (2027-03-22 – 2027-04-04) · **Owner:** Person 5
 
 ### Objective
 
@@ -9281,28 +9304,28 @@ D3.7 (Allocation UI)
 
 The same "what do I actually have in my hands right now" view as the Delivery 1 summary above, for every Delivery 2 sprint. Role labels below use each person's Delivery 2 identity (Person 1 = RAG & Vector DB, Person 2 = LLM & Chatbot, Person 3 = Advanced Frontend, Person 4 = MCP & Enterprise Integration, Person 5 = Advanced Graph AI), per the rotation in Section 5.1.
 
-## Sprint S9 (2026-11-02 – 2026-11-15)
+## Sprint S10 (2026-11-16 – 2026-11-29)
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 1 | The `evidence_chunks` pgvector schema across all three collections; ≥10 real, ingested evidence documents with correct metadata. |
+| Person 1 | The `evidence_chunks` pgvector schema across all three collections; ≥10 real, ingested evidence documents with correct metadata; a fully populated embedding pipeline (every ingested chunk has a real embedding vector); metadata pre-filtering (`filter_by_metadata()`). |
 | Person 2 | Rotation handoff complete (Section 6.2) — briefed on RAG's evolving contract; design prep for LLM orchestration, no shippable code yet this sprint. |
 | Person 3 | Rotation handoff complete — walked through every Phase 1 screen/component pattern by Person 4; design prep for the Chatbot UI. |
 | Person 4 | Rotation handoff complete — walked through every Phase 1 API contract/module boundary by Person 3; research into the approval/MCP domain. |
 | Person 5 | Research/design prep for the What-If Simulator backend, reviewing Person 2's Delivery 1 `InferenceService` in depth. |
 | **Milestone** | Delivery 1 → Delivery 2 rotation handoff formally complete; Phase 2 development begins on a stable, unchanged Phase 1 foundation. |
 
-## Sprint S10 (2026-11-16 – 2026-11-29)
+## Sprint S11 (2026-11-30 – 2026-12-13)
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 1 | A fully populated embedding pipeline (every ingested chunk has a real embedding vector); metadata pre-filtering (`filter_by_metadata()`); the complete hybrid search pipeline (vector + keyword + RRF fusion + re-ranking), verified relevant against 10 curated test queries. |
-| Person 2 | — (no shippable deliverable this sprint; LLM orchestration work begins S11 once hybrid search, D1.3, is available). |
-| Person 3 | — (Chatbot UI work begins S13, once D2.4 lands). |
-| Person 4 | — (Approval/MCP work begins S16). |
-| Person 5 | — (Simulator backend work begins S14). |
+| Person 1 | The complete hybrid search pipeline (vector + keyword + RRF fusion + re-ranking), verified relevant against 10 curated test queries. |
+| Person 2 | — (no shippable deliverable this sprint; LLM orchestration work begins S12 once hybrid search, D1.3, is available). |
+| Person 3 | — (Chatbot UI work begins S14, once D2.4 lands). |
+| Person 4 | — (Approval/MCP work begins S17). |
+| Person 5 | — (Simulator backend work begins S15). |
 
-## Sprint S11 (2026-11-30 – 2026-12-13)
+## Sprint S12 (2026-12-14 – 2026-12-27)
 
 | Person | Delivers at End of Sprint |
 |---|---|
@@ -9310,14 +9333,14 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 | Person 2 | A working `LLMOrchestrationService` producing grounded, cited plain-language explanations from real risk scores + real retrieved evidence; a schema-constrained, business-rule-validated recommended-action generator. |
 | **Milestone** | **M7 — RAG + LLM Live**: vector DB populated, RAG retrieval + LLM explanation generation working. |
 
-## Sprint S12 (2026-12-14 – 2026-12-27, buffer/holiday sprint)
+## Sprint S13 (2026-12-28 – 2027-01-10, buffer/holiday sprint)
 
 | Person | Delivers at End of Sprint |
 |---|---|
 | Person 1 | A documented retrieval-evaluation report confirming ≥90% relevance on an expanded ≥25-question set — the grounding target the LLM layer depends on. |
 | All others | Documentation catch-up, technical debt, and exploratory prototyping, per Document 14 §6's explicit low-velocity framing for this sprint — no hard deliverable gate this sprint for Persons 2–5. |
 
-## Sprint S13 (2026-12-28 – 2027-01-10)
+## Sprint S14 (2027-01-11 – 2027-01-24)
 
 | Person | Delivers at End of Sprint |
 |---|---|
@@ -9325,7 +9348,7 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 | Person 3 | A fully functional Chatbot UI — streaming responses, clickable citations, permission-gated approval cards — against Person 2's live service. |
 | **Milestone** | **M8 — Chatbot Live**: chatbot end-to-end, integrated into the dashboard. |
 
-## Sprint S14 (2027-01-11 – 2027-01-24)
+## Sprint S15 (2027-01-25 – 2027-02-07)
 
 | Person | Delivers at End of Sprint |
 |---|---|
@@ -9333,36 +9356,38 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 | Person 3 | The full explainability overlay (risk-level color coding, synchronized with chatbot answers) extending Person 4's Delivery 1 highlight; a fully functional What-If Simulator UI against Person 5's new backend. |
 | Person 5 | A working `POST /api/v1/simulate` endpoint reusing Person 2's Delivery 1 model completely unmodified, with a formally verified guarantee that the persisted graph is never mutated by any simulation call. |
 
-## Sprint S15 (2027-01-25 – 2027-02-07)
-
-| Person | Delivers at End of Sprint |
-|---|---|
-| Person 3 | The Recommendation UI (ranked candidate cards, confirm-and-approve flow) and the Risk Trend Timeline UI (multi-entity comparison chart, Risk Dashboard sparkline column). |
-| Person 5 | The Alternative-Supplier Recommender endpoint (≥80% of recommendations judged plausible) and the risk-trend endpoint exposing gap-free historical `risk_scores` data. |
-| **Milestone** | **M9 — Simulator + Recommender Live**: what-if simulation and alternative-supplier recommendation functional. |
-
 ## Sprint S16 (2027-02-08 – 2027-02-21)
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 4 | A fully functional Approval Workflow backend (mandatory approval gate, required-reason-on-reject, `409` on double-decision, `action_requests` schema incl. `decision_trace`/`optimizer` source from the start) and the MCP Execution Service with a working ERP sandbox adapter, auto-triggered on approval; the Decision Intelligence Service (routing, policy validation, decision trace) live (D4.7). |
-| Person 5 | The documented, validated `SIMILAR_TO` Cypher query and REST-vs-Cypher consistency verification for the recommender; OR-Tools safety-stock/PO-split solvers live against Person 4's constraint set (D5.7, into S17). |
+| Person 3 | The Recommendation UI (ranked candidate cards, confirm-and-approve flow) and the Risk Trend Timeline UI (multi-entity comparison chart, Risk Dashboard sparkline column). |
+| Person 4 | The Decision Intelligence Service (routing, policy validation, decision trace) live (D4.7). |
+| Person 5 | The Alternative-Supplier Recommender endpoint (≥80% of recommendations judged plausible), the risk-trend endpoint exposing gap-free historical `risk_scores` data, and the documented, validated `SIMILAR_TO` Cypher query/REST-vs-Cypher consistency verification; OR-Tools safety-stock/PO-split solvers underway against Person 4's constraint set (D5.7, into S17). |
+| **Milestone** | **M9 — Simulator + Recommender Live**: what-if simulation and alternative-supplier recommendation functional. |
 
 ## Sprint S17 (2027-02-22 – 2027-03-07)
 
 | Person | Delivers at End of Sprint |
 |---|---|
-| Person 4 | Alert threshold evaluation (breach → exactly one alert row) and threshold-configuration endpoints; the Notification Service with async Slack/email dispatch and delivery-outcome logging. |
-| Person 5 | The OR-Tools customer-allocation solver (D5.8), validated against all of Person 1's Delivery 1 shortage scenarios. |
-| **Milestone** | **M10 — Agentic Layer Live**: approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions all functional. |
+| Person 3 | Optimizer Results panel, Allocation screen, and Decision Trace Panel underway against Person 5's/Person 4's Delivery 2 backend (D3.7, into S18). |
+| Person 4 | A fully functional Approval Workflow backend (mandatory approval gate, required-reason-on-reject, `409` on double-decision, `action_requests` schema incl. `decision_trace`/`optimizer` source from the start) and the MCP Execution Service with a working ERP sandbox adapter, auto-triggered on approval. |
+| Person 5 | OR-Tools safety-stock/PO-split solvers live (D5.7); the OR-Tools customer-allocation solver (D5.8), validated against all of Person 1's Delivery 1 shortage scenarios. |
 
 ## Sprint S18 (2027-03-08 – 2027-03-21)
 
 | Person | Delivers at End of Sprint |
 |---|---|
+| Person 3 | Optimizer Results panel, Allocation screen, and Decision Trace Panel live against Person 5's/Person 4's Delivery 2 backend (D3.7). |
+| Person 4 | Alert threshold evaluation (breach → exactly one alert row) and threshold-configuration endpoints; the Notification Service with async Slack/email dispatch and delivery-outcome logging. |
+| **Milestone** | **M10 — Agentic Layer Live**: approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions all functional. |
+
+## Sprint S19 (2027-03-22 – 2027-04-04)
+
+| Person | Delivers at End of Sprint |
+|---|---|
 | Person 1 | Finalized RAG documentation and confirmed retrieval-latency headroom under concurrent chatbot/dashboard/simulator load. |
 | Person 2 | A documented chatbot evaluation report confirming ≥90% answer relevance. |
-| Person 3 | The completed Alerts screen and a full responsive/UI-test pass across all five Phase 2 screens; Optimizer Results panel, Allocation screen, and Decision Trace Panel live against Person 5's/Person 4's Delivery 2 backend (D3.7). |
+| Person 3 | The completed Alerts screen and a full responsive/UI-test pass across all five Phase 2 screens. |
 | Person 4 | A formally verified, adversarially-tested approval-gate integrity guarantee ("0 actions executed without a recorded human approval"), plus zero open Karan/Rahul UAT defects. |
 | Person 5 | A consolidated `docs/internal/phase2_test_report.md` showing the entire Document 13 suite (Phase 1 + Phase 2) green under confirmed concurrent-load NFR-01 compliance; all six persona UAT scripts passing against a deployed, rehearsed staging/demo environment. |
 | **Milestone** | **M11 — Phase 2 Sign-off** — the entire team's Delivery 2 output is frozen, tested, deployed, and demo-ready. The project is complete. |
@@ -9375,7 +9400,7 @@ The same "what do I actually have in my hands right now" view as the Delivery 1 
 - **Task template legend:** Section 0.7. **Global definitions:** Section 0.8.
 - **Full dependency graph:** immediately following the Project Overview, before Section 1.
 - Consistent with and traceable to: `docs/problem_statement.md`, `docs/01_Product_Requirement_Document.md` through `docs/14_Project_Roadmap.md`, and `docs/team_plan.md`.
-- This document contains 78 fully specified tasks (44 Delivery 1: P1.1–P1.8, P2.1–P2.9, P3.1–P3.10, P4.1–P4.10, P5.1–P5.7; 34 Delivery 2: D1.1–D1.6, D2.1–D2.6, D3.1–D3.7, D4.1–D4.7, D5.1–D5.8) across 5 people and 2 deliveries, plus two Sprint Delivery Summaries covering all 18 sprints (S1–S18). The 9 tasks added beyond the original 69 (P2.9, P3.9, P3.10, P4.9, P4.10, D3.7, D4.7, D5.7, D5.8) integrate the approved architecture enhancement (research ablation, Risk Intelligence, model governance, customer entity, Decision Intelligence, OR-Tools optimization) while preserving every person's original domain and the Delivery 1→2 rotation.
+- This document contains 78 fully specified tasks (44 Delivery 1: P1.1–P1.8, P2.1–P2.9, P3.1–P3.10, P4.1–P4.10, P5.1–P5.7; 34 Delivery 2: D1.1–D1.6, D2.1–D2.6, D3.1–D3.7, D4.1–D4.7, D5.1–D5.8) across 5 people and 2 deliveries, plus two Sprint Delivery Summaries covering all 19 sprints (S1–S19). The 9 tasks added beyond the original 69 (P2.9, P3.9, P3.10, P4.9, P4.10, D3.7, D4.7, D5.7, D5.8) integrate the approved architecture enhancement (research ablation, Risk Intelligence, model governance, customer entity, Decision Intelligence, OR-Tools optimization) while preserving every person's original domain and the Delivery 1→2 rotation.
 - No task in this document should be started without first re-reading its **Repository Inspection Requirements** and **Depends On** sections against the actual current state of the repository — this document specifies intent and contract; the repository is always the source of truth for current state.
 
 **END OF TASK PLANNER**

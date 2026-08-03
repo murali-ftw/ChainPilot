@@ -18,11 +18,11 @@ This document is the product-level contract between the project's stakeholders (
 
 ## 2. Scope
 
-### 2.1 In Scope — Phase 1 (15 Weeks, Research Prototype / MVP)
+### 2.1 In Scope — Phase 1 (Compressed Delivery, Target: 2026-11-15)
 
-Phase 1 delivers a fully working research prototype that proves the core hypothesis of the project: that representing a supply chain as a heterogeneous graph and scoring it with a GNN-Transformer hybrid produces more useful risk predictions than row-by-row models, with a usable dashboard around it.
+**Superseded framing note:** the original 15-week/2026-11-01 window described below has been compressed and rebalanced per `updates/Other_Tools.md` Section 10.5 — the target date is now **2026-11-15**, and this section's item list has been reconciled against that rebalancing (not just re-dated). Phase 1 still proves the core hypothesis of the project: that representing a supply chain as a heterogeneous graph and scoring it with a GNN-Transformer hybrid produces more useful risk predictions than row-by-row models — plus a thin, working slice of the explanation/interaction story, with a usable dashboard around all of it.
 
-| # | Capability | Problem Statement Reference |
+| # | Capability | Problem Statement / Update Reference |
 |---|---|---|
 | 1 | Authentication (login, session management, RBAC foundation) | Layer 6, Document scope list |
 | 2 | PostgreSQL structured data store | Section 9 (Technologies), Layer 1 |
@@ -31,48 +31,65 @@ Phase 1 delivers a fully working research prototype that proves the core hypothe
 | 5 | GNN + Transformer risk prediction (delay probability, shortage risk, disruption impact) | Layer 2 |
 | 6 | Simple explainability (explanation subgraph via GNNExplainer, basic highlighting) | Layer 2, Section 5.3 (backend output only) |
 | 7 | REST APIs exposing graph, prediction, and auth operations | Layer 6, Section 9 |
-| 8 | React dashboard shell | Layer 6 |
+| 8 | React dashboard shell (core screens only — see Document 3) | Layer 6 |
 | 9 | Graph visualization (D3-based, risk-colored) | Layer 6, Section 9 |
-| 10 | Architecture ablation (GraphSAGE → GAT → HGT) with a documented research rationale per stage, each logged under a distinct `model_version` | Layer 2, Section 4 |
+| 10 | Architecture ablation (GraphSAGE → GAT → HGT) with a documented research rationale per stage, each logged under a distinct `model_version` — **the project's protected core research contribution; see `updates/Other_Tools.md` Section 10.3** | Layer 2, Section 4 |
 | 11 | Risk Intelligence Layer: confidence estimation, business aggregation (weighted formula as alternative to GNN-native score), threshold evaluation, risk categorization, `scoring_method`/`confidence`/`risk_category` recorded per row | Risk Intelligence Layer, Section 4 |
 | 12 | Persisted evaluation metrics (classification + regression) and model-governance metadata (dataset, timestamp, experiment ID, git commit, hyperparameters, status) per training run, exposed via REST | Layer 2, Section 4 |
 | 13 | `customers` table as a first-class entity, replacing free-text `orders.customer_name` | Section 5.8 — schema only; allocation optimization logic is Phase 2 |
 | 14 | Decision Intelligence Layer foundation: business-rule/policy validation hooks, decision-trace schema | Decision Intelligence Layer, Section 4 — full recommendation-path routing is Phase 2 |
+| 15 | Single-point-of-failure (SPOF) analysis — supplier reachability traversal, no ML model (FR-SPOF-01/02) | `updates/New_Features.md` F-01 |
+| 16 | Supplier segmentation — k-means clustering over existing supplier embeddings (FR-SEG-01/02) | `updates/New_Features.md` F-02 |
+| 17 | Geographic concentration analysis — supplier/factory exposure by country/location, pure SQL (FR-GEO-01) | `updates/New_Features.md` F-03 |
+| 18 | Spend and dependency concentration analysis — sole-source exposure by component type, pure SQL (FR-SPEND-01) | `updates/New_Features.md` F-04 |
+| 19 | New-supplier onboarding risk — demo only, reuses the trained model on a prospective supplier's own attributes, no new head (FR-ONBOARD-01) | `updates/New_Features.md` F-07 |
+| 20 | A **thin RAG + LLM + Chatbot vertical slice** — one supplier, one grounded explanation, one-turn Q&A — preserving the closed-loop narrative without the full production pipeline; multi-turn history, in-chat approval, and hybrid-search tuning are deferred to Phase 2 | `updates/Other_Tools.md` Section 10.5 |
 
-### 2.2 Out of Scope — Phase 1 (Deferred to Phase 2)
+### 2.2 Out of Scope — Phase 1 (Deferred to Phase 2, or Not Committed)
 
-The following are explicitly **not** built in Phase 1, per the problem statement and delivery strategy:
+The following are explicitly **not** built in Phase 1:
 
-- Retrieval-Augmented Generation (RAG)
-- LLM-powered chatbot
+- Full production RAG pipeline (multi-collection hybrid search tuning, re-indexing at scale) — item 20 above ships only a thin single-supplier slice in Phase 1
+- Full chatbot production features (multi-turn history, in-chat approval, hybrid search tuning) — item 20 above ships only one-turn Q&A in Phase 1
 - Model Context Protocol (MCP) execution layer
 - ERP / procurement system integration
 - Alternative-supplier recommendation
 - What-if scenario simulator
 - Risk trend timeline
 - Proactive MCP-based alerts
+- **The Layer 2 architecture upgrade** (HGT 4-layer intermediate-output retention, Transformer 1 depth attention, Transformer 2 type-constrained global attention, Markov Claims A and B, the fourth ablation stage) — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full specification: `updates/Supplier_Risk_Prediction.md`.
+- **Demand forecasting** — **Not in scope — documented as a future extension idea only, no committed delivery phase.** See Section 15 and `updates/New_Features.md` F-12.
 
-### 2.3 In Scope — Phase 2 (Target: March 2027)
+### 2.3 In Scope — Phase 2 (Target: early April 2027)
 
-Phase 2 **extends** Phase 1 without redesigning it. It adds Layers 3, 4, and 5 of the six-layer architecture in full, plus all six extended decision-support features described in Section 5 of the problem statement.
+Phase 2 **extends** Phase 1 without redesigning it, per the rebalancing in `updates/Other_Tools.md` Section 10.5.
 
-| # | Capability | Problem Statement Reference |
+| # | Capability | Problem Statement / Update Reference |
 |---|---|---|
-| 1 | RAG (vector database, retrieval pipeline) | Layer 3 |
-| 2 | LLM plain-language explanation generation | Layer 4 |
-| 3 | Interactive chatbot (retrieve-then-generate) | Section 5.1 |
-| 4 | Full visual explainability overlay on graph view | Section 5.3 |
+| 1 | RAG — full production pipeline (vector database, multi-collection hybrid search tuning, re-indexing at scale); a thin single-supplier slice already ships in Phase 1 (§2.1 item 20) | Layer 3 |
+| 2 | LLM plain-language explanation generation — full production scope | Layer 4 |
+| 3 | Interactive chatbot — full production scope (multi-turn history, in-chat approval); one-turn Q&A already ships in Phase 1 (§2.1 item 20) | Section 5.1 |
+| 4 | Full visual explainability overlay on graph view (color-by-risk, chatbot sync) | Section 5.3 |
 | 5 | Alternative-supplier recommendation | Section 5.4 |
 | 6 | What-if scenario simulator | Section 5.2 |
 | 7 | Risk trend timeline | Section 5.5 |
-| 8 | MCP execution layer | Layer 5 |
+| 8 | MCP execution layer (sandbox/mock ERP target only — never live production ERP write access, per `updates/Other_Tools.md` Section 10.4) | Layer 5 |
 | 9 | Human-in-the-loop approval workflow | Layer 5, Section 4 |
-| 10 | ERP / procurement integration | Layer 5 |
+| 10 | ERP / procurement integration (sandbox/mock only) | Layer 5 |
 | 11 | Notifications (Slack / email) | Section 5.6 |
 | 12 | Proactive alerts | Section 5.6 |
-| 13 | OR-Tools optimization engine (safety-stock sizing, PO splitting, customer allocation) | Section 5.7 |
+| 13 | OR-Tools optimization engine (safety-stock sizing, PO splitting, customer allocation), using CP-SAT (not the LP solver) since allocation units are discrete integers — see FR-CUST-02 and `updates/Supplier_Risk_Prediction.md` Section 6.5 | Section 5.7 |
 | 14 | Customer allocation under shortage, solved as a constrained optimization problem via the OR-Tools engine, approval integration | Section 5.8 |
 | 15 | Decision Intelligence Layer: recommendation-path routing (optimizer vs. LLM), full policy validation, decision-trace population | Decision Intelligence Layer, Section 4 |
+| 16 | Order-at-Risk Readout Head (second readout on Order/Customer nodes from the existing forward pass) | `updates/Other_Tools.md` NP-02 |
+
+### 2.3a Explicitly Not Committed to Any Phase
+
+Listed here so they are neither silently forgotten nor silently smuggled into a sprint plan later, per `updates/Other_Tools.md` Section 7 and Section 10.5:
+
+- **The Layer 2 architecture upgrade** (Section 8.23 below; `updates/Supplier_Risk_Prediction.md`) — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.**
+- **Demand forecasting** (`updates/New_Features.md` F-12) — **Not in scope — documented as a future extension idea only, no committed delivery phase.**
+- Candidate additions evaluated but not committed to either phase (survival-analysis prediction head, external risk feeds, Monte Carlo simulation, percolation/structural fragility analysis) — see `updates/Other_Tools.md` Section 7.
 
 ### 2.4 Delivery Phase Tagging
 
@@ -432,6 +449,38 @@ Each requirement has a unique ID, description, and mandatory **Delivery Phase** 
 | FR-GOV-01 | The system shall persist, per trained model, its `model_version`, architecture, training dataset reference, training timestamp, experiment identifier, git commit, hyperparameters, and parameter count. | Phase 1 |
 | FR-GOV-02 | The system shall track a lifecycle `status` (`training`/`evaluating`/`candidate`/`active`/`archived`) per model version, and expose the currently `active` model via the REST API. | Phase 1 |
 
+### 8.22 Analytical Readouts and Supplementary Model Tasks
+
+New FR IDs for the Phase 1 Tier 1/Tier 2 items added in `updates/New_Features.md` Section 2.1 (items 15–19). None requires a new model architecture; see the referenced feature for implementation detail.
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-SPOF-01 | The system shall compute, for each supplier, the count of reachable downstream products/orders and the share of total order value they represent, via graph traversal — no ML model. | Phase 1 |
+| FR-SPOF-02 | The system shall surface single-point-of-failure findings on the dashboard, explicitly labeled as graph/SQL analysis, never presented as a model output. | Phase 1 |
+| FR-SEG-01 | The system shall cluster supplier embeddings (already produced by FR-GNN-06) via k-means into behaviorally similar segments. | Phase 1 |
+| FR-SEG-02 | The system shall persist each supplier's segment assignment tagged by the embedding `model_version` it was computed from. | Phase 1 |
+| FR-GEO-01 | The system shall compute geographic concentration of supplier/factory exposure by country/location, persisted as a time-series snapshot. | Phase 1 |
+| FR-SPEND-01 | The system shall compute, per component type, the spend/order-volume share attributable to a single top vendor, persisted as a time-series snapshot. | Phase 1 |
+| FR-ONBOARD-01 | The system shall allow scoring a prospective supplier's risk using only its own reported attributes and prospective edges, prior to any shipment/order history, reusing the existing trained model with zero retraining (an inductive-capability demonstration). | Phase 1 (demo only); Phase 2 (formal inductive-generalization evaluation) |
+
+### 8.23 Layer 2 Architecture Upgrade — Not Committed
+
+FR IDs for the proposed Layer 2 upgrade fully specified in `updates/Supplier_Risk_Prediction.md`, Section 6. **None of these is committed to Phase 1.** Tagged component-by-component to match that document's Section 2 exactly.
+
+| ID | Requirement | Delivery Phase |
+|---|---|---|
+| FR-HGT-01 | The system shall retain all 4 intermediate HGT layer outputs per node rather than discarding all but the last. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-HGT-02 | The system shall use per-node-type, per-edge-type Q/K/V parameters across all 4 message-passing layers. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-JKT-01 | The system shall fuse a node's 4 retained layer outputs into one embedding via learned, per-node depth attention (Jumping Knowledge style). | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-JKT-02 | The system shall persist per-node depth attention weights, tagged by `run_type` and cross-validation fold. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-JKT-03 | The system shall train an unbiased-initialization run (reported as the Markov Claim A experimental result) and a separate shallow-regularized run (deployed to production), never conflating the two. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-JKT-04 | The system shall gate any Markov Claim A finding on a cross-validation stability check, reporting "inconclusive" below threshold. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-XGA-01 | The system shall compute embedding-based global attention among same-type nodes, including frontier (`is_frontier=true`) nodes with no recorded upstream edge. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-XGA-02 | The system shall constrain this global attention to same-type pairs only (Supplier↔Supplier), never across node types. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-XGA-03 | The system shall persist and expose discovered hidden-dependency attention weights for explainability review. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid (computation + persistence); Phase 2 (dashboard surfacing) |
+| FR-MKV-01 | The system shall report the aggregate, stability-checked depth-attention profile as the empirical test of Markov Claim A (depth sufficiency), never asserting it unproven. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| FR-MKV-02 | The system shall reweight a supplier's global risk score into a dyadic (supplier, focal-firm) score in the Risk Intelligence Layer, using order-volume share, contract priority, and fulfilment preference, never overriding the global score. | Phase 2 (gated on `customers`/`contract_terms` consumption, already Phase-2-scoped per Document 5, Section 6.24) |
+
 ## 9. Non-Functional Requirements
 
 | ID | Category | Requirement | Delivery Phase |
@@ -675,6 +724,8 @@ The following are not committed for either phase but are natural extensions cons
 - Expanded document ingestion pipeline if unstructured document volume grows materially beyond the "small portion" assumption (per problem statement Section 8).
 - Model retraining automation / MLOps pipeline for continuous model refresh.
 - Mobile-optimized dashboard client.
+- **Demand forecasting** (spatio-temporal HGT extension over periodic graph snapshots) — **Not in scope — documented as a future extension idea only, no committed delivery phase.** See `updates/New_Features.md`, F-12, for the full framing rationale (why raw OEM-demand forecasting is a weak claim, and the three defensible reframings considered).
+- External risk feeds (GDELT, geographic/seismic data) as the only real mitigation for exogenous-shock prediction — a documented future upgrade, not committed to any phase. See `updates/Other_Tools.md`, CA-02.
 
 ---
 

@@ -8,8 +8,8 @@
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | **Team Size**                  | 5 members                                                                                                                      |
 | **Deliveries**                 | Delivery 1 — MVP (Core System); Delivery 2 — Advanced AI Features                                                            |
-| **Delivery 1 Window**          | 8 sprints / 15 weeks (2026-07-20 → 2026-11-01)                                                                                |
-| **Delivery 2 Window**          | 10 sprints / 20 weeks (2026-11-02 → 2027-03-21)                                                                               |
+| **Delivery 1 Window**          | 9 sprints (2026-07-20 → 2026-11-15) — extended two weeks to absorb rebalanced scope; see Scope Notes below and `docs/14_Project_Roadmap.md` §2 |
+| **Delivery 2 Window**          | 10 sprints (2026-11-16 → 2027-04-04)                                                                               |
 | **Development Model**          | Five coherent parallel ownership tracks per delivery, with a deliberate role rotation between deliveries                       |
 | **Flagship Demo (Delivery 1)** | Risk Dashboard flags a supplier, shows delay probability, and reveals the explanation subgraph driving it                      |
 | **Flagship Demo (Delivery 2)** | Chatbot explains*why* a supplier is flagged, recommends an alternative, and — once approved — executes and logs the action |
@@ -30,6 +30,22 @@
 8. [Testing Strategy](#8-testing-strategy)
 9. [Final Deliverables](#9-final-deliverables)
 10. [Definition of Done](#10-definition-of-done)
+
+---
+
+## Scope Notes
+
+Full detail for the items below: `updates/Supplier_Risk_Prediction.md`, `updates/New_Features.md`, `updates/Other_Tools.md`.
+
+**New Phase 1 work items (rebalanced scope, absorbed into the extended Delivery 1 window above):** single-point-of-failure analysis, supplier segmentation, geographic/spend concentration analysis, new-supplier onboarding demo (`updates/New_Features.md` F-01, F-02, F-03, F-04, F-07), plus a thin single-supplier RAG + LLM + Chatbot vertical slice (Document 1, Section 2.1, item 20). None of Sections 4's Delivery 1 task tracks below currently names these; treat them as additional scope on top of whichever track is doing dashboard/analytics work in the rebalanced sprint (Document 14, Sprint S8).
+
+**Phase 2 / not-committed items (do not assign against any Delivery 2 track below without checking the phase tag first):**
+- Lead-time regression, component criticality, promise-date feasibility, hidden link prediction, order-at-risk readout (`updates/New_Features.md` F-05, F-06, F-08, F-09, F-11) — Phase 2.
+- **The Layer 2 architecture upgrade** (HGT intermediate-layer retention, Transformer 1 depth attention, Transformer 2 type-constrained global attention, Markov Claims A and B, the fourth ablation stage) — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.**
+
+**Explicit removal:** demand forecasting was never referenced by name anywhere in Sections 1–10 below (checked; no entry required correction). It remains **Not in scope — documented as a future extension idea only, no committed delivery phase**, per `updates/New_Features.md` F-12.
+
+Per-task deadline dates in Sections 4–6 below are reconciled against `docs/14_Project_Roadmap.md` as of this update — no residual inconsistency remains in those entries. (Section 7's Integration Timeline Gantt charts and sprint-breakdown tables were not part of this pass and still reflect the pre-reconciliation 9-sprint-Phase-2 numbering; they need a separate reconciliation pass.)
 
 ---
 
@@ -305,7 +321,7 @@ Dependency/handoff: Requires P1.5. Supports Person 4's S6 dashboard build.
 Completion gate: Full Document 13 Phase 1 data/graph-construction test cases pass.
 Dependency/handoff: Requires P1.6. Feeds Person 5's Phase 1 hardening sprint.
 
-**P1.8 Phase 1 Sign-off Support — Deadline: End of S8 (2026-11-01)**
+**P1.8 Phase 1 Sign-off Support — Deadline: End of S9 (2026-11-15)**
 
 - Support UAT scenarios touching data quality and dataset realism (Arjun persona).
 - Final dataset/documentation freeze for Phase 1.
@@ -396,7 +412,7 @@ Dependency/handoff: Requires P2.5.
 Completion gate: p95 inference latency ≤ 2s in Person 5's load test.
 Dependency/handoff: Requires P2.6.
 
-**P2.8 Phase 1 Sign-off Support — Deadline: End of S8 (2026-11-01)**
+**P2.8 Phase 1 Sign-off Support — Deadline: End of S9 (2026-11-15)**
 
 - Support Priya-persona UAT scenarios (risk score, explanation) end-to-end.
 - Freeze the Phase 1 model artifact and version tag (`model_version`, Document 5 §6.13).
@@ -491,7 +507,7 @@ Dependency/handoff: Requires P3.1. Feeds Person 4's Admin/Audit screens.
 Completion gate: Document 13 §12 Phase 1 security test cases (expired JWT rejection, deactivated-user rejection, password hash never leaked, `429` on login flood) all pass.
 Dependency/handoff: Requires P3.6. Feeds Person 5's security test pass.
 
-**P3.8 Phase 1 Sign-off Support — Deadline: End of S8 (2026-11-01)**
+**P3.8 Phase 1 Sign-off Support — Deadline: End of S9 (2026-11-15)**
 
 - Support UAT and fix defects surfaced by Person 5's system tests.
 - Tag and freeze the Phase 1 backend release.
@@ -589,7 +605,7 @@ Dependency/handoff: Requires P3.6.
 Completion gate: Document 13 §10 Phase 1 UI test cases pass; NFR-02 verified by Person 5's performance test.
 Dependency/handoff: Requires P4.6. Feeds Person 5's UI/performance testing.
 
-**P4.8 Phase 1 Sign-off Support — Deadline: End of S8 (2026-11-01)**
+**P4.8 Phase 1 Sign-off Support — Deadline: End of S9 (2026-11-15)**
 
 - Fix defects from UAT walkthroughs; polish the demo path (login → graph → prediction → dashboard).
 
@@ -679,7 +695,7 @@ Dependency/handoff: Requires P3.5 and P4.5.
 Completion gate: Full Document 13 Phase 1 suite green.
 Dependency/handoff: Requires all Persons' S7 hardening tasks.
 
-**P5.7 UAT & Phase 1 Demo Prep — Deadline: End of S8 (2026-11-01)**
+**P5.7 UAT & Phase 1 Demo Prep — Deadline: End of S9 (2026-11-15)**
 
 - Run persona-driven UAT for Priya, Meera, and Arjun (Document 13 §13).
 - Prepare and rehearse the Phase 1 demo; deploy to the staging/demo environment (Document 11 §13).
@@ -715,14 +731,14 @@ Dependency/handoff: Requires P5.6 and every person's final sign-off task.
 | M3 — Model Trained                  | End of S4 (2026-09-13)           | GraphSAGE→GAT→HGT ablation complete; final HGT meets AUC-ROC ≥ 0.80 on held-out data | Person 2              |
 | M4 — Prediction API Live            | End of S5 (2026-09-27)           | Inference + explanation subgraph + confidence/risk_category (Risk Intelligence) served via REST | Person 2, Person 3    |
 | M5 — Phase 1 Dashboard Complete     | End of S6 (2026-10-11)           | All Phase 1 screens functional against live APIs                                  | Person 4              |
-| **M6 — Phase 1 MVP Sign-off** | **End of S8 (2026-11-01)** | Document 13 Phase 1 suite green; Priya/Meera/Arjun UAT pass                       | All (led by Person 5) |
+| **M6 — Phase 1 MVP Sign-off** | **End of S9 (2026-11-15)** | Document 13 Phase 1 suite green; Priya/Meera/Arjun UAT pass                       | All (led by Person 5) |
 
 ### Non-Negotiable Milestones (Delivery 1)
 
 - End of S1: Architecture, database schema, API contracts, and response schema are frozen.
 - End of S4: Data pipeline, backend skeleton, and model training all independently functional.
 - End of S6: Full dashboard functional against live prediction APIs.
-- End of S8: Complete end-to-end flow works; Document 13 Phase 1 suite green; feature freeze for Delivery 2 begins.
+- End of S9: Complete end-to-end flow works; Document 13 Phase 1 suite green; feature freeze for Delivery 2 begins.
 
 ---
 
@@ -762,7 +778,7 @@ Delivery 2 begins only after M6 (Phase 1 MVP Sign-off) passes, enforcing Documen
 
 #### Ordered Task Timeline
 
-**D1.1 Evidence Schema & Chunking — Deadline: End of S9 (2026-11-15)**
+**D1.1 Evidence Schema & Chunking — Deadline: End of S10 (2026-11-29)**
 
 - Implement the `evidence_chunks` schema (Document 7 §6) across three collections (`incidents`, `contracts`, `supplier_history`).
 - Implement paragraph-aware recursive chunking, reusing the Phase 1 document-parsing step as the PDF source path.
@@ -779,7 +795,7 @@ Dependency/handoff: Requires Phase 1's `documents` table and parsing step. Hard 
 Completion gate: A query filtered to a specific supplier only returns evidence attributable to that supplier.
 Dependency/handoff: Requires D1.1.
 
-**D1.3 Hybrid Search & Ranking — Deadline: End of S10 (2026-11-29)**
+**D1.3 Hybrid Search & Ranking — Deadline: End of S11 (2026-12-13)**
 
 - Implement vector search + keyword search fused via Reciprocal Rank Fusion (Document 7 §9).
 - Implement recency/exact-match re-ranking and top-k (k=5) selection with `source_document_id` for citation (FR-LLM-04).
@@ -794,7 +810,7 @@ Dependency/handoff: Requires D1.2. Hard handoff to Person 2.
 Completion gate: A newly ingested document is retrievable within the same session without a full index rebuild or downtime.
 Dependency/handoff: Requires D1.3.
 
-**D1.5 Retrieval Evaluation — Deadline: End of S12 (2026-12-27)**
+**D1.5 Retrieval Evaluation — Deadline: End of S13 (2027-01-10)**
 
 - Evaluate retrieval relevance against a curated question set; tune chunking/ranking parameters.
 - Document findings feeding Person 2's grounding requirement (≥90% of explanations cite at least one evidence source, Document 1 §11).
@@ -802,7 +818,7 @@ Dependency/handoff: Requires D1.3.
 Completion gate: Retrieval relevance meets the ≥90% grounding target on the curated evaluation set.
 Dependency/handoff: Requires D1.4. Feeds Person 2's D2.1/D2.4.
 
-**D1.6 RAG Hardening & Sign-off Support — Deadline: End of S18 (2027-03-21)**
+**D1.6 RAG Hardening & Sign-off Support — Deadline: End of S19 (2027-04-04)**
 
 - Support Person 5's final AI pipeline integration and Person 2's chatbot with retrieval performance tuning.
 - Final documentation of the vector database design and evidence corpus.
@@ -830,7 +846,7 @@ Dependency/handoff: Requires D1.5. Supports Phase 2 sign-off (M11).
 
 #### Ordered Task Timeline
 
-**D2.1 LLM Orchestration Foundation — Deadline: End of S11 (2026-12-13)**
+**D2.1 LLM Orchestration Foundation — Deadline: End of S12 (2026-12-27)**
 
 - Build the `llm` module: prompt templates with instruction/data separation (Document 12 §9), combining risk score + explanation subgraph + retrieved evidence into a plain-language explanation (FR-LLM-01) — and, for entities the Decision Intelligence Layer (Person 4, D4.7) routes to the optimizer, explaining the already-computed optimal decision instead of generating one (FR-OPT-03: the LLM never optimizes numerically).
 - Implement business-rule validation of LLM-proposed actions before they can become an `action_request` (FR-LLM-03).
@@ -838,14 +854,14 @@ Dependency/handoff: Requires D1.5. Supports Phase 2 sign-off (M11).
 Completion gate: Given a fixed risk score + evidence set, the LLM produces a plain-language explanation citing at least one evidence source (FR-LLM-04).
 Dependency/handoff: Requires Person 1's D1.3 and Phase 1's prediction/explanation endpoints.
 
-**D2.2 Recommended-Action Generation — Deadline: End of S11 (2026-12-13)**
+**D2.2 Recommended-Action Generation — Deadline: End of S12 (2026-12-27)**
 
 - Generate a recommended action alongside every explanation (FR-LLM-02), constrained to a structured output schema (Document 12 §9), preventing prompt-injected free-form actions — the schema has no field capable of overriding an optimizer-provided numeric result, closing off any path for the LLM to smuggle in its own quantity.
 
 Completion gate: Every high-risk prediction in the evaluation set produces both an explanation and a schema-valid recommended action.
 Dependency/handoff: Requires D2.1. Hard handoff to Person 4's approval workflow.
 
-**D2.3 Chatbot Intent Classification — Deadline: End of S13 (2027-01-10)**
+**D2.3 Chatbot Intent Classification — Deadline: End of S14 (2027-01-24)**
 
 - Implement intent classification (`score_lookup`, `explanation`, `general`, `action_request` — FR-CHAT-02) and the `chat_sessions`/`chat_messages` schema.
 - Implement `POST /api/v1/chat/sessions` and message endpoints (Document 9 §10).
@@ -853,7 +869,7 @@ Dependency/handoff: Requires D2.1. Hard handoff to Person 4's approval workflow.
 Completion gate: At least 18 of 20 test questions route to the correct intent path.
 Dependency/handoff: Requires D2.2 and Phase 1's prediction endpoints.
 
-**D2.4 Retrieve-Then-Generate Pipeline — Deadline: End of S13 (2027-01-10)**
+**D2.4 Retrieve-Then-Generate Pipeline — Deadline: End of S14 (2027-01-24)**
 
 - Implement the full chatbot flow (Document 4 §9): record + evidence + explanation → prompt template → LLM response, streamed with a non-streaming REST fallback.
 - Implement in-chat action approval routing into the Approval Flow (FR-CHAT-04).
@@ -869,7 +885,7 @@ Dependency/handoff: Requires D2.3 and Person 1's D1.3. Hard handoff to Person 3 
 Completion gate: A multi-turn conversation retains context across turns; a simulated LLM outage produces the correct degraded-state response, not a crash.
 Dependency/handoff: Requires D2.4.
 
-**D2.6 Explanation Quality & Sign-off Support — Deadline: End of S18 (2027-03-21)**
+**D2.6 Explanation Quality & Sign-off Support — Deadline: End of S19 (2027-04-04)**
 
 - Manual evaluation of chatbot answer relevance against the ≥90% target (Document 1 §11).
 - Support Person 5's final AI pipeline integration.
@@ -897,7 +913,7 @@ Dependency/handoff: Requires D2.5. Supports Phase 2 sign-off (M11).
 
 #### Ordered Task Timeline
 
-**D3.1 Chatbot UI — Deadline: End of S13 (2027-01-10)**
+**D3.1 Chatbot UI — Deadline: End of S14 (2027-01-24)**
 
 - Build the Chatbot panel (Document 3 §6.11): message thread, input box, suggested-question chips, streaming/typing indicator, inline citation links, inline "approve action" card.
 - Implement full-screen takeover on mobile widths.
@@ -905,14 +921,14 @@ Dependency/handoff: Requires D2.5. Supports Phase 2 sign-off (M11).
 Completion gate: A live conversation against Person 2's chatbot service renders streaming responses with clickable citations.
 Dependency/handoff: Requires D2.4.
 
-**D3.2 Explainability Overlay — Deadline: End of S14 (2027-01-24)**
+**D3.2 Explainability Overlay — Deadline: End of S15 (2027-02-07)**
 
 - Extend the Phase 1 basic highlight into the full overlay: color-coded by risk level, synchronized with chatbot answers (FR-EXP-01–03).
 
 Completion gate: Asking "why is this risky" in chat simultaneously highlights the matching subgraph on the Supply Chain Graph screen.
 Dependency/handoff: Requires D3.1 and Phase 1's basic explanation highlight.
 
-**D3.3 What-If Simulator UI — Deadline: End of S14 (2027-01-24)**
+**D3.3 What-If Simulator UI — Deadline: End of S15 (2027-02-07)**
 
 - Build the two-pane Simulator screen (Document 3 §6.12): entity selector, editable feature form, "run simulation" button, before/after comparison, affected-entities list.
 - Client-side validation of perturbation ranges ahead of `POST /api/v1/simulate`.
@@ -920,28 +936,28 @@ Dependency/handoff: Requires D3.1 and Phase 1's basic explanation highlight.
 Completion gate: Doubling a supplier's lead time visibly shifts downstream product/order risk in the before/after view.
 Dependency/handoff: Requires Person 5's simulator backend (D5.1).
 
-**D3.4 Recommendation UI — Deadline: End of S15 (2027-02-07)**
+**D3.4 Recommendation UI — Deadline: End of S16 (2027-02-21)**
 
 - Build the Recommendation screen (Document 3 §6.13): ranked candidate cards, "approve: raise PO" action per candidate with confirmation dialog.
 
 Completion gate: A flagged supplier's recommendation list renders ranked by similarity score, and approving routes into the Delivery 2 approval workflow.
 Dependency/handoff: Requires Person 5's recommender (D5.2).
 
-**D3.5 Risk Trend Timeline UI — Deadline: End of S15 (2027-02-07)**
+**D3.5 Risk Trend Timeline UI — Deadline: End of S16 (2027-02-21)**
 
 - Build the trend timeline chart with multi-entity overlay comparison (FR-TREND-02), against `GET /api/v1/predictions/{entity_type}/{entity_id}/trend`.
 
 Completion gate: Two suppliers' risk trends render on one comparison chart over a selected date range.
 Dependency/handoff: Requires Person 5's trend logging (D5.3, reusing Phase 1's `risk_scores` table).
 
-**D3.6 Advanced UI Hardening & Sign-off Support — Deadline: End of S18 (2027-03-21)**
+**D3.6 Advanced UI Hardening & Sign-off Support — Deadline: End of S19 (2027-04-04)**
 
 - Cross-cutting polish: Alerts screen tabs (feed + pending approvals), responsive pass on all Phase 2 screens, full Document 13 Phase 2 UI test cases.
 
 Completion gate: Document 13 §10 Phase 2 UI test cases pass; all Phase 2 sidebar entries un-hidden and functional.
 Dependency/handoff: Requires D3.1–D3.5 and Person 4's Alerts backend.
 
-**D3.7 Optimizer Results, Allocation Screen & Decision Trace Panel — Deadline: End of S18 (2027-02-22 – 2027-03-21, after D5.7/D5.8/D4.7)**
+**D3.7 Optimizer Results, Allocation Screen & Decision Trace Panel — Deadline: End of S17–S18 (2027-02-22 – 2027-03-21, after D5.7/D5.8/D4.7)**
 
 - Extend the Recommendation UI (D3.4) with an Optimizer Results panel: optimal/infeasible badge and objective value for safety-stock/PO-split decisions, sourced from Person 5's Optimization Service (D5.7).
 - Build the Allocation screen (Document 3 §6.21): shortage-flagged product selector, optimal-allocation badge with objective value and applied constraints, ranked competing-orders table with editable quantities, against Person 5's customer-allocation solver (D5.8).
@@ -970,7 +986,7 @@ Dependency/handoff: Requires D3.4, D3.6, D5.7, D5.8, D4.7.
 
 #### Ordered Task Timeline
 
-**D4.1 Approval Workflow Backend — Deadline: End of S16 (2027-02-21)**
+**D4.1 Approval Workflow Backend — Deadline: End of S17 (2027-03-07)**
 
 - Implement the `approval` module: `action_requests` schema wiring (Document 5 §6.17) — including the `decision_trace` JSONB column and the `optimizer` value on the `source` enum from the start, so Person 4's own D4.7 doesn't need a second migration — the Approval Flow (Document 4 §10), and endpoints (Document 9 §13).
 - Enforce the mandatory human-approval gate (FR-MCP-03) and required-reason-on-reject rule (FR-MCP-04) at the service layer.
@@ -978,7 +994,7 @@ Dependency/handoff: Requires D3.4, D3.6, D5.7, D5.8, D4.7.
 Completion gate: An action cannot reach `approved` without a recorded `decided_by`/`decided_at`; rejecting without a reason returns `422`.
 Dependency/handoff: Requires Phase 1's `users`/RBAC and Person 2's D2.2 recommended-action output.
 
-**D4.2 MCP Execution Service & ERP Sandbox Adapter — Deadline: End of S16 (2027-02-21)**
+**D4.2 MCP Execution Service & ERP Sandbox Adapter — Deadline: End of S17 (2027-03-07)**
 
 - Implement the `mcp_execution` module and ERP/procurement sandbox adapter (Document 4 §12–13).
 - Implement least-privilege, scoped MCP credentials (Document 12 §11) and the `action_log` write path (Document 5 §6.18).
@@ -986,21 +1002,21 @@ Dependency/handoff: Requires Phase 1's `users`/RBAC and Person 2's D2.2 recommen
 Completion gate: An approved `action_request` executes against the sandbox ERP and produces a logged success/failure outcome with a reference ID.
 Dependency/handoff: Requires D4.1.
 
-**D4.3 Alert Evaluation & Thresholds — Deadline: End of S17 (2027-03-07)**
+**D4.3 Alert Evaluation & Thresholds — Deadline: End of S18 (2027-03-21)**
 
 - Implement `alert_thresholds` and `alerts` schema (Document 5 §6.15–6.16), the `alert_evaluation_job` run after every prediction, and threshold-config endpoints (FR-MCP-06).
 
 Completion gate: A risk score crossing a configured threshold creates exactly one `alerts` row.
 Dependency/handoff: Requires Phase 1's `risk_scores` and Person 5's trend logging cadence.
 
-**D4.4 Notification Service — Deadline: End of S17 (2027-03-07)**
+**D4.4 Notification Service — Deadline: End of S18 (2027-03-21)**
 
 - Implement the Notification Service and Slack/email MCP adapter (Document 4 §14), the `notification_dispatch_queue`, and the `notifications` table.
 
 Completion gate: A threshold breach produces both an in-app alert and a (mocked) Slack/email delivery record within the async dispatch path.
 Dependency/handoff: Requires D4.3.
 
-**D4.5 Security & Idempotency Hardening — Deadline: End of S18 (2027-03-21)**
+**D4.5 Security & Idempotency Hardening — Deadline: End of S19 (2027-04-04)**
 
 - Verify one-way `action_requests` status transitions and `409 CONFLICT` on double-decision.
 - Run Document 13 §12 Phase 2 security test cases: a prompt-injected evidence chunk cannot alter the action-recommendation schema; an action cannot reach `executed` without prior `approved` status.
@@ -1008,14 +1024,14 @@ Dependency/handoff: Requires D4.3.
 Completion gate: Document 13 Phase 2 security suite passes with zero unauthorized executions ("0 actions executed without a recorded human approval", Document 1 §11).
 Dependency/handoff: Requires D4.2 and D2.2. Supports Phase 2 sign-off (M11).
 
-**D4.6 Enterprise Integration Sign-off Support — Deadline: End of S18 (2027-03-21)**
+**D4.6 Enterprise Integration Sign-off Support — Deadline: End of S19 (2027-04-04)**
 
 - Support UAT scenarios for Karan (Compliance Officer) and Rahul (Procurement Manager).
 
 Completion gate: Karan's reject-with-reason and audit-review scenario, and Rahul's approve-a-PO scenario, both pass (Document 13 §13).
 Dependency/handoff: Requires D4.5.
 
-**D4.7 Decision Intelligence Service — Deadline: End of S16 (2027-02-08 – 2027-02-21, alongside D4.1)**
+**D4.7 Decision Intelligence Service — Deadline: End of S16 (2027-02-08 – 2027-02-21)**
 
 - Implement the `decision_intelligence` module: routes each risk-intelligence record to Person 5's Optimization Service (D5.7/D5.8) for the three closed-form decision types (safety-stock, PO-split, customer allocation, FR-DEC-01) or to Person 2's LLM Orchestration Service otherwise; assembles the OR-Tools constraint set (inventory, supplier/warehouse/production capacity, lead time) from PostgreSQL for the routed case.
 - Implement policy validation extending Person 2's LLM-only business-rule check (D2.1) to cover optimizer output too (FR-DEC-02), and compose the `decision_trace` (Document 5 §6.17) persisted on every `action_requests` row D4.1's `ApprovalService` creates (FR-DEC-03).
@@ -1044,7 +1060,7 @@ Dependency/handoff: Requires D4.1 (`action_requests` schema), P5.7 (Risk Intelli
 
 #### Ordered Task Timeline
 
-**D5.1 What-If Simulator Backend — Deadline: End of S14 (2027-01-24)**
+**D5.1 What-If Simulator Backend — Deadline: End of S15 (2027-02-07)**
 
 - Implement `POST /api/v1/simulate`: copy the current `HeteroData` snapshot, apply feature overrides, re-run Person 2's trained inference unmodified (FR-SIM-01–02), discard the copy after scoring (FR-SIM-04).
 - Layer Monte Carlo simulation utilities for multi-scenario distributions where the UI calls for a range (Document 10 §11).
@@ -1052,14 +1068,14 @@ Dependency/handoff: Requires D4.1 (`action_requests` schema), P5.7 (Risk Intelli
 Completion gate: Simulated results never mutate the persisted graph, verified by a before/after graph-state diff test (US-SIM-03).
 Dependency/handoff: Requires Phase 1's trained model and graph store. Hard handoff to Person 3's Simulator UI.
 
-**D5.2 Alternative-Supplier Recommender — Deadline: End of S15 (2027-02-07)**
+**D5.2 Alternative-Supplier Recommender — Deadline: End of S16 (2027-02-21)**
 
 - Implement `GET /api/v1/recommendations/suppliers/{supplier_id}`: rank candidates by cosine similarity over the GNN's existing entity embeddings (FR-REC-01), filtered by matching `component_type` (FR-REC-02), surfacing a similarity score and lower-risk justification (FR-REC-03).
 
 Completion gate: ≥ 80% of recommendations judged plausible by evaluator review (Document 1 §11).
 Dependency/handoff: Requires Phase 1's embeddings (FR-GNN-06). Hard handoff to Person 3's Recommendation UI and Person 4's approval integration (FR-REC-04).
 
-**D5.3 Risk Trend Logging — Deadline: End of S15 (2027-02-07)**
+**D5.3 Risk Trend Logging — Deadline: End of S16 (2027-02-21)**
 
 - Ensure every model run appends to the append-only `risk_scores` table with no gaps, so the trend timeline has continuous history from Phase 1 onward.
 - Implement `GET /api/v1/predictions/{entity_type}/{entity_id}/trend`.
@@ -1074,7 +1090,7 @@ Dependency/handoff: Feeds Person 3's Trend Timeline UI (D3.5) directly.
 Completion gate: A Cypher similarity query and the REST recommendation endpoint (D5.2) return consistent top candidates for the same supplier.
 Dependency/handoff: Requires D5.2.
 
-**D5.5 Final AI Pipeline Integration — Deadline: End of S18 (2027-03-21)**
+**D5.5 Final AI Pipeline Integration — Deadline: End of S19 (2027-04-04)**
 
 - Integrate the What-If Simulator, Recommender, and Trend Timeline against the fully assembled Phase 2 stack (RAG, LLM, chatbot, MCP) alongside Person 1 and Person 2.
 - System-wide inference optimization: confirm concurrent dashboard + chatbot + simulator load does not degrade inference latency beyond NFR-01 (Document 8 §10 prediction-snapshot cache).
@@ -1082,14 +1098,14 @@ Dependency/handoff: Requires D5.2.
 Completion gate: All three advanced-AI features function correctly under the same concurrent-load test Person 3 and Person 4 run for their features.
 Dependency/handoff: Requires D5.1–D5.4.
 
-**D5.6 Advanced AI Sign-off Support — Deadline: End of S18 (2027-03-21)**
+**D5.6 Advanced AI Sign-off Support — Deadline: End of S19 (2027-04-04)**
 
 - Support Devika-persona UAT (Dashboard summary + trend timeline) and Priya/Rahul recommendation-adjacent scenarios.
 
 Completion gate: Document 13 §13 Devika UAT scenario passes.
 Dependency/handoff: Requires D5.5. Supports Phase 2 sign-off (M11).
 
-**D5.7 OR-Tools Safety-Stock & PO-Split Solvers — Deadline: End of S17 (2027-02-08 – 2027-03-07, after D4.7)**
+**D5.7 OR-Tools Safety-Stock & PO-Split Solvers — Deadline: End of S16–S17 (2027-02-08 – 2027-03-07, after D4.7)**
 
 - Implement the `optimization` module's safety-stock and PO-split solvers (Google OR-Tools constraint solver, Document 1 §8.16) and `POST /api/v1/optimize/safety-stock`/`/po-split` (Document 9 §12.2), consuming the constraint set Person 4's Decision Intelligence Service (D4.7) assembles. Scope stays deliberately narrow — these two decision types only, never a general solver (Document 1, risk R-12).
 
@@ -1109,14 +1125,14 @@ Dependency/handoff: Requires D4.7, P1.5 (shortage scenarios), P3.9 (`customers` 
 
 | Dependency                                    | Needed For                       | Owner                       | Sprint   |
 | --------------------------------------------- | -------------------------------- | --------------------------- | -------- |
-| Phase 1`documents`/parsing step             | Evidence ingestion source        | Person 1                    | S9       |
-| Phase 1 embeddings (FR-GNN-06)                | Alternative-supplier recommender | Person 5                    | S15      |
-| Phase 1`risk_scores` table                  | Risk trend timeline              | Person 5, Person 3          | S15      |
-| Hybrid search (RAG)                           | LLM-grounded explanations        | Person 2                    | S11      |
-| LLM Orchestration + recommended-action schema | Approval workflow                | Person 4                    | S16      |
-| Chatbot service                               | Chatbot UI                       | Person 3                    | S13      |
-| What-if simulator backend                     | Simulator UI                     | Person 3                    | S14      |
-| Approval + MCP execution                      | Alerts/Approval UI, audit        | Person 3, Person 5 sign-off | S16–S18 |
+| Phase 1`documents`/parsing step             | Evidence ingestion source        | Person 1                    | S10       |
+| Phase 1 embeddings (FR-GNN-06)                | Alternative-supplier recommender | Person 5                    | S16      |
+| Phase 1`risk_scores` table                  | Risk trend timeline              | Person 5, Person 3          | S16      |
+| Hybrid search (RAG)                           | LLM-grounded explanations        | Person 2                    | S12      |
+| LLM Orchestration + recommended-action schema | Approval workflow                | Person 4                    | S17      |
+| Chatbot service                               | Chatbot UI                       | Person 3                    | S14      |
+| What-if simulator backend                     | Simulator UI                     | Person 3                    | S15      |
+| Approval + MCP execution                      | Alerts/Approval UI, audit        | Person 3, Person 5 sign-off | S17–S19 |
 | Decision Intelligence Service (routing, constraint assembly, decision trace) | Optimizer/Allocation solvers, Approval | Person 4 (D4.7) | S16 |
 | OR-Tools safety-stock/PO-split/allocation solvers | Optimizer Results & Allocation UI | Person 5 (D5.7/D5.8) | S16–S17 |
 
@@ -1124,18 +1140,18 @@ Dependency/handoff: Requires D4.7, P1.5 (shortage scenarios), P3.9 (`customers` 
 
 | Milestone                          | Target                            | Exit Criteria                                                                          | Primary Owner(s)                                      |
 | ---------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| M7 — RAG + LLM Live               | End of S11 (2026-12-13)           | Vector DB populated, RAG retrieval + LLM explanation generation working                | Person 1, Person 2                                    |
-| M8 — Chatbot Live                 | End of S13 (2027-01-10)           | Chatbot end-to-end, integrated into dashboard                                          | Person 2, Person 3                                    |
-| M9 — Simulator + Recommender Live | End of S15 (2027-02-07)           | What-if simulation and alternative-supplier recommendation functional                  | Person 5, Person 3                                    |
-| M10 — Agentic Layer Live          | End of S17 (2027-03-07)           | Approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions (incl. optimizer/allocation sources with decision trace) all functional | Person 4, Person 5                                     |
-| **M11 — Phase 2 Sign-off**  | **End of S18 (2027-03-21)** | Full Document 13 suite (Phase 1 + Phase 2) green; all UAT personas pass                | All (led by Person 5 + Person 4's security hardening) |
+| M7 — RAG + LLM Live               | End of S12 (2026-12-27)           | Vector DB populated, RAG retrieval + LLM explanation generation working                | Person 1, Person 2                                    |
+| M8 — Chatbot Live                 | End of S14 (2027-01-24)           | Chatbot end-to-end, integrated into dashboard                                          | Person 2, Person 3                                    |
+| M9 — Simulator + Recommender Live | End of S16 (2027-02-21)           | What-if simulation and alternative-supplier recommendation functional                  | Person 5, Person 3                                    |
+| M10 — Agentic Layer Live          | End of S18 (2027-03-21)           | Approval workflow, Decision Intelligence routing, MCP execution against sandbox ERP, alerts, notifications, and OR-Tools safety-stock/PO-split/allocation decisions (incl. optimizer/allocation sources with decision trace) all functional | Person 4, Person 5                                     |
+| **M11 — Phase 2 Sign-off**  | **End of S19 (2027-04-04)** | Full Document 13 suite (Phase 1 + Phase 2) green; all UAT personas pass                | All (led by Person 5 + Person 4's security hardening) |
 
 ### Non-Negotiable Milestones (Delivery 2)
 
-- End of S9: Delivery 1 → Delivery 2 rotation handoff complete (Section 6.2); Phase 2 dependency additions isolated to `docker-compose.phase2.yml`.
-- End of S13: RAG, LLM, and Chatbot all independently functional — the core Delivery 2 hypothesis (grounded, conversational explanation) is proven or not proven here.
-- End of S17: Full agentic loop (recommend → approve → execute → log) functional against the sandbox ERP.
-- End of S18: Complete closed-loop system works; Document 13 full suite green; final demo prep.
+- End of S10: Delivery 1 → Delivery 2 rotation handoff complete (Section 6.2); Phase 2 dependency additions isolated to `docker-compose.phase2.yml`.
+- End of S14: RAG, LLM, and Chatbot all independently functional — the core Delivery 2 hypothesis (grounded, conversational explanation) is proven or not proven here.
+- End of S18: Full agentic loop (recommend → approve → execute → log) functional against the sandbox ERP.
+- End of S19: Complete closed-loop system works; Document 13 full suite green; final demo prep.
 
 ---
 
@@ -1152,15 +1168,15 @@ Dependency/handoff: Requires D4.7, P1.5 (shortage scenarios), P3.9 (`customers` 
 | S4       | Person 2   | Trained model (AUC-ROC ≥ 0.80)            | Person 3           | Live inference integration can begin                       |
 | S5       | Person 2/3 | Live prediction + explanation endpoints    | Person 4           | Risk Dashboard and graph highlight can go live             |
 | S6       | Person 3/4 | Fully integrated Phase 1 dashboard         | Person 5           | End-to-end system testing can begin                        |
-| S8       | All        | Green Document 13 Phase 1 suite            | All                | **M6 — Delivery 1 feature freeze**                  |
-| S9       | Person 1   | Phase 1`documents`/parsing reuse         | (self, Delivery 2) | Evidence ingestion can begin                               |
+| S9       | All        | Green Document 13 Phase 1 suite            | All                | **M6 — Delivery 1 feature freeze**                  |
+| S10       | Person 1   | Phase 1`documents`/parsing reuse         | (self, Delivery 2) | Evidence ingestion can begin                               |
 | S11      | Person 1   | Hybrid search (D1.3)                       | Person 2           | LLM grounding can begin                                    |
-| S11      | Person 2   | Recommended-action schema (D2.2)           | Person 4           | Approval workflow can begin                                |
-| S13      | Person 2   | Live chatbot service (D2.4)                | Person 3           | Chatbot UI can integrate                                   |
-| S14      | Person 5   | Simulator backend (D5.1)                   | Person 3           | Simulator UI can integrate                                 |
-| S15      | Person 5   | Recommender + trend logging (D5.2/D5.3)    | Person 3, Person 4 | Recommendation/Trend UI and approval integration can begin |
-| S16      | Person 4   | Approval + MCP execution (D4.1/D4.2)       | Person 3, Person 5 | Alerts UI and final integration can begin                  |
-| S18      | All        | Green Document 13 full suite (Phase 1 + 2) | All                | **M11 — Delivery 2 sign-off**                       |
+| S12      | Person 2   | Recommended-action schema (D2.2)           | Person 4           | Approval workflow can begin                                |
+| S14      | Person 2   | Live chatbot service (D2.4)                | Person 3           | Chatbot UI can integrate                                   |
+| S15      | Person 5   | Simulator backend (D5.1)                   | Person 3           | Simulator UI can integrate                                 |
+| S16      | Person 5   | Recommender + trend logging (D5.2/D5.3)    | Person 3, Person 4 | Recommendation/Trend UI and approval integration can begin |
+| S17      | Person 4   | Approval + MCP execution (D4.1/D4.2)       | Person 3, Person 5 | Alerts UI and final integration can begin                  |
+| S19       | All        | Green Document 13 full suite (Phase 1 + 2) | All                | **M11 — Delivery 2 sign-off**                       |
 | S2       | Person 3   | Customer API + backfill (P3.9)             | Person 4            | Customers screen can begin                                  |
 | S5       | Person 2   | Confidence signal + weighted-formula spec (P2.9) | Person 3       | Risk Intelligence service can begin                          |
 | S5–S6   | Person 3   | Evaluation, governance & Risk Intelligence services (P3.10) | Person 4 | Model Comparison/Confidence Panel UI can begin              |
@@ -1169,7 +1185,7 @@ Dependency/handoff: Requires D4.7, P1.5 (shortage scenarios), P3.9 (`customers` 
 
 ### 6.2 Delivery 1 → Delivery 2 Rotation Handoff
 
-Held as its own knowledge-transfer session at the start of S9, before any Delivery 2 code is written — this is the one handoff that moves a *person*, not just an artifact.
+Held as its own knowledge-transfer session at the start of S10, before any Delivery 2 code is written — this is the one handoff that moves a *person*, not just an artifact.
 
 | Person               | Hands Off (from Delivery 1)                                                                                 | Receives (into Delivery 2)     | What Carries Over                                                                                                                    |
 | -------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1179,19 +1195,21 @@ Held as its own knowledge-transfer session at the start of S9, before any Delive
 | Person 4 → Person 3 | Every Phase 1 screen, component patterns, D3 visualization internals, UX state conventions (Document 3 §7) | Advanced frontend ownership    | Person 3 inherits Person 4's UI conventions — loading/error/empty pattern, graph canvas internals                                   |
 | Person 5             | Full test suite, CI/CD pipeline, whole-system integration knowledge                                         | Advanced Graph AI ownership    | Person 5 inherits nothing new technically, but brings the only end-to-end mental model of the system into extending the model itself |
 
-Completion gate for this handoff: each outgoing owner walks the incoming owner through their module live (not just documentation) before S9 work begins; Person 3 and Person 4 additionally pair for one day on each other's former screens/endpoints.
+Completion gate for this handoff: each outgoing owner walks the incoming owner through their module live (not just documentation) before S10 work begins; Person 3 and Person 4 additionally pair for one day on each other's former screens/endpoints.
 
 ---
 
 ## 7. Integration Timeline
 
-**Delivery 1 — 8-Sprint Parallel Execution (2026-07-20 → 2026-11-01)**
+**Delivery 1 — 9-Sprint Parallel Execution (2026-07-20 → 2026-11-15)**
+
+*S8 (2026-10-26 – 2026-11-08), the rebalanced-scope sprint inserted per `docs/14_Project_Roadmap.md` §6, is not attributed to a specific named task/person in this chart — see the Sprint-by-Sprint Breakdown below and `updates/Other_Tools.md` §10.5. Each person's Sign-off Support bar therefore starts explicitly on 2026-11-09 (S9) rather than chaining directly off the S7 bar, leaving that gap visible.*
 
 ```mermaid
 gantt
     dateFormat  YYYY-MM-DD
     axisFormat  %b %d
-    title Delivery 1 (MVP) — 15-Week Parallel Execution
+    title Delivery 1 (MVP) — 17-Week Parallel Execution
 
     section Person 1 (Graph & Data)
     Dataset + Schema          :p1a, 2026-07-20, 14d
@@ -1201,7 +1219,7 @@ gantt
     Validation + QA           :p1e, after p1d, 14d
     Screen Data Support       :p1f, after p1e, 14d
     Docs + Hardening          :p1g, after p1f, 14d
-    Sign-off Support          :p1h, after p1g, 7d
+    Sign-off Support          :p1h, 2026-11-09, 7d
 
     section Person 2 (GNN + Transformer)
     Architecture Freeze       :p2a, 2026-07-20, 14d
@@ -1212,7 +1230,7 @@ gantt
     Risk Intelligence Methodology :p2i, after p2e, 3d
     Model Evaluation          :p2f, after p2e, 14d
     Latency Hardening         :p2g, after p2f, 14d
-    Sign-off Support          :p2h, after p2g, 7d
+    Sign-off Support          :p2h, 2026-11-09, 7d
 
     section Person 3 (Backend & Serving)
     FastAPI + Auth + Docker   :p3a, 2026-07-20, 14d
@@ -1223,7 +1241,7 @@ gantt
     Evaluation + Governance + Risk Intel Services :p3i, after p3e, 14d
     Audit + Admin             :p3f, after p3e, 14d
     Security Hardening        :p3g, after p3f, 14d
-    Sign-off Support          :p3h, after p3g, 7d
+    Sign-off Support          :p3h, 2026-11-09, 7d
 
     section Person 4 (Frontend & Viz)
     React Foundation + Login  :p4a, 2026-07-20, 14d
@@ -1234,7 +1252,7 @@ gantt
     Admin/Audit/Profile       :p4f, after p4e, 14d
     Model Comparison + Confidence UI :p4i, after p4f, 7d
     UI Hardening              :p4g, after p4f, 14d
-    Sign-off Support          :p4h, after p4g, 7d
+    Sign-off Support          :p4h, 2026-11-09, 7d
 
     section Person 5 (Integration & Test)
     CI/CD + Repo Foundation   :p5a, 2026-07-20, 14d
@@ -1243,10 +1261,10 @@ gantt
     Model Integration Tests   :p5d, after p5c, 28d
     System Integration        :p5e, after p5d, 14d
     Full Test Suite           :p5f, after p5e, 14d
-    UAT + Demo Prep           :p5g, after p5f, 7d
+    UAT + Demo Prep           :p5g, 2026-11-09, 7d
 ```
 
-**Delivery 2 — 10-Sprint Parallel Execution (2026-11-02 → 2027-03-21)**
+**Delivery 2 — 10-Sprint Parallel Execution (2026-11-16 → 2027-04-04)**
 
 *Phase groupings below approximate the sprint-level deadlines given in each person's Ordered Task Timeline (Section 5); this chart is illustrative of overall load, not a substitute for those deadlines.*
 
@@ -1257,31 +1275,31 @@ gantt
     title Delivery 2 (Advanced AI) — 20-Week Parallel Execution
 
     section Person 1 (RAG & Vector DB)
-    Vector DB & Ingestion       :d1a, 2026-11-02, 28d
+    Vector DB & Ingestion       :d1a, 2026-11-16, 28d
     Hybrid Search & Re-indexing :d1b, after d1a, 28d
     Retrieval Evaluation & Support :d1c, after d1b, 28d
     RAG Hardening + Sign-off    :d1d, after d1c, 56d
 
     section Person 2 (LLM & Chatbot)
-    Grounding Design + Prep     :d2a, 2026-11-02, 28d
+    Grounding Design + Prep     :d2a, 2026-11-16, 28d
     LLM Orchestration           :d2b, after d2a, 28d
     Chatbot Build + Persistence :d2c, after d2b, 28d
     Evaluation + Sign-off       :d2d, after d2c, 56d
 
     section Person 3 (Advanced Frontend)
-    UX Research + Prep          :d3a, 2026-11-02, 56d
+    UX Research + Prep          :d3a, 2026-11-16, 56d
     Chatbot + Overlay + Simulator UI :d3b, after d3a, 28d
     Recommendation + Trend UI   :d3c, after d3b, 28d
     Hardening + Sign-off        :d3d, after d3c, 28d
     Optimizer/Allocation/Decision Trace UI :d3e, after d3d, 14d
 
     section Person 4 (MCP & Enterprise Integration)
-    Adapter Research + Prep     :d4a, 2026-11-02, 84d
+    Adapter Research + Prep     :d4a, 2026-11-16, 84d
     Approval + MCP Execution + Decision Intelligence Service :d4b, after d4a, 14d
     Alerts + Notifications + Hardening :d4c, after d4b, 28d
 
     section Person 5 (Advanced Graph AI)
-    Simulator Research + Prep   :d5a, 2026-11-02, 56d
+    Simulator Research + Prep   :d5a, 2026-11-16, 56d
     Simulator Backend           :d5b, after d5a, 28d
     Recommender + Trend + Analytics :d5c, after d5b, 28d
     Final Integration + Sign-off :d5d, after d5c, 28d
@@ -1299,22 +1317,23 @@ gantt
 | S5     | 09-14 – 09-27 | Validation + QA + shortage scenarios | Inference + explainability + Risk Intelligence methodology (P2.9) | Live prediction APIs      | Risk Dashboard + predictions | Model integration tests (cont.) |
 | S6     | 09-28 – 10-11 | Screen data support | Model evaluation           | Audit + Admin + Evaluation/Governance/Risk Intel services (P3.10) | Admin/Audit/Profile + Model Comparison/Confidence UI (P4.10) | System integration              |
 | S7     | 10-12 – 10-25 | Docs + hardening    | Latency hardening          | Security hardening        | UI hardening                 | Full test suite                 |
-| S8     | 10-26 – 11-01 | Sign-off support    | Sign-off support           | Sign-off support          | Sign-off support             | UAT + demo prep                 |
+| S8     | 10-26 – 11-08 | *(rebalanced scope — not attributed to a named task/person above; see `docs/14_Project_Roadmap.md` §6 and `updates/Other_Tools.md` §10.5)* | | | | |
+| S9     | 11-09 – 11-15 | Sign-off support    | Sign-off support           | Sign-off support          | Sign-off support             | UAT + demo prep                 |
 
 ### Sprint-by-Sprint Breakdown — Delivery 2
 
 | Sprint | Dates          | Person 1 (RAG)                       | Person 2 (LLM/Chat)                | Person 3 (Adv. Frontend)  | Person 4 (MCP)                | Person 5 (Adv. Graph AI)     |
 | ------ | -------------- | ------------------------------------ | ---------------------------------- | ------------------------- | ----------------------------- | ---------------------------- |
-| S9     | 11-02 – 11-15 | Evidence schema + chunking           | —                                 | Rotation handoff (6.2)    | Rotation handoff (6.2)        | —                           |
-| S10    | 11-16 – 11-29 | Embedding + hybrid search            | —                                 | —                        | —                            | —                           |
-| S11    | 11-30 – 12-13 | Re-indexing (into S12)               | LLM orchestration + action gen     | —                        | —                            | —                           |
-| S12    | 12-14 – 12-27 | Retrieval evaluation (buffer sprint) | —                                 | —                        | —                            | —                           |
-| S13    | 12-28 – 01-10 | —                                   | Chatbot intent + retrieve-generate | Chatbot UI                | —                            | —                           |
-| S14    | 01-11 – 01-24 | —                                   | Session persistence                | Overlay + Simulator UI    | —                            | Simulator backend            |
-| S15    | 01-25 – 02-07 | —                                   | —                                 | Recommendation + Trend UI | —                            | Recommender + trend logging  |
-| S16    | 02-08 – 02-21 | —                                   | —                                 | —                        | Approval + MCP execution + Decision Intelligence Service (D4.7) | Graph analytics (SIMILAR_TO) + OR-Tools safety-stock/PO-split (D5.7, into S17) |
-| S17    | 02-22 – 03-07 | —                                   | —                                 | —                        | Alerts + Notifications        | OR-Tools allocation solver (D5.8) |
-| S18    | 03-08 – 03-21 | RAG hardening + sign-off             | Evaluation + sign-off              | Hardening + sign-off + Optimizer/Allocation/Decision Trace UI (D3.7) | Security hardening + sign-off | Final integration + sign-off |
+| S10    | 11-16 – 11-29 | Evidence schema + chunking + embedding pipeline + metadata filtering | —                                 | Rotation handoff (6.2)    | Rotation handoff (6.2)        | —                           |
+| S11    | 11-30 – 12-13 | Hybrid search                        | —                                 | —                        | —                            | —                           |
+| S12    | 12-14 – 12-27 | Re-indexing (from S11)               | LLM orchestration + action gen     | —                        | —                            | —                           |
+| S13    | 12-28 – 01-10 | Retrieval evaluation (buffer sprint) | —                                 | —                        | —                            | —                           |
+| S14    | 01-11 – 01-24 | —                                   | Chatbot intent + retrieve-generate + session persistence | Chatbot UI  | —                            | —                           |
+| S15    | 01-25 – 02-07 | —                                   | —                                 | Overlay + Simulator UI    | —                            | Simulator backend            |
+| S16    | 02-08 – 02-21 | —                                   | —                                 | Recommendation + Trend UI | Decision Intelligence Service (D4.7) | Recommender + trend logging + graph analytics (SIMILAR_TO) + OR-Tools safety-stock/PO-split underway (D5.7, into S17) |
+| S17    | 02-22 – 03-07 | —                                   | —                                 | Optimizer/Allocation/Decision Trace UI underway (D3.7, into S18) | Approval + MCP execution   | OR-Tools safety-stock/PO-split live (D5.7) + allocation solver (D5.8) |
+| S18    | 03-08 – 03-21 | —                                   | —                                 | Optimizer/Allocation/Decision Trace UI (D3.7) | Alerts + Notifications | —                           |
+| S19    | 03-22 – 04-04 | RAG hardening + sign-off             | Evaluation + sign-off              | Hardening + sign-off      | Security hardening + sign-off | Final integration + sign-off |
 
 ---
 
@@ -1349,7 +1368,7 @@ flowchart TD
 
 ### Feature Freeze Rule
 
-> After each delivery's final sprint begins (S8 for Delivery 1, S18 for Delivery 2), no new features are allowed unless they fix a critical gap in the flagship demo. The final sprint is for reliability, evaluation, documentation, and presentation only.
+> After each delivery's final sprint begins (S9 for Delivery 1, S19 for Delivery 2), no new features are allowed unless they fix a critical gap in the flagship demo. The final sprint is for reliability, evaluation, documentation, and presentation only.
 
 ### Flagship Demo Acceptance Flow — Delivery 1
 
@@ -1422,7 +1441,7 @@ flowchart TD
 ### Final Team Operating Rules
 
 - No person moves to the next task until the current task passes its stated completion gate.
-- Shared contracts (schema, API shapes, model I/O) may not change silently — changes require immediate team agreement, exactly as they were frozen at the relevant S1/S9 handoff.
+- Shared contracts (schema, API shapes, model I/O) may not change silently — changes require immediate team agreement, exactly as they were frozen at the relevant S1/S10 handoff.
 - Each person maintains their own branch (`feature/*` in Delivery 1, `phase-2/*` in Delivery 2) and merges only CI-tested work.
 - Every sprint ends with a short handoff review: completed, blocked, required from others — mirroring the Cross-Team Handoffs table (Section 6).
 - The Delivery 1 → Delivery 2 rotation handoff (Section 6.2) is a scheduled, gated event, not an informal note passed along.
