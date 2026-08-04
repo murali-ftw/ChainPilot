@@ -44,6 +44,8 @@ erDiagram
     PRODUCTS ||--o{ INVENTORY : "stocked as"
     PRODUCTS ||--o{ PRODUCT_COMPONENTS : "composed of"
     COMPONENTS ||--o{ PRODUCT_COMPONENTS : "used in"
+    PRODUCTS ||--o{ PRODUCT_FACTORIES : "manufactured at"
+    FACTORIES ||--o{ PRODUCT_FACTORIES : "manufactures"
     ORDERS ||--o{ ORDER_ITEMS : "contains"
     PRODUCTS ||--o{ ORDER_ITEMS : "ordered as"
     ORDERS ||--o{ SHIPMENTS : "fulfilled by"
@@ -81,10 +83,17 @@ erDiagram
     SUPPLIERS ||--o{ SUPPLIER_DYADIC_RISK : "reweighted (Phase 2)"
     RISK_SCORES ||--o{ SUPPLIER_DYADIC_RISK : "reweighted by (Phase 2)"
 
+    INVENTORY ||--o{ INVENTORY_HISTORY : "observed over time (Phase 1)"
+    SHIPMENTS ||--o{ SHIPMENT_STATUS_HISTORY : "transitions (Phase 1)"
+    SUPPLIERS ||--o{ SUPPLIER_TEMPORAL_FEATURES : "as-of features (Phase 1)"
+    GRAPH_SNAPSHOTS ||--o{ TRAINING_LABELS : "supervises (Phase 1)"
+
     SUPPLIERS ||--o{ SUPPLIER_RELATIONSHIPS : "not committed"
     SUPPLIERS ||--o{ NODE_DEPTH_ATTENTION : "not committed"
     SUPPLIERS ||--o{ HIDDEN_DEPENDENCY_LINKS : "not committed"
 ```
+
+**Temporal integrity.** The four Phase-1 tables above exist because the model's training contract requires every node, edge, and feature in a snapshot to reflect only what was known at a prediction timestamp `t₀`. Master tables hold *current state*; history tables hold *what was true when*. Feature pipelines read the latter (Sections 6.39–6.44).
 
 ## 6. Table Specifications
 
@@ -124,7 +133,7 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | country | VARCHAR(100) | NULL |
 | capacity_score | NUMERIC(6,2) | NULL |
 | lead_time_days | INTEGER | NOT NULL, default `0`, CHECK (`lead_time_days >= 0`) |
-| reliability_history | NUMERIC(5,4) | NULL, CHECK (0 <= reliability_history <= 1) |
+| reliability_history | NUMERIC(5,4) | NULL, CHECK (0 <= reliability_history <= 1) — **display only; deprecated for model use.** This is a mutable scalar recomputed over all history, so reading it at training time leaks future information. Feature pipelines read `supplier_temporal_features` (Section 6.41) instead. |
 | is_active | BOOLEAN | NOT NULL, default `true` |
 | created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
@@ -169,7 +178,7 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
 - **Indexes:** UNIQUE index on `sku`; index on `category`.
-- **Relationships:** parent of `product_components.product_id`, `inventory.product_id`, `order_items.product_id`; referenced by `risk_scores` (entity_type='product').
+- **Relationships:** parent of `product_components.product_id`, `product_factories.product_id` (Section 6.45), `inventory.product_id`, `order_items.product_id`; referenced by `risk_scores` (entity_type='product').
 - **Audit:** `updated_at` tracked.
 - **Delivery Phase:** Phase 1
 
@@ -183,10 +192,14 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | product_id | UUID | NOT NULL, FK → `products(id)` |
 | component_id | UUID | NOT NULL, FK → `components(id)` |
 | quantity_required | INTEGER | NOT NULL, default `1`, CHECK (`quantity_required > 0`) |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` — when this BOM entry became valid |
+| deactivated_at | TIMESTAMPTZ | NULL — when it stopped being valid; NULL means still current |
 
-- **Indexes:** UNIQUE composite index on (`product_id`, `component_id`); index on `component_id`.
+- **Indexes:** UNIQUE composite index on (`product_id`, `component_id`); index on `component_id`; index on `created_at`.
 - **Relationships:** links `products` and `components`; source of the `USED_IN` graph edge (Document 6).
-- **Audit:** structural table; changes tracked via row insert/delete only.
+- **Audit:** structural table; changes tracked via row insert/delete plus the validity window above.
+- **As-of edge filter:** graph construction for a snapshot at `t₀` includes this edge only when `created_at <= t₀ AND (deactivated_at IS NULL OR deactivated_at > t₀)`. Without these two columns a BOM entry added after `t₀` would silently enter the snapshot — structural leakage that no feature masking can catch.
+- **Migration:** both columns additive; backfill `created_at` from `products.created_at` where the true date is unknown, and record the approximation in `graph_snapshots.feature_spec_version` (Section 6.43).
 - **Delivery Phase:** Phase 1
 
 ### 6.6 `factories`
@@ -204,8 +217,9 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
 - **Indexes:** index on `location`.
-- **Relationships:** referenced by `shipments.factory_id`.
+- **Relationships:** referenced by `shipments.factory_id`; parent of `product_factories` (Section 6.45), which is the source of the `MANUFACTURED_AT` graph edge.
 - **Audit:** `updated_at` tracked.
+- **Note on capacity:** `capacity_units_per_day` here is the site's total throughput across all products. Per-product throughput lives on `product_factories.capacity_units_per_day` (Section 6.45); the two are different quantities and the optimizer's production-capacity constraint (Document 6, Section 14) reads whichever matches its granularity.
 - **Delivery Phase:** Phase 1
 
 ### 6.7 `warehouses`
@@ -241,8 +255,9 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
 - **Indexes:** UNIQUE composite index on (`product_id`, `warehouse_id`); index on `warehouse_id`.
-- **Relationships:** links `products` and `warehouses`.
-- **Audit:** `updated_at` tracked; stock-level changes are high-frequency and not individually audit-logged, only current state retained.
+- **Relationships:** links `products` and `warehouses`; parent of `inventory_history` (Section 6.39).
+- **Audit:** `updated_at` tracked. This table holds **current state only**; every observed stock position is appended to `inventory_history` (Section 6.39), which is what feature pipelines and the shortage-label query read.
+- **Model use:** **display and operational queries only.** The shortage label is *defined* by `stock_level` crossing `reorder_threshold`, so reading current state at training time is direct label leakage.
 - **Delivery Phase:** Phase 1
 
 ### 6.9 `orders`
@@ -277,10 +292,13 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | order_id | UUID | NOT NULL, FK → `orders(id)` |
 | product_id | UUID | NOT NULL, FK → `products(id)` |
 | quantity | INTEGER | NOT NULL, CHECK (`quantity > 0`) |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
-- **Indexes:** index on `order_id`; index on `product_id`.
+- **Indexes:** index on `order_id`; index on `product_id`; index on `created_at`.
 - **Relationships:** links `orders` and `products`.
 - **Audit:** structural table; insert/delete only.
+- **As-of edge filter:** graph construction for a snapshot at `t₀` includes this edge only when `created_at <= t₀`.
+- **Migration:** additive; backfill from `orders.placed_at`, a sound approximation for line items.
 - **Delivery Phase:** Phase 1
 
 ### 6.11 `shipments`
@@ -295,15 +313,19 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | warehouse_id | UUID | NULL, FK → `warehouses(id)` |
 | order_id | UUID | NULL, FK → `orders(id)` |
 | carrier | VARCHAR(255) | NULL |
-| status | shipment_status ENUM(`scheduled`,`in_transit`,`delivered`,`delayed`) | NOT NULL, default `scheduled` |
+| status | shipment_status ENUM(`scheduled`,`in_transit`,`delivered`,`delayed`) | NOT NULL, default `scheduled` — **current state; display and operational queries only** |
 | eta | TIMESTAMPTZ | NULL |
+| dispatched_at | TIMESTAMPTZ | NULL — when the shipment physically departed; source of the `days_since_dispatch` feature |
 | delivered_at | TIMESTAMPTZ | NULL |
+| origin_location | VARCHAR(255) | NULL — denormalised from the originating supplier or factory; enables route-level carrier aggregates (Section 6.42) |
 | created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 | updated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
-- **Indexes:** index on `supplier_id`; index on `warehouse_id`; index on `order_id`; index on `status`.
-- **Relationships:** links `suppliers`, `factories`, `warehouses`, `orders`; referenced by `risk_scores` (entity_type='shipment'); source of `SHIPS_TO` graph edge (Document 6).
-- **Audit:** status transitions (esp. to `delayed`) written to `audit_log`.
+- **Indexes:** index on `supplier_id`; index on `warehouse_id`; index on `order_id`; index on `status`; index on `dispatched_at`.
+- **Relationships:** links `suppliers`, `factories`, `warehouses`, `orders`; referenced by `risk_scores` (entity_type='shipment'); source of `SHIPS_TO` graph edge (Document 6); parent of `shipment_status_history` (Section 6.40).
+- **Audit:** every status transition is appended to `shipment_status_history` (Section 6.40) by trigger or ingestion job; material transitions are additionally written to `audit_log`.
+- **Model use:** feature pipelines **must not read `status` or `delivered_at`.** `status` holds the terminal value, and the delay label is defined as `status = 'delayed' OR delivered_at > eta` — reading either is direct label leakage. As-of status comes from `shipment_status_history`; `eta` is safe because it is known at dispatch.
+- **Migration:** `dispatched_at` and `origin_location` are additive and nullable. Backfill `dispatched_at` from the first `in_transit` transition in `shipment_status_history` where available; leave NULL otherwise.
 - **Delivery Phase:** Phase 1
 
 ### 6.12 `documents`
@@ -343,11 +365,14 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | risk_category | risk_category ENUM(`low`,`medium`,`high`,`critical`) | NOT NULL, default `low` — Risk Intelligence Layer categorization (FR-RISKINT-02) |
 | scoring_method | scoring_method ENUM(`gnn_native`,`weighted_formula`) | NOT NULL, default `weighted_formula` |
 | model_version | VARCHAR(50) | NOT NULL — e.g. `graphsage-v1`, `gat-v1`, `hgt-v1` per the architecture ablation (FR-ABL-01) |
+| snapshot_t0 | TIMESTAMPTZ | NULL — the prediction timestamp this score was computed *for*; FK-by-convention to `graph_snapshots.t0` (Section 6.43) |
+| horizon_days | SMALLINT | NULL — the forecast window this score covers |
 | scored_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
 - **Indexes:** composite index on (`entity_type`, `entity_id`, `scored_at` DESC) — primary access pattern for both current score and trend timeline; index on `impact_score` for Risk Dashboard sorting; index on `model_version` (architecture comparison, FR-ABL-02); index on `risk_category` (Risk Dashboard triage filtering, FR-RISKINT-02).
 - **Relationships:** polymorphic reference to `suppliers`/`products`/`orders`/`shipments` via (`entity_type`,`entity_id`); parent of `explanation_subgraphs.risk_score_id`, `alerts.risk_score_id`; loosely joined to `model_evaluation_runs.model_version` and `model_registry.model_version` (Sections 6.23, 6.25, not a hard FK).
 - **Audit:** immutable — rows are append-only, forming the trend history by construction; never updated in place.
+- **`scored_at` vs `snapshot_t0`:** `scored_at` records *when inference ran*; `snapshot_t0` records *what moment the prediction is about*. In a forecasting system these differ, and conflating them makes the Risk Trend Timeline (FR-TREND-02) uninterpretable — a backfilled re-score would otherwise appear as a present-day risk change.
 - **Delivery Phase:** Phase 1 (table + scoring, incl. `scoring_method`, `confidence`, `risk_category` — the Risk Intelligence Layer's output columns); Phase 2 (trend timeline consumption)
 - **Migration:** `scoring_method`, `confidence`, and `risk_category` are additive columns with defaults; no backfill risk for existing rows (Enhancement Addendum §4.3).
 
@@ -537,10 +562,18 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 | evaluated_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 | task | VARCHAR(50) | NOT NULL, default `'risk_prediction'` — distinguishes which task this metric row belongs to now that supplementary tasks also write here (`lead_time_regression`, `component_criticality`, `link_prediction`, `supplier_segmentation`, `order_at_risk`, `inductive_generalization`, `depth_attention`, etc., per `updates/New_Features.md` §5.1); existing ablation rows backfill to the default |
 | run_type | run_type ENUM(`unbiased`,`shallow_regularized`) | NULL — NULL for rows predating this distinction; independent of `task` above, only populated for rows logged by the Layer 2 upgrade's Transformer 1 dual-run methodology (`updates/Supplier_Risk_Prediction.md` §7.6) |
+| fold_id | SMALLINT | NULL — rolling-origin fold index; NULL for single-split runs |
+| train_end_t0 | TIMESTAMPTZ | NULL — last `t₀` in the training window for this fold |
+| test_start_t0 | TIMESTAMPTZ | NULL — first `t₀` in the test window |
+| test_end_t0 | TIMESTAMPTZ | NULL — last `t₀` in the test window |
+| ci_lower | NUMERIC(10,6) | NULL — lower bound of the confidence interval for `metric_value` |
+| ci_upper | NUMERIC(10,6) | NULL — upper bound |
+| ci_method | VARCHAR(50) | NULL — e.g. `paired_block_bootstrap`, `delong` |
 
-- **Indexes:** composite index on (`model_version`, `task`, `metric_name`) — supersedes the original (`model_version`, `metric_name`) index now that `task` is the primary filter dimension; index on `architecture` — primary access pattern for the ablation comparison (FR-ABL-02).
+- **Indexes:** composite index on (`model_version`, `task`, `metric_name`) — supersedes the original (`model_version`, `metric_name`) index now that `task` is the primary filter dimension; index on `architecture` — primary access pattern for the ablation comparison (FR-ABL-02); index on (`fold_id`, `test_start_t0`) for rolling-origin queries.
 - **Relationships:** loosely joined to `risk_scores.model_version` (not a hard FK — evaluation runs may exist before any scores are logged under that version).
-- **Audit:** immutable, append-only, one row per (`model_version`, `task`, `metric_name`, `dataset_split`); satisfies NFR-19.
+- **Audit:** immutable, append-only, one row per (`model_version`, `task`, `metric_name`, `dataset_split`, `fold_id`); satisfies NFR-19.
+- **Interval reporting:** the architecture comparison (FR-ABL-02) is only meaningful with intervals attached. Repeated snapshots of the same entities are autocorrelated, so i.i.d. methods (ordinary DeLong, naïve bootstrap) produce intervals that are too narrow. `ci_method` records which estimator was used; a paired, time-blocked bootstrap over whole snapshots is the correct default. **A schema with nowhere to store an interval guarantees that point estimates get reported instead.**
 - **Delivery Phase:** Phase 1 (table, `task` column); `run_type` column — Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid (it exists only to support the Layer 2 upgrade's dual-run methodology)
 
 ### 6.24 `customers`
@@ -817,16 +850,196 @@ Format per table: Purpose, Columns/Datatype/Constraints, Indexes, Relationships,
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | supplier_a_id | UUID | NOT NULL, FK → `suppliers(id)` |
-| supplier_b_id | UUID | NOT NULL, FK → `suppliers(id)`, CHECK (`supplier_b_id <> supplier_a_id`) |
-| attention_weight | NUMERIC(6,5) | NOT NULL |
+| supplier_b_id | UUID | NOT NULL, FK → `suppliers(id)`, CHECK (`supplier_a_id < supplier_b_id`) |
+| attention_a_to_b | NUMERIC(6,5) | NOT NULL |
+| attention_b_to_a | NUMERIC(6,5) | NOT NULL |
+| symmetric_score | NUMERIC(6,5) | NOT NULL — defined as the mean of the two directional weights |
+| rank_for_a | SMALLINT | NULL — rank of B within A's candidate pool |
+| rank_for_b | SMALLINT | NULL — rank of A within B's candidate pool |
+| snapshot_t0 | TIMESTAMPTZ | NOT NULL — which snapshot produced this pair |
+| task | VARCHAR(50) | NOT NULL — which head's embedding was attended over |
+| candidate_pool_version | VARCHAR(50) | NOT NULL — `dense`, or the top-k configuration used |
+| head_aggregation | VARCHAR(50) | NOT NULL — how multi-head attention weights were combined |
 | model_version | VARCHAR(50) | NOT NULL |
+| validation_status | validation_status ENUM(`unvalidated`,`confirmed`,`rejected`) | NOT NULL, default `unvalidated` |
+| validated_by | UUID | NULL, FK → `users(id)` |
+| validated_at | TIMESTAMPTZ | NULL |
 | detected_at | TIMESTAMPTZ | NOT NULL, default `now()` |
 
-- **Indexes:** UNIQUE composite index on (`supplier_a_id`, `supplier_b_id`, `model_version`); index on `attention_weight` DESC.
-- **Relationships:** links `suppliers` to `suppliers`.
+- **Indexes:** UNIQUE composite index on (`supplier_a_id`, `supplier_b_id`, `snapshot_t0`, `model_version`); index on `symmetric_score` DESC; index on `validation_status`.
+- **Relationships:** links `suppliers` to `suppliers`; `validated_by` FK to `users`.
+- **Canonical ordering:** the `supplier_a_id < supplier_b_id` check guarantees one row per coupled pair rather than two. Both directional weights are retained because attention is **not symmetric** — storing a single `attention_weight` would discard half the signal and leave the unique index ambiguous about which direction it described.
+- **Interpretation:** a row is an **investigation lead, never a fact.** A high weight means "similar within this candidate pool at this snapshot" — it does not establish a shared upstream supplier. `candidate_pool_version` and `snapshot_t0` are what make a stored weight interpretable months later; without them a raw attention value cannot be compared across runs.
 - **Delivery Phase:** Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid (computation + persistence); Phase 2 (dashboard surfacing)
 
-### 6.39 Appendix — Speculative Schema Not Scheduled to Any Migration Set
+### 6.39 `inventory_history` (new — Phase 1)
+
+**Purpose:** Append-only observation log of stock positions. Source of both the as-of `stock_level` feature and the shortage label (FR-GNN-02). `inventory` (Section 6.8) holds current state; this table holds what was true when.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| inventory_id | UUID | NOT NULL, FK → `inventory(id)` |
+| product_id | UUID | NOT NULL, FK → `products(id)` — denormalised for query performance |
+| warehouse_id | UUID | NOT NULL, FK → `warehouses(id)` — denormalised |
+| stock_level | INTEGER | NOT NULL, CHECK (`stock_level >= 0`) |
+| reorder_threshold | INTEGER | NOT NULL, CHECK (`reorder_threshold >= 0`) |
+| observed_at | TIMESTAMPTZ | NOT NULL — **valid time**: when this stock position was true |
+| recorded_at | TIMESTAMPTZ | NOT NULL, default `now()` — **system time**: when the row was written |
+| source | VARCHAR(50) | NOT NULL, default `'wms_sync'` |
+
+- **Indexes:** composite index on (`product_id`, `warehouse_id`, `observed_at` DESC) — the as-of access path; index on `observed_at`.
+- **Relationships:** child of `inventory`, `products`, `warehouses`.
+- **Audit:** immutable, append-only. Never updated or deleted.
+- **Why two timestamps:** `observed_at` answers *"what was the stock level then?"*; `recorded_at` answers *"when did we learn it?"*. A correction written today about a position dated last year must not enter a snapshot built for last year, so both the as-of query and the label query filter on `recorded_at <= t₀` as well as `observed_at`.
+- **As-of query:** `SELECT DISTINCT ON (product_id, warehouse_id) ... WHERE observed_at <= :t0 AND recorded_at <= :t0 ORDER BY product_id, warehouse_id, observed_at DESC`
+- **Shortage label query:** `bool_or(stock_level < reorder_threshold)` over rows where `observed_at > :t0 AND observed_at <= :t0 + :horizon`
+- **Delivery Phase:** Phase 1
+
+### 6.40 `shipment_status_history` (new — Phase 1)
+
+**Purpose:** Append-only status transition log. Source of the as-of shipment status and the delay label (FR-GNN-01). `shipments.status` (Section 6.11) holds the terminal value; this table holds the sequence that produced it.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| shipment_id | UUID | NOT NULL, FK → `shipments(id)` |
+| status | shipment_status ENUM(`scheduled`,`in_transit`,`delivered`,`delayed`) | NOT NULL |
+| previous_status | shipment_status ENUM | NULL — NULL for the initial row |
+| changed_at | TIMESTAMPTZ | NOT NULL — **valid time**: when the transition occurred |
+| recorded_at | TIMESTAMPTZ | NOT NULL, default `now()` — **system time** |
+| source | VARCHAR(50) | NOT NULL, default `'carrier_feed'` |
+
+- **Indexes:** composite index on (`shipment_id`, `changed_at` DESC); index on (`status`, `changed_at`).
+- **Relationships:** child of `shipments`.
+- **Audit:** immutable, append-only. Written by a trigger on `shipments.status` change or by the ingestion job.
+- **Why `audit_log` is not sufficient:** `audit_log` (Section 6.22) is Phase 1 for authentication events only, and its polymorphic JSONB `detail` column makes state reconstruction across thousands of snapshots both fragile and slow. A typed, indexed transition log is the correct structure for a field that feeds a training label.
+- **Eligibility rule:** only shipments whose as-of status is `scheduled` or `in_transit` are valid training examples. A shipment already `delivered` or `delayed` at `t₀` has no outcome left to predict, and including it is leakage by construction.
+- **Delivery Phase:** Phase 1
+
+### 6.41 `supplier_temporal_features` (new — Phase 1)
+
+**Purpose:** Precomputed as-of temporal features per supplier per snapshot date. Serves two roles at once: the leakage-safe replacement for the mutable `suppliers.reliability_history` scalar, and the precomputation layer that keeps multi-snapshot training tractable.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| supplier_id | UUID | NOT NULL, FK → `suppliers(id)` |
+| as_of_date | DATE | NOT NULL — the `t₀` this row is valid for |
+| on_time_rate_30d | NUMERIC(5,4) | NULL, CHECK (0 <= on_time_rate_30d <= 1) |
+| on_time_rate_90d | NUMERIC(5,4) | NULL, CHECK (0 <= on_time_rate_90d <= 1) |
+| on_time_rate_180d | NUMERIC(5,4) | NULL, CHECK (0 <= on_time_rate_180d <= 1) |
+| trend_slope | NUMERIC(8,6) | NULL — OLS slope of on-time rate over the last N shipments; negative means degrading |
+| lateness_variance | NUMERIC(10,4) | NULL, CHECK (`lateness_variance >= 0`) |
+| days_since_last_late | INTEGER | NULL, CHECK (`days_since_last_late >= 0`) |
+| shipment_count_180d | INTEGER | NOT NULL, default `0` — sample size behind the rates |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+| feature_spec_version | VARCHAR(20) | NOT NULL — bumped whenever a feature definition changes |
+
+- **Indexes:** UNIQUE composite index on (`supplier_id`, `as_of_date`, `feature_spec_version`); index on `as_of_date`.
+- **Relationships:** child of `suppliers`.
+- **Audit:** immutable per (`supplier_id`, `as_of_date`, `feature_spec_version`). Recomputation writes a new `feature_spec_version` rather than updating in place, so a trained model can always be traced to the exact feature definitions it saw.
+- **Why `shipment_count_180d` is not decorative:** an on-time rate of 1.00 from two shipments and 1.00 from two hundred are different facts. The model should see the sample size, and a rate computed from fewer than a documented minimum should be `NULL` rather than optimistic.
+- **Why precomputed:** recomputing six rolling windows per supplier across every snapshot is `O(snapshots × suppliers × shipments)`. Precomputation is the difference between minutes and hours per training run, and it removes any temptation to compute features from a mutable column at load time.
+- **Delivery Phase:** Phase 1
+
+### 6.42 `carrier_performance_snapshots` (new — Phase 1)
+
+**Purpose:** As-of carrier and route reliability. Supplies two of the four shipment temporal features without materialising a per-shipment-per-date table.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| carrier | VARCHAR(255) | NOT NULL |
+| origin_location | VARCHAR(255) | NULL — NULL for the carrier-level aggregate |
+| destination_location | VARCHAR(255) | NULL — NULL for the carrier-level aggregate |
+| as_of_date | DATE | NOT NULL |
+| on_time_rate_90d | NUMERIC(5,4) | NULL, CHECK (0 <= on_time_rate_90d <= 1) |
+| shipment_count_90d | INTEGER | NOT NULL, default `0` |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** UNIQUE composite index on (`carrier`, `origin_location`, `destination_location`, `as_of_date`); index on `as_of_date`.
+- **Relationships:** joined to `shipments` by `carrier` and `origin_location`/`warehouse_id` at feature-assembly time; no hard FK, since a carrier may appear before any shipment references it.
+- **Audit:** immutable, append-only per (`carrier`, route, `as_of_date`).
+- **The other two shipment features need no table:** `days_since_dispatch` is computed inline as `t₀ − shipments.dispatched_at`, and `seasonal_index` is a deterministic function of the calendar.
+- **Delivery Phase:** Phase 1
+
+### 6.43 `graph_snapshots` (new — Phase 1)
+
+**Purpose:** Registry of every training snapshot built. Without it, no training result is reproducible — you cannot later establish which entities, edges, or labels a given model actually saw.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| t0 | TIMESTAMPTZ | NOT NULL — the prediction timestamp |
+| horizon_days | SMALLINT | NOT NULL, default `14` |
+| node_counts | JSONB | NOT NULL — per node type |
+| edge_counts | JSONB | NOT NULL — per meta-relation |
+| label_counts | JSONB | NOT NULL — positives and negatives per task |
+| feature_spec_version | VARCHAR(20) | NOT NULL |
+| git_commit | VARCHAR(40) | NOT NULL — the graph-construction code that produced this snapshot |
+| construction_seconds | NUMERIC(8,2) | NULL |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+- **Indexes:** UNIQUE composite index on (`t0`, `feature_spec_version`); index on `t0`.
+- **Relationships:** parent of `training_labels` (Section 6.44); loosely joined to `risk_scores.snapshot_t0` and `model_registry.training_dataset`.
+- **Audit:** immutable, append-only.
+- **`label_counts` is the column you will read most.** It is where you discover that a given month produced eleven positive delay labels and therefore cannot support a comparison. Reading it before training is cheaper than discovering it afterwards.
+- **Delivery Phase:** Phase 1
+
+### 6.44 `training_labels` (new — Phase 1)
+
+**Purpose:** The actual supervision targets, stored rather than recomputed at load time. Makes label construction auditable and makes after-the-fact leakage investigation possible.
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| snapshot_id | UUID | NOT NULL, FK → `graph_snapshots(id)` |
+| entity_type | entity_type ENUM(`supplier`,`product`,`order`,`shipment`) | NOT NULL |
+| entity_id | UUID | NOT NULL |
+| task | VARCHAR(50) | NOT NULL — `delay`, `shortage`, `impact` |
+| label | BOOLEAN | NOT NULL |
+| event_at | TIMESTAMPTZ | NULL — when the event occurred; populated for positives only |
+| label_source | VARCHAR(100) | NOT NULL — e.g. `shipment_status_history`, `inventory_history` |
+
+- **Indexes:** composite index on (`snapshot_id`, `task`, `entity_type`); index on (`entity_type`, `entity_id`).
+- **Relationships:** child of `graph_snapshots`; polymorphic reference to the scored entity via (`entity_type`, `entity_id`), same convention as `risk_scores`.
+- **Audit:** immutable, append-only.
+- **Invariant that must hold:** every non-NULL `event_at` satisfies `t₀ < event_at <= t₀ + horizon_days`. Enforce it in the loader and assert it in a test — a label whose event predates `t₀` is leakage by definition, and this is the cheapest place to catch it.
+- **Delivery Phase:** Phase 1
+
+### 6.45 `product_factories` (junction, new — Phase 1)
+
+**Purpose:** Manufacturing capability — many-to-many between products and factories (Layer 1 `MANUFACTURED_AT` edge). Replaces the previous inference of this edge from `shipments.factory_id` (Document 6, Section 6).
+
+| Column | Datatype | Constraints |
+|---|---|---|
+| id | UUID | PK, default `gen_random_uuid()` |
+| product_id | UUID | NOT NULL, FK → `products(id)` |
+| factory_id | UUID | NOT NULL, FK → `factories(id)` |
+| is_primary | BOOLEAN | NOT NULL, default `false` — the default production site for this product |
+| capacity_units_per_day | INTEGER | NULL, CHECK (`capacity_units_per_day >= 0`) — this factory's throughput **for this product**, which is not the same as `factories.capacity_units_per_day` across all products |
+| qualified_at | TIMESTAMPTZ | NULL — when the factory was qualified to manufacture this product |
+| created_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+| deactivated_at | TIMESTAMPTZ | NULL — when the capability lapsed; NULL means still current |
+
+- **Indexes:** UNIQUE composite index on (`product_id`, `factory_id`); index on `factory_id`; index on `created_at`; partial index on `is_primary` WHERE `is_primary = true`.
+- **Relationships:** links `products` and `factories`; source of the `MANUFACTURED_AT` graph edge (Document 6, Section 6).
+- **Audit:** structural table; changes tracked via row insert/delete plus the validity window.
+- **As-of edge filter:** graph construction for a snapshot at `t₀` includes this edge only when `created_at <= t₀ AND (deactivated_at IS NULL OR deactivated_at > t₀)`, matching `product_components` (Section 6.5).
+- **Edge feature:** `capacity_units_per_day` is the scalar attribute carried on `MANUFACTURED_AT`, so the model can distinguish a factory that produces a product at volume from one qualified to make it in small batches.
+
+**Why a junction table rather than inference.** The previous derivation walked `shipments.factory_id → shipments.order_id → orders → order_items → products`. That path has four defects, of which the last is the reason this table is required rather than merely preferable:
+
+1. **Ambiguity.** An order contains many line items. A shipment from Factory F fulfilling an order containing products P1, P2 and P3 implies F manufactures all three, which is often false. This is the failure Document 6's GD-02 already flagged.
+2. **Nullability.** Both `shipments.factory_id` and `shipments.order_id` are nullable, so any shipment missing either produces no edge at all.
+3. **Capability versus history.** A factory qualified to build a product but with no recent shipments generates no edge, even though the manufacturing relationship exists. Alternative-sourcing and what-if analysis need capability, not shipment history.
+4. **Structural leakage.** The inferred edge set is a function of the `shipments` table — the same table that produces the delay label. Under the as-of contract (Section 7.2), graph *topology* would then vary with shipment volume, which itself correlates with disruption exposure. Two snapshots of an unchanged supply chain would have different structure purely because more shipments had accumulated. A declared capability table is stable across `t₀` and independent of the label source.
+
+- **Migration:** new table. Seed by extracting unambiguous `(factory_id, product_id)` pairs from historical shipments — those where a shipment's order resolves to exactly one product — then have the data owner confirm and complete the set. Pairs that cannot be confirmed are omitted rather than guessed; an absent capability is a smaller error than an invented one.
+- **Delivery Phase:** Phase 1
+
+### 6.46 Appendix — Speculative Schema Not Scheduled to Any Migration Set
 
 **`demand_forecasts`** (`updates/New_Features.md` §5.13) is recorded here **for design continuity only**. It must **not** appear in the Phase 1, Phase 2, or "Not committed" migration sets in Section 7 — demand forecasting (F-12) is **Not in scope — documented as a future extension idea only, no committed delivery phase.**
 
@@ -846,10 +1059,10 @@ This schema is not created by any migration until F-12 is itself committed to a 
 
 ## 7. Migration Strategy
 
-- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components`, `factories`, `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items`, `shipments`, `documents`, `risk_scores` (incl. `scoring_method`, `confidence`, `risk_category`), `explanation_subgraphs`, `model_evaluation_runs` (incl. `task` column, Section 6.23), `model_registry`, `audit_log`, `spof_analysis`, `supplier_segments`, `geographic_exposure_snapshots`, `spend_concentration_snapshots` (Sections 6.26–6.29).
+- Phase 1 migration set creates: `users`, `suppliers`, `components`, `products`, `product_components` (incl. `created_at`, `deactivated_at`), `factories`, `product_factories` (Section 6.45), `warehouses`, `inventory`, `customers`, `orders` (incl. `customer_id`), `order_items` (incl. `created_at`), `shipments` (incl. `dispatched_at`, `origin_location`), `documents`, `risk_scores` (incl. `scoring_method`, `confidence`, `risk_category`, `snapshot_t0`, `horizon_days`), `explanation_subgraphs`, `model_evaluation_runs` (incl. `task`, fold and confidence-interval columns, Section 6.23), `model_registry`, `audit_log`, `spof_analysis`, `supplier_segments`, `geographic_exposure_snapshots`, `spend_concentration_snapshots` (Sections 6.26–6.29), and the temporal-integrity set `inventory_history`, `shipment_status_history`, `supplier_temporal_features`, `carrier_performance_snapshots`, `graph_snapshots`, `training_labels` (Sections 6.39–6.44).
 - Phase 2 migration set adds: `alert_thresholds`, `alerts`, `action_requests` (incl. `optimizer` enum value on `source`, `decision_trace` column), `action_log`, `chat_sessions`, `chat_messages`, `notifications`, `lead_time_predictions`, `component_criticality_scores`, `promise_date_feasibility`, `link_prediction_scores`, `order_risk_exposure`, `supplier_dyadic_risk` (Sections 6.30–6.35) — purely additive, no Phase 1 table is altered in a breaking way (Document 2, Section 3.1 additive-architecture principle).
 - **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid:** `suppliers.tier`/`suppliers.is_frontier`, `supplier_relationships`, `node_depth_attention`, `hidden_dependency_links`, `model_evaluation_runs.run_type` (Sections 6.23, 6.36–6.38). **Do not run these migrations until the Layer 2 upgrade itself is committed.**
-- **Explicitly not scheduled to any migration set:** `demand_forecasts` (Section 6.39) — recorded for design continuity only; **Not in scope — documented as a future extension idea only, no committed delivery phase.**
+- **Explicitly not scheduled to any migration set:** `demand_forecasts` (Section 6.46) — recorded for design continuity only; **Not in scope — documented as a future extension idea only, no committed delivery phase.**
 - Migrations are managed via a version-controlled tool (e.g., Alembic) per Document 11 (Implementation Guide).
 
 ### 7.1 Enhancement Migration Sequence
@@ -870,6 +1083,27 @@ The five Enhancement Addendum changes apply in this order, consolidating the add
 
 All steps are additive except Step 6, which is intentionally sequenced last and separately, consistent with the additive-architecture principle above.
 
+### 7.2 Temporal Integrity Migration Sequence
+
+The temporal-integrity changes (Sections 6.39–6.44 and the associated column additions) apply in this order. Every step is independently deployable and testable.
+
+| Order | Change | Type | Blocks |
+|---|---|---|---|
+| 1 | Create `shipment_status_history`; backfill; add transition trigger on `shipments` | New table + backfill | **Delay labels — all model training** |
+| 2 | Create `inventory_history`; backfill | New table + backfill | Shortage labels |
+| 3 | Add `product_components.created_at`/`deactivated_at`, `order_items.created_at`; backfill | Additive + backfill | As-of edge filtering |
+| 3b | Create `product_factories`; seed from unambiguous shipments; data-owner confirmation pass | New table + backfill | `MANUFACTURED_AT` edges — Factory/Product connectivity |
+| 4 | Add `shipments.dispatched_at`, `shipments.origin_location`; backfill from step 1 | Additive + backfill | Shipment temporal features |
+| 5 | Create `supplier_temporal_features`; run backfill job | New table + backfill | Supplier temporal features; deprecates `reliability_history` for model use |
+| 6 | Create `carrier_performance_snapshots`; run backfill job | New table + backfill | Carrier and route features |
+| 7 | Create `graph_snapshots`, `training_labels` | New tables | Reproducibility and label audit |
+| 8 | Add `risk_scores.snapshot_t0`/`horizon_days`, `model_evaluation_runs` fold and CI columns | Additive columns | Evaluation protocol |
+| 9 | Replace `hidden_dependency_links` definition (Section 6.38) | Breaking, but the table is unbuilt | Transformer 2 (not committed) |
+
+**Steps 1–4 are hard blockers for model training.** Steps 5–8 are strongly recommended before the first ablation run: without step 5 the feature pipeline leaks, and without steps 7–8 results cannot be reproduced or interval-reported.
+
+**Backfill honesty.** Where history genuinely does not exist in the source systems, it must not be synthesised. Record the earliest date from which each history table is trustworthy, and set the first usable `t₀` after it. A snapshot built from approximated history is worse than no snapshot, because it produces a number that will be believed.
+
 ## 8. Risks
 
 | ID | Risk | Mitigation | Delivery Phase |
@@ -882,10 +1116,20 @@ All steps are additive except Step 6, which is intentionally sequenced last and 
 | DB-06 | Customer priority/contract data (`customers.contract_terms`) unavailable or incomplete in the project's dataset | `contract_terms` scoped to only the fields actually present rather than left as an aspirational JSONB blob (Document 1, Section 12 assumption) | Phase 2 |
 | DB-07 | `model_registry` row edited after `status='active'`, undermining governance trust | Application layer permits only `status` updates once a row is `active` (NFR-24); enforced in the repository layer (Document 8), covered by Document 13 test cases | Phase 1 |
 | DB-08 | `action_requests.decision_trace` left NULL for an approved/rejected row, breaking audit coverage | Service layer populates `decision_trace` at creation time for every `action_requests` row (Document 8), not optional/best-effort (NFR-23) | Phase 2 |
+| DB-09 | Feature pipelines read the deprecated mutable columns (`suppliers.reliability_history`, `shipments.status`, `inventory.stock_level`) out of habit, reintroducing label leakage | Column comments mark each as display-only (Sections 6.2, 6.8, 6.11); an automated check asserts that no module under `ml/` references them; covered by a Document 13 test case | Phase 1 |
+| DB-10 | History tables grow large — `inventory_history` at daily granularity across many product×warehouse pairs | Partition by `observed_at` month; retain full detail for the active training window and aggregate older periods (Section 9) | Phase 1 |
+| DB-11 | Backfill produces approximated history that is subsequently treated as observed fact | Record the trustworthy-from date per history table; graph construction refuses to build a snapshot with `t₀` earlier than it; the approximation is recorded in `graph_snapshots.feature_spec_version` | Phase 1 |
+| DB-12 | `feature_spec_version` drifts silently as feature definitions change, making old runs incomparable | Bump on every definition change; stored on both `graph_snapshots` and `supplier_temporal_features`, so any model traces to the exact definitions it saw | Phase 1 |
+| DB-13 | Snapshot construction becomes the training bottleneck | Sections 6.41–6.42 precompute the expensive aggregates; `graph_snapshots.construction_seconds` is measured per snapshot and optimised if it exceeds the training step | Phase 1 |
+| DB-14 | Master-table attributes (`suppliers.lead_time_days`, `capacity_score`, `country`) remain mutable, so a supplier that relocated is retroactively assumed always to have been there | Accepted for Phase 1 — these change slowly relative to the snapshot cadence; SCD Type 2 noted as a Future Extension (Section 9) if feature-drift attribution ever matters | Phase 1 |
 
 ## 9. Future Extension
 
-Table partitioning for `risk_scores` and `audit_log` by time range, and archival of resolved `alerts`/`action_log` rows beyond a retention window, are natural extensions once data volume grows beyond prototype scale (Document 1, Section 15), without changing the schema shape defined here.
+Table partitioning for `risk_scores`, `audit_log`, `inventory_history` and `shipment_status_history` by time range, and archival of resolved `alerts`/`action_log` rows beyond a retention window, are natural extensions once data volume grows beyond prototype scale (Document 1, Section 15), without changing the schema shape defined here.
+
+**SCD Type 2 on master dimensions.** `suppliers`, `products` and `warehouses` currently store only current state for slowly-changing attributes such as `lead_time_days`, `capacity_score` and `country`. Adding `valid_from`/`valid_to` and converting updates to insert-and-close would make those attributes as-of-queryable in the same way Sections 6.39–6.41 already make stock, status and reliability. Deferred because the snapshot cadence is monthly and these attributes change far more slowly than that — but it is the fuller answer if attribute drift ever needs to be attributed.
+
+**`orders.status` history**, following the pattern of Section 6.40, if order state ever becomes a model feature rather than only a label input.
 
 ---
 
