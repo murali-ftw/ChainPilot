@@ -1,184 +1,123 @@
 # Document 11 — Implementation Guide
 
-## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System
+## HADES Model-Development Prototype
 
-Version: 1.0
+Version: 2.0 — rescoped to a single-researcher Python/ML workflow (Docker, CI/CD, service deployment, and multi-contributor process removed)
 Status: Baseline
-Consistent with: Documents 1–10
+Consistent with: `01_Product_Requirement_Document.md`–`10_AI_ML_Documentation.md`
 
 ---
 
 ## 1. Purpose
 
-This document specifies how the system is actually built and shipped by a five-person engineering team: development environment setup, dependency management, Docker configuration, environment variables, CI/CD, Git/branch strategy, testing gates, deployment procedure, and rollback. It operationalizes Documents 2 and 8 into a repeatable engineering workflow.
+This document specifies how the ML pipeline is actually developed and run: environment setup, dependency management, code organization, Git practice, testing gates, and how to reproduce or roll back to a previous training run. There is no deployment step in the product sense — "shipping" here means a model version and its evaluation results are recorded in `model_registry`.
 
 ## 2. Scope
 
-Covers the full 15-week Phase 1 build and the Phase 2 extension workflow through early April 2027, consistent with Document 1's delivery strategy.
+Covers the full research-prototype workflow: local Python environment, running the data/graph/training/evaluation pipeline, and the lightweight process discipline needed to keep every run reproducible.
 
 ## 3. Assumptions
 
-- Five-person engineering team, one owner per architectural layer (Document 1, Section 6 stakeholder table; `docs/team_plan.md` Section 2); Git strategy (Section 8) assumes a multi-contributor team process with per-person feature branches and cross-team PR review.
-- GitHub is the source host, with GitHub Actions for CI/CD, consistent with Document 2, Section 5.
-- Local development happens on each team member's machine using Docker Compose (Document 2, Section 6.1); no cloud development environment is required for Phase 1.
+- A single researcher, working intermittently, is the entire "team." There is no multi-contributor review process, no sprint cadence, and no cross-team ownership split to coordinate.
+- Local development happens directly on the researcher's machine — no container orchestration is required at this scale.
+- GitHub is the source host; CI, if used at all, is a lightweight lint/test check, not a deployment pipeline.
 
 ## 4. Dependencies
 
-Document 2 (technology stack, deployment model), Document 8 (folder structure), Document 5 (migrations), Document 13 (test suite invoked by CI).
+`02_Technical_Requirement_Specification.md` (technology stack), `05_Database_Design.md` (schema and migrations), `13_Testing_Documentation.md` (test suite).
 
 ## 5. Development Environment
 
 | Requirement | Version/Tool |
 |---|---|
 | Python | 3.11+ |
-| Node.js | 20 LTS |
-| Docker / Docker Compose | Latest stable |
-| PostgreSQL client tools | `psql` 15+ |
-| Package management (Python) | `uv` or `pip` + `venv` |
-| Package management (JS) | `npm` or `pnpm` |
-| IDE convention | `.editorconfig`, shared lint/format config (`ruff`/`black` for Python, `eslint`/`prettier` for TypeScript) committed to the repo |
+| PostgreSQL client tools | `psql` 15+ (or run PostgreSQL itself in a single local container/service, since no multi-service stack is being orchestrated) |
+| Package management | `uv` or `pip` + `venv` |
+| Lint/format | `ruff` |
+| Notebook/script environment | Jupyter or plain scripts — either is fine; this is a research pipeline, not a codebase with a UI |
 
 ## 6. Dependencies
 
-| Category | Key Packages | Delivery Phase |
-|---|---|---|
-| Backend core | `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `alembic`, `pydantic`, `passlib`, `python-jose` (JWT) | Phase 1 |
-| ML | `torch`, `torch-geometric`, `pandas`, `scikit-learn`, `networkx` | Phase 1 |
-| Frontend core | `react`, `typescript`, `d3`, `react-router`, `axios`/`fetch` wrapper | Phase 1 |
-| Testing | `pytest`, `pytest-asyncio`, `httpx` (API tests), `vitest`/`jest` + `react-testing-library` (frontend) | Phase 1 |
-| RAG/LLM | `langgraph`, LLM provider SDK, embedding client, `pgvector` Python bindings or `weaviate-client` | Phase 2 |
-| Optimization | `ortools` (Google OR-Tools) | Phase 2 |
-| MCP | MCP server/client SDK | Phase 2 |
-| Notifications | Slack SDK, email client (SMTP or provider SDK) | Phase 2 |
-| Caching/Queue | `redis`, `redis`-backed task queue client | Phase 2 |
+| Category | Key Packages |
+|---|---|
+| ML core | `torch`, `torch-geometric` |
+| Data processing | `pandas`, `numpy` |
+| Evaluation | `scikit-learn`, `scipy` (for bootstrap/DeLong confidence intervals) |
+| Database | `psycopg2` or `sqlalchemy` (read/write against the schema in `05_Database_Design.md`) |
+| Testing | `pytest` |
 
-All dependencies are pinned in `requirements.txt`/`pyproject.toml` (backend) and `package.json` lockfile (frontend); Phase 2 dependencies are added in a dedicated commit when Phase 2 work begins, not pre-installed during Phase 1.
+Pinned in `pyproject.toml`/`requirements.txt`. There is no separate frontend, backend, RAG/LLM, optimization, or notification dependency group — none of that exists in this project (`02_Technical_Requirement_Specification.md` §4).
 
-## 7. Docker
+## 7. Database Setup
 
-Per Document 2, Section 6.1, each service is one Dockerfile; `docker-compose.yml` (Phase 1) and `docker-compose.phase2.yml` (additive override, Phase 2) define the full stack.
+No Docker Compose stack. A single local PostgreSQL instance is sufficient:
 
-```yaml
-# docker-compose.yml (Phase 1, illustrative excerpt)
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes: ["pgdata:/var/lib/postgresql/data"]
-
-  backend:
-    build: ./backend
-    env_file: .env
-    depends_on: [postgres]
-    ports: ["8000:8000"]
-
-  frontend:
-    build: ./frontend
-    ports: ["3000:3000"]
-    depends_on: [backend]
-
-volumes:
-  pgdata:
+```bash
+createdb chainpilot
+python db/load_data.py --dsn "postgresql://user:pass@localhost:5432/chainpilot"
 ```
 
-Phase 2 adds `vector-db` (if Weaviate is chosen over pgvector), `redis`, and the additional service containers listed in Document 2, Section 6.1, via `docker-compose.phase2.yml`, composed with `docker compose -f docker-compose.yml -f docker-compose.phase2.yml up`.
+`load_data.py` applies `db/schema.sql`, loads the synthetic CSVs, and runs the verification queries described in `db/README.md` — FK integrity, chronology, label-window containment. **Do not proceed to graph construction if this step reports a failure.**
 
-## 8. Environment Variables
+## 8. Suggested Code Layout
 
-| Variable | Purpose | Delivery Phase |
-|---|---|---|
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST` | Database connection | Phase 1 |
-| `JWT_SECRET_KEY`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | Auth token signing/expiry (Document 8, Section 12) | Phase 1 |
-| `MODEL_ARTIFACT_PATH` | Path to the trained GNN model artifact served by the Inference Service; resolved against the `model_registry` row with `status='active'` (Document 5, Section 6.25) | Phase 1 |
-| `RISK_CATEGORY_THRESHOLDS` | Default low/medium/high/critical threshold config consumed by the Risk Intelligence Service (FR-RISKINT-02) | Phase 1 |
-| `CORS_ALLOWED_ORIGINS` | Frontend origin allowlist | Phase 1 |
-| `VECTOR_DB_URL` | pgvector connection string or Weaviate endpoint | Phase 2 |
-| `LLM_API_KEY`, `LLM_MODEL_NAME` | LLM provider credentials/model selection | Phase 2 |
-| `EMBEDDING_MODEL_NAME` | Embedding model for RAG indexing | Phase 2 |
-| `MCP_SERVER_ENDPOINTS` | Configured MCP server addresses (ERP/procurement, notification) | Phase 2 |
-| `SLACK_BOT_TOKEN`, `NOTIFICATION_EMAIL_SMTP_URL` | Notification channel credentials | Phase 2 |
-| `REDIS_URL` | Cache/queue connection | Phase 2 |
+Not prescriptive — this is a research pipeline, and the layout should stay easy to change. A reasonable starting point:
 
-All secrets are supplied via `.env` (excluded from source control via `.gitignore`) locally, and via the CI/CD secret store in pipelines — never committed, per NFR-10.
-
-## 9. CI/CD
-
-```mermaid
-flowchart LR
-    PR["Pull Request opened"] --> LINT["Lint & Type Check\n(ruff/mypy, eslint/tsc)"]
-    LINT --> UNIT["Unit Tests\n(pytest, vitest)"]
-    UNIT --> INT["Integration Tests\n(API against test DB)"]
-    INT --> BUILD["Build Docker Images"]
-    BUILD --> MERGE{"Merged to main?"}
-    MERGE -->|Yes| DEPLOY["Deploy to Staging/Demo"]
-    MERGE -->|No| END["Pipeline ends at PR gate"]
+```
+ml/
+├── data/            # feature engineering, leakage contract (10_AI_ML_Documentation.md §6)
+├── graph/           # graph snapshot assembly (06_Graph_Database_Design.md)
+├── models/          # HGT encoder, depth selection, Transformer 2, prediction heads
+├── train.py         # training loop, run inventory (10_AI_ML_Documentation.md §9.2)
+├── evaluate.py       # metrics, confidence intervals, per-claim validation routes
+└── tests/           # leakage test, unit tests (13_Testing_Documentation.md)
 ```
 
-- CI (GitHub Actions) runs on every pull request: lint, type-check, unit tests, integration tests (Document 13), then a Docker build check.
-- CD triggers only on merge to `main`, deploying to the staging/demo environment (Document 2, Section 6.2).
-- No pipeline step is skipped for Phase 2 work — the same gate applies to every PR regardless of phase.
+## 9. Testing Gate
+
+Full detail: `13_Testing_Documentation.md`. Minimum bar before trusting any result: the leakage test passes (`10_AI_ML_Documentation.md` §9.5), and the pipeline's unit tests (feature derivation, as-of edge filtering, label-window invariants) are green. There is no CI/CD pipeline enforcing this automatically at this scale — it is a manual discipline, stated here so it doesn't get skipped under "I'll just try this one thing quickly" pressure.
 
 ## 10. Git Strategy
 
-- **Trunk-based with short-lived feature branches**, appropriate for a five-person team: `main` is always demoable; work happens on `feature/<short-description>` branches merged via PR (peer-reviewed by another team member, CI-gated) to keep history readable and CI honest.
-- Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`) to keep the log traceable against Document 1 requirement IDs where relevant (e.g., `feat(auth): implement FR-AUTH-05 account lockout`).
+- **Trunk-based, no branch model overhead.** `main` (or the working branch) holds the current state of the pipeline; feature branches are optional, used when a change is large enough to want isolation before merging (e.g., building the depth gate).
+- Commit messages reference what changed in plain terms; there is no multi-team requirement-ID tagging convention to maintain.
+- **`git_commit` on every `model_registry` row is the actual discipline that matters here** — not the branch model. A training run's code state must be committed before the run, so the `git_commit` field in `model_registry` (`05_Database_Design.md` §6.22) is truthful.
 
-## 11. Branch Strategy
-
-| Branch | Purpose |
-|---|---|
-| `main` | Always-deployable; represents the current demoable state |
-| `feature/*` | One feature/requirement per branch, merged via PR |
-| `phase-2/*` (optional prefix) | Signals Phase 2 work explicitly, so `main` history clearly shows the Phase 1/Phase 2 boundary matching Document 1's delivery split |
-| `hotfix/*` | Urgent fixes branched from `main`, merged back directly |
-
-No long-lived `develop` branch is used — unnecessary process overhead for a single-developer, two-phase academic project.
-
-## 12. Testing
-
-Full detail in Document 13. Summary gate here: every PR must pass lint, unit, and integration tests before merge (Section 9); Phase 1 sign-off requires the full Document 13 Phase 1 test suite green before Phase 2 work begins, enforcing the scope discipline from Document 1, Section 2.4.
-
-## 13. Deployment
+## 11. Running a Training Run ("Deployment," for This Project)
 
 | Step | Detail |
 |---|---|
-| Build | CI builds and tags Docker images per service (`git-sha` tag) |
-| Migrate | `alembic upgrade head` run against the target environment's PostgreSQL before service restart |
-| Release | `docker compose pull && docker compose up -d` on the staging/demo host (or equivalent container platform command) |
-| Smoke test | Automated post-deploy health check hits `/healthz` on every service (Document 2, Section 11) before the deployment is marked successful |
-| Phase 2 activation | Phase 2 services/images are deployed additively via `docker-compose.phase2.yml` (Section 7) once Phase 2 development is ready; Phase 1 services are not redeployed/restructured to accommodate this |
+| Commit | Commit the current code state before starting a run, so `git_commit` is accurate |
+| Build snapshots | Run graph snapshot construction (`04_Application_Flow.md` §5) for the relevant `t₀` range, if not already built |
+| Train | Run the training script; it writes one `model_registry` row on completion |
+| Evaluate | Run the evaluation script against the held-out split; it writes `model_evaluation_runs` rows with confidence intervals |
+| Compare | Read `model_evaluation_runs` for the relevant claim (`10_AI_ML_Documentation.md` §9.4) and report the result, including a null result if that's what the evidence shows |
 
-## 14. Rollback
+## 12. Reproducing or Rolling Back to a Previous Run
+
+There is no live service to roll back — "rollback" here means re-running or re-inspecting a previous result:
 
 | Step | Detail |
 |---|---|
-| Image rollback | Redeploy the previous known-good `git-sha`-tagged image set |
-| Database rollback | `alembic downgrade -1` only if the failed release included a migration; otherwise no DB rollback is needed since Phase 1/Phase 2 migrations are additive (Document 5, Section 7) and backward-compatible with the prior application version |
-| Verification | Re-run the smoke test (Section 13) against the rolled-back version before considering the incident closed |
+| Find the run | Query `model_registry` for the `model_version` of interest |
+| Reproduce | `git checkout <that run's git_commit>`, rebuild the same dataset snapshot (`training_dataset` field), re-run with the same `hyperparameters` |
+| Compare, don't overwrite | `model_evaluation_runs` is append-only (`05_Database_Design.md` §6.21) — a re-run produces a new row, never overwrites the old one, so results stay comparable across attempts |
 
-Because the schema strategy (Document 5, Section 7) is additive-only, rollback risk is low: an old application version can typically run against a newer (additively migrated) schema without failure, simplifying emergency rollback to an image-only operation in most cases.
+## 13. Risks
 
-## 15. Risks
+| ID | Risk | Mitigation |
+|---|---|---|
+| IG-01 | A training run happens against uncommitted code, making `git_commit` inaccurate | Commit-before-run discipline (Section 11); spot-check `model_registry.git_commit` against `git log` periodically |
+| IG-02 | Manual steps (Section 11) are error-prone without automation | Script the sequence (a `Makefile` or shell script) rather than running each step ad hoc by memory |
+| IG-03 | `model_evaluation_runs`/`model_registry` schema (`05_Database_Design.md` §6.21–6.22) isn't actually built yet, and results get logged informally instead (e.g., only in a notebook) | Build these two tables early — before the first ablation run, per `14_Model_Development_Roadmap.md` — specifically to prevent this |
 
-| ID | Risk | Mitigation | Delivery Phase |
-|---|---|---|---|
-| IG-01 | Cross-team PR review could be rushed under sprint deadline pressure, weakening the review safety net | CI gate (Section 9) is mandatory and non-bypassable (no `--no-verify`/skipped checks) as a backstop alongside mandatory peer review | Phase 1 |
-| IG-02 | Phase 2 dependency additions (Section 6) could destabilize a working Phase 1 build if not isolated | Additive `docker-compose.phase2.yml` and dependency additions only after Phase 1 sign-off gate (Section 12) | Phase 2 |
-| IG-03 | Manual deployment steps (Section 13) are error-prone without a dedicated ops team | Steps scripted (`Makefile`/shell scripts) rather than run ad hoc, reducing manual-step risk | Phase 1 |
-| IG-04 | Enhancement Addendum schema changes (Document 5, Section 7.1) — `customers`, `model_evaluation_runs`, `scoring_method`, `orders.customer_id` backfill — are additive but sequence-sensitive | Migration order enforced exactly as Document 5, Section 7.1 lists it; `orders.customer_name` drop (step 6) run only as a separate, later migration after backfill verification | Phase 1 |
-| IG-05 | `model_registry`, `confidence`/`risk_category` on `risk_scores`, and `decision_trace` on `action_requests` (Document 5, Section 7) are new/additive but easy to miss if the training pipeline or Decision Intelligence Service isn't updated in lockstep with the migration | Migration and the code path that populates the new columns land in the same PR, gated by the CI build/test check (Section 9) — a migration without a populating code path fails integration tests (Document 13) | Phase 1 (schema), Phase 2 (`decision_trace`) |
-| IG-06 | New backend modules (Document 8, Section 5) — `analytics/` (SPOF, segmentation, concentration, Phase 1) and the planned `lead_time/`, `link_prediction/`, `promise_date/` modules (Phase 2, `updates/New_Features.md`) — land without the migrations they depend on (Document 5, Sections 6.26–6.34) | Each module's migration and code path land in the same PR (same discipline as IG-05); the Layer 2 upgrade's own modules (Transformer 1/2, Markov scoping) are explicitly excluded from any Phase 1 or Phase 2 module addition until committed — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid** | Phase 1 (`analytics/`), Phase 2 (`lead_time/`, `link_prediction/`, `promise_date/`) |
+## 14. Future Extension
 
-## 16. Future Extension
-
-A managed container platform (e.g., ECS/Kubernetes) and blue-green deployment would replace Section 13's single-host Docker Compose deployment if the project moves beyond academic-prototype scale (Document 1, Section 15), without changing the CI build/test gate defined in Section 9.
+If this project resumes as a multi-contributor or served-application build, the earlier product-scoped version of this document (Docker Compose, CI/CD, trunk-based multi-branch strategy, staged deployment/rollback) is recoverable from git history and from `architecture.md`.
 
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 15. **Future Extension:** Section 16.
-- Baseline for Document 14 (Project Roadmap — sprint plan follows this workflow).
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 13. **Future Extension:** Section 14.
+- Baseline for `14_Model_Development_Roadmap.md`.

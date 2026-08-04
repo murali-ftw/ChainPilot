@@ -1,101 +1,120 @@
 # Document 6 — Graph Database Design
 
-## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System
+## HADES Model-Development Prototype
 
-Version: 1.0
+Version: 2.0 — rescoped to the ML pipeline only; corrected to match `project_HADES.md` (bidirectional meta-relations, temporal features, frontier nodes)
 Status: Baseline
-Consistent with: Documents 1–5
 
 ---
 
 ## 1. Purpose
 
-This document defines the heterogeneous graph representation of the supply chain: node types, edge types, their properties, indexing strategy, embedding storage, and update mechanics. Two representations are covered, per Document 2's technology stack: the **tensor representation** (PyTorch Geometric `HeteroData`) used for GNN training/inference, and the **optional Neo4j representation** used for ad hoc querying and visualization convenience — both are built from the same PostgreSQL source of truth (Document 5) and must stay structurally identical.
+This document defines the heterogeneous graph representation the HADES encoder trains and infers on: node types, edge types (including the reverse relations correctness requires — Section 6), tensor encoding, and how a graph snapshot is assembled per prediction timestamp `t₀`. The primary representation is the PyTorch Geometric `HeteroData` tensor object; a Neo4j representation is optional and used only for developer inspection, never by the training/inference pipeline itself.
 
 ## 2. Scope
 
-Covers graph construction output (Layer 1) and the embeddings/explanation data produced by Layer 2, as consumed by the GNN Inference Service (Document 2, Section 4) and, in Phase 2, the Alternative-Supplier Recommender and What-If Simulator.
+Covers graph construction and the entity embeddings/explanation data Layer 2 produces during evaluation. Out of scope: anything a dashboard or recommender feature would need from the graph (similarity search UI, live incremental updates to a served graph) — this pipeline runs offline, one snapshot at a time.
 
 ## 3. Assumptions
 
-- PostgreSQL (Document 5) remains the system of record; the graph (tensor or Neo4j) is a derived, rebuildable representation, never the primary store of truth for any entity.
-- Neo4j is optional and used only for developer/analyst querying and cross-checking graph structure — the GNN training/inference pipeline depends only on the `HeteroData` tensor representation, so the system functions correctly even if Neo4j is not deployed.
-- Graph rebuilds are cheap enough at prototype scale to run incrementally per Document 4's Graph Construction Flow.
+- PostgreSQL (`05_Database_Design.md`) is the system of record; the graph is a derived, rebuildable representation.
+- Neo4j is optional, for developer/analyst querying only. The training/inference pipeline depends only on `HeteroData` — the pipeline is correct and complete with Neo4j entirely absent.
+- One `HeteroData` object is built **per snapshot `t₀`**, not maintained as a single live, incrementally-updated graph — this project has no serving layer to keep live for.
 
 ## 4. Dependencies
 
-Document 5 (source tables), Document 4 Section 6 (Graph Construction Flow), Document 10 (AI/ML Documentation — consumes this graph for training/inference), Document 2 Section 5 (technology stack: PyTorch Geometric, Neo4j optional).
+`05_Database_Design.md` (source tables), `10_AI_ML_Documentation.md` (feature engineering, leakage contract, and the model architecture that consumes this graph), `project_HADES.md` Parts 2–3 (the authoritative meta-relation and encoding specification this document restates).
 
 ## 5. Node Types
 
-| Node Type | Source Table (Document 5) | Key Properties | Delivery Phase |
+| Node Type | Source Table | Key Properties | Notes |
 |---|---|---|---|
-| `Supplier` | `suppliers` | `id`, `country`, `capacity_score`, `lead_time_days`, `reliability_history` | Phase 1 |
-| `Supplier` (pending amendment) | `suppliers` | `tier`, `is_frontier` — **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full definition: `updates/Supplier_Risk_Prediction.md` §7.1, Document 5 §6.36. | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
-| `Component` | `components` | `id`, `component_type`, `unit_cost` | Phase 1 |
-| `Product` | `products` | `id`, `sku`, `category` | Phase 1 |
-| `Factory` | `factories` | `id`, `location`, `capacity_units_per_day` | Phase 1 |
-| `Warehouse` | `warehouses` | `id`, `location`, `capacity_units` | Phase 1 |
-| `Shipment` | `shipments` | `id`, `status`, `eta`, `carrier` | Phase 1 |
-| `Order` | `orders` | `id`, `status`, `due_at`, `order_value` | Phase 1 |
-| `Customer` | `customers` | `id`, `priority_tier` | Phase 1 (node), Phase 2 (consumed by allocation ranking) |
+| `Supplier` | `suppliers` + `supplier_temporal_features` | `country`, `capacity_score`, `lead_time_days`, **6 temporal-window features** (Section 7) | `reliability_history` on `suppliers` itself is display-only — never a feature (`05_Database_Design.md` §6.1) |
+| `Supplier` (pending amendment) | `suppliers` | `tier`, `is_frontier` | Data-gated — not added until `SUB_SUPPLIES`-equivalent upstream data exists (`05_Database_Design.md` §6.23) |
+| `Component` | `components` | `component_type`, `unit_cost` | |
+| `Product` | `products` | `sku`, `category` | |
+| `Factory` | `factories` | `location`, `capacity_units_per_day` | |
+| `Warehouse` | `warehouses` | `location`, `capacity_units` | |
+| `Shipment` | `shipments` + `shipment_status_history` + `carrier_performance_snapshots` | as-of `status`, `eta`, **4 temporal features** (Section 7) | as-of status reconstructed from `shipment_status_history`, never read from `shipments.status` directly |
+| `Order` | `orders` | as-of `status`, `due_at` | |
+| `Customer` | `customers` | `priority_tier` | Feeds Claim B's double-counting test (`10_AI_ML_Documentation.md` §8.5) |
 
-All node types additionally carry a `risk_embedding` vector property populated after each GNN inference run (Section 9).
+**8 node types.** All node types additionally carry a `risk_embedding` vector, populated per inference run and used only for evaluation-time analysis in this prototype (Section 9) — there is no downstream recommender consuming it.
 
-## 6. Edge Types
+## 6. Edge Types — Forward and Reverse (20 Meta-Relations)
 
-| Edge Type | Source (from → to) | Derivation | Properties | Delivery Phase |
+PyTorch Geometric message passing flows source → target only. A schema with only the 10 forward relations below would leave a Supplier with almost no in-edges — it would never receive information about the components it supplies or the orders at risk downstream, breaking the exact multi-hop reasoning this architecture exists to do (`project_HADES.md` §2.2). **Every relation is therefore paired with its reverse** via `torch_geometric.transforms.ToUndirected()`.
+
+| Forward | Source (from → to) | Derivation | Edge Properties | Reverse (auto-generated) |
 |---|---|---|---|---|
-| `SUPPLIES` | `Supplier → Component` | `components.supplier_id` | `since` (optional) | Phase 1 |
-| `USED_IN` | `Component → Product` | `product_components` | `quantity_required` | Phase 1 |
-| `STOCKED_AT` | `Product → Warehouse` | `inventory` | `stock_level`, `reorder_threshold` | Phase 1 |
-| `MANUFACTURED_AT` | `Product → Factory` | `product_factories` (Document 5 §6.45) | `capacity_units_per_day` (per-product throughput at that site) | Phase 1 |
-| `SHIPS_FROM` | `Shipment → Supplier` / `Shipment → Factory` | `shipments.supplier_id` / `shipments.factory_id` | — | Phase 1 |
-| `SHIPS_TO` | `Shipment → Warehouse` | `shipments.warehouse_id` | `eta`, `status` | Phase 1 |
-| `FULFILLS` | `Shipment → Order` | `shipments.order_id` | — | Phase 1 |
-| `ORDERED` | `Order → Product` | `order_items` | `quantity` | Phase 1 |
-| `PLACED_BY` | `Order → Customer` | `orders.customer_id` | — | Phase 1 |
-| `SIMILAR_TO` | `Supplier → Supplier` | derived at inference time from embedding cosine similarity (not persisted from PostgreSQL) | `similarity_score` | Phase 2 (Alternative-Supplier Recommender) |
-| `SUB_SUPPLIES` | `Supplier → Supplier` | `supplier_relationships` (Document 5 §6.36) — sparse tier-2+ upstream/downstream edges | `tier`, `source`, `confidence` | Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid |
+| `SUPPLIES` | `Supplier → Component` | `components.supplier_id` | — | `rev_SUPPLIES` |
+| `USED_IN` | `Component → Product` | `product_components`, as-of filtered | `quantity_required` | `rev_USED_IN` |
+| `STOCKED_AT` | `Product → Warehouse` | `inventory_history`, as-of | `stock_level`, `reorder_threshold` (both as-of `t₀`) | `rev_STOCKED_AT` |
+| `MANUFACTURED_AT` | `Product → Factory` | `product_factories`, as-of filtered | `capacity_units_per_day` (per-product) | `rev_MANUFACTURED_AT` |
+| `SHIPS_FROM` | `Shipment → Supplier` **and** `Shipment → Factory` | `shipments.supplier_id` / `shipments.factory_id` | — | `rev_SHIPS_FROM` (×2 — different meta-relation per target type, `project_HADES.md` §3.2) |
+| `SHIPS_TO` | `Shipment → Warehouse` | `shipments.warehouse_id` | as-of status, `eta` | `rev_SHIPS_TO` |
+| `FULFILLS` | `Shipment → Order` | `shipments.order_id` | — | `rev_FULFILLS` |
+| `ORDERED` | `Order → Product` | `order_items`, as-of filtered | `quantity` | `rev_ORDERED` |
+| `PLACED_BY` | `Order → Customer` | `orders.customer_id` | — | `rev_PLACED_BY` |
+| `SUB_SUPPLIES` | `Supplier → Supplier` | `supplier_relationships` — **data-gated, not built** (`05_Database_Design.md` §6.23) | `tier`, `source`, `confidence` | `rev_SUB_SUPPLIES` |
+
+**10 forward + 10 reverse = 20 meta-relations** (`project_HADES.md` §2.2, §3.2 — note `SHIPS_FROM` counts as two distinct meta-relations, one per target type, consistent with HGT's `⟨source type, edge type, target type⟩` parameterization). `SUB_SUPPLIES` is included in this count for completeness of the target schema but contributes no actual edges until upstream data exists — see Section 6.1.
 
 ```mermaid
 flowchart LR
     SUP["Supplier"] -->|SUPPLIES| COMP["Component"]
+    COMP -.rev_SUPPLIES.-> SUP
     COMP -->|USED_IN| PROD["Product"]
+    PROD -.rev_USED_IN.-> COMP
     PROD -->|STOCKED_AT| WH["Warehouse"]
+    WH -.rev_STOCKED_AT.-> PROD
     PROD -->|MANUFACTURED_AT| FAC["Factory"]
+    FAC -.rev_MANUFACTURED_AT.-> PROD
     SHIP["Shipment"] -->|SHIPS_FROM| SUP
     SHIP -->|SHIPS_FROM| FAC
     SHIP -->|SHIPS_TO| WH
     SHIP -->|FULFILLS| ORD["Order"]
     ORD -->|ORDERED| PROD
     ORD -->|PLACED_BY| CUST["Customer"]
-    SUP -.SIMILAR_TO\nPhase 2.-> SUP
-    SUP -.SUB_SUPPLIES\nNot committed.-> SUP
+    SUP -.SUB_SUPPLIES data-gated.-> SUP
 ```
 
-**`SUB_SUPPLIES` status:** every reference to this edge type — here, in Document 5 §6.36, and anywhere else it is mentioned — carries the same tag: **Not committed — Phase 2 (early April 2027) or later; stretch-only before then, and only after RG-01 is solid.** Full specification: `updates/Supplier_Risk_Prediction.md` §6.3, §7.2, §7.7.
+*(Reverse arrows omitted from the diagram past the first four edges for legibility — every solid edge above has a corresponding `rev_*` edge in the actual graph.)*
+
+### 6.1 Why the co-parent path specifically requires the reverse edge
+
+The structural depth prior's derived floor of `L=2` (`10_AI_ML_Documentation.md` §8.2) rests on a Supplier's co-parents — *other suppliers of the same component* — being reachable in 2 hops:
+
+```
+Supplier_A  ──SUPPLIES──►  Component  ◄──SUPPLIES──  Supplier_B
+```
+
+Walking the second leg requires `rev_SUPPLIES`. Without reverse relations this path does not exist for message passing, and the depth-prior derivation in `10_AI_ML_Documentation.md` §8.2 would be unfounded, not merely conservative.
 
 ## 7. Node and Edge Properties — Tensor Encoding
 
-For the PyTorch Geometric `HeteroData` representation, each node type has a feature matrix `x` built from the properties above, normalized/encoded as follows:
+Each node type has a feature matrix `x` built as `h⁰_v = W_in[τ(v)] · x_v + b_in[τ(v)]`, projected into a shared `d=64` space (`project_HADES.md` §2.1).
 
-| Node Type | Feature Encoding |
-|---|---|
-| `Supplier` | `[lead_time_days (scaled), reliability_history, capacity_score (scaled), one-hot country bucket]` |
-| `Component` | `[unit_cost (scaled), one-hot component_type]` |
-| `Product` | `[one-hot category]` |
-| `Factory` | `[capacity_units_per_day (scaled), one-hot location bucket]` |
-| `Warehouse` | `[capacity_units (scaled), one-hot location bucket]` |
-| `Shipment` | `[days_to_eta, one-hot status]` |
-| `Order` | `[days_to_due, one-hot status, order_value (scaled)]` |
-| `Customer` | `[one-hot priority_tier]` |
+| Node Type | Feature Encoding | Approx. Dim |
+|---|---|---|
+| `Supplier` | `[lead_time_days (scaled), capacity_score (scaled), one-hot country, on_time_rate_30d, on_time_rate_90d, on_time_rate_180d, trend_slope, lateness_variance, days_since_last_late]` | 21 |
+| `Component` | `[unit_cost (scaled), one-hot component_type]` | 10 |
+| `Product` | `[one-hot category]` | 8 |
+| `Factory` | `[capacity_units_per_day (scaled), one-hot location bucket]` | 10 |
+| `Warehouse` | `[capacity_units (scaled), one-hot location bucket]` | 10 |
+| `Shipment` | `[days_to_eta, one-hot as-of status, days_since_dispatch, carrier_on_time_rate_90d, route_on_time_rate_90d, seasonal_index]` | 10 |
+| `Order` | `[days_to_due, one-hot as-of status]` | 6 |
+| `Customer` | `[one-hot priority_tier]` | 4 |
 
-Edge feature encodings (`edge_attr`) follow the same normalization principle for numeric properties (e.g., `quantity_required`, `stock_level`). Full feature engineering detail is in Document 10 (AI/ML Documentation), Section 5.
+**As-of, always.** Every feature above is computed strictly from information at or before the snapshot's `t₀` — this table restates `10_AI_ML_Documentation.md` §6.3's feature derivation in tensor-column form; that section is authoritative on *how* each value is computed, this one on *where it lands* in the tensor.
 
-## 8. Cypher Examples (Neo4j, Optional Representation)
+Edge feature encodings (`edge_attr`) follow the same scaling principle for numeric properties (`quantity_required`, `stock_level`, `reorder_threshold`, `capacity_units_per_day`).
 
-Used for developer inspection and Phase 2 explainability cross-checks, not by the training/inference pipeline itself.
+**Recompute this table against the real one-hot widths once the dataset's actual country/location/category cardinalities are fixed** — the dimensions above are the current planning estimate (`project_HADES.md` Appendix).
+
+## 8. Cypher Examples (Neo4j, Optional — Developer Use Only)
+
+Not used by the training/inference pipeline. Useful for manually inspecting graph structure during development.
 
 ```cypher
 // Find all components a supplier provides, and the products that depend on them
@@ -107,96 +126,68 @@ MATCH (s:Supplier {id: $supplierId})-[:SUPPLIES]->(:Component)-[:USED_IN]->(p:Pr
       <-[:ORDERED]-(o:Order)
 RETURN DISTINCT o.id, o.status;
 
-// Trace the explanation subgraph for a given risk score (Phase 1 explainability)
+// Trace an explanation subgraph for a given held-out prediction (Section 10, AI/ML doc)
 MATCH (n)
 WHERE n.id IN $explanationNodeIds
 OPTIONAL MATCH (n)-[r]-(m) WHERE m.id IN $explanationNodeIds
 RETURN n, r, m;
 
-// Phase 2: candidate alternative suppliers by component type and embedding similarity
-MATCH (s:Supplier {id: $flaggedSupplierId})-[:SUPPLIES]->(c:Component {component_type: $componentType})
-MATCH (alt:Supplier)-[:SUPPLIES]->(:Component {component_type: $componentType})
-WHERE alt.id <> s.id
-RETURN alt.id, alt.name, gds.similarity.cosine(s.risk_embedding, alt.risk_embedding) AS similarity
-ORDER BY similarity DESC
-LIMIT 5;
+// Measured k-hop reach per target type — validates the depth prior instead of assuming it
+// (project_HADES.md §2.2: "Do not assume — measure.")
+MATCH (s:Supplier {id: $supplierId})
+CALL apoc.path.subgraphNodes(s, {maxLevel: 4}) YIELD node
+RETURN labels(node)[0] AS nodeType, count(*) AS reachableCount;
 ```
 
 ## 9. Embeddings
 
-- The GNN Inference Service (Document 2, Section 4) produces a fixed-dimension embedding per node during every inference run (FR-GNN-06), stored as `risk_embedding` on each node in both the tensor representation (in-memory, per run) and, when Neo4j is deployed, persisted as a node property for query convenience.
-- Embeddings are **not** persisted in PostgreSQL (Document 5); the relational store persists only the risk *scores* derived from them (`risk_scores` table), keeping the relational schema decoupled from model-internal representations.
-- Phase 2's Alternative-Supplier Recommender (FR-REC-01) and vector-similarity Cypher query (Section 8) both consume this embedding directly — no new embedding computation is introduced for that feature, per the problem statement's design principle (Section 5.4, `problem_statement.md`).
+- The inference pipeline produces a fixed-dimension embedding per node during every evaluation run, stored as `risk_embedding`, held in-memory per run.
+- Embeddings are **not** persisted in PostgreSQL — `risk_scores` (`05_Database_Design.md` §6.19) persists only the scores derived from them, keeping the relational schema decoupled from model-internal representations.
+- **Used in this prototype for:** Transformer 2's candidate pooling (top-k cosine similarity over Supplier embeddings, `10_AI_ML_Documentation.md` §8.3) and, optionally, cross-checking against a link-prediction decoder (`05_Database_Design.md` §6.27). Not used for any recommender or dashboard feature — those consumers do not exist in this project.
 
 ## 10. Indexes
 
-| Representation | Index | Purpose | Delivery Phase |
-|---|---|---|---|
-| Neo4j | `CREATE INDEX supplier_id_idx FOR (s:Supplier) ON (s.id)` | Fast node lookup by source-of-truth ID | Phase 1 |
-| Neo4j | Composite index per node type on `id` (all 8 node types) | Fast node lookup across all entity types | Phase 1 |
-| Neo4j | Vector index on `risk_embedding` (Neo4j vector index or GDS similarity graph projection) | Similarity search for Alternative-Supplier Recommender | Phase 2 |
-| `HeteroData` (tensor) | Node ID → tensor-row mapping dictionary maintained per node type during graph assembly | O(1) lookup from PostgreSQL UUID to tensor row for inference/explanation mapping | Phase 1 |
+| Representation | Index | Purpose |
+|---|---|---|
+| Neo4j (optional) | `CREATE INDEX supplier_id_idx FOR (s:Supplier) ON (s.id)`, and the equivalent per node type | Fast node lookup by source-of-truth UUID during manual inspection |
+| `HeteroData` (tensor) | Node ID → tensor-row mapping dictionary, maintained per node type during graph assembly | O(1) lookup from PostgreSQL UUID to tensor row for evaluation and explanation mapping |
 
-## 11. Graph Updates
+## 11. Graph Snapshot Assembly
 
-Graph updates follow the Graph Construction Flow defined in Document 4, Section 6. This section specifies the graph-representation-level mechanics:
+Not a live, incrementally-updated graph — one `HeteroData` object is assembled per prediction timestamp `t₀`, matching `10_AI_ML_Documentation.md` §7.3 and the snapshot schedule in `graph_snapshots` (`05_Database_Design.md` §6.17):
 
 ```mermaid
 sequenceDiagram
-    participant GCS as Graph Construction Service
+    participant PIPE as Graph Construction Pipeline
     participant PG as PostgreSQL
-    participant TENSOR as HeteroData Store
-    participant NEO as Neo4j (optional)
 
-    GCS->>PG: Detect new/updated rows (suppliers, shipments, orders, ...)
-    GCS->>GCS: Clean, normalize, encode features (Section 7)
-    alt Incremental update
-        GCS->>TENSOR: Update affected node rows / edge index in place
-        GCS->>NEO: MERGE affected nodes/edges (idempotent)
-    else Full rebuild (schema change or drift correction)
-        GCS->>TENSOR: Rebuild HeteroData from full PostgreSQL snapshot
-        GCS->>NEO: Rebuild graph via batched MERGE
-    end
-    TENSOR-->>GCS: Ready for GNN Inference Service
+    PIPE->>PG: For a given t0, read master tables (Section 5)
+    PIPE->>PG: Read history tables as-of t0 (05_Database_Design.md Group B)
+    PIPE->>PIPE: Filter structural edges to those active at t0 (created_at <= t0 < deactivated_at)
+    PIPE->>PIPE: Encode features (Section 7), assemble HeteroData
+    PIPE->>PIPE: ToUndirected() -- add all 10 reverse relations (Section 6)
+    PIPE->>PG: Write one graph_snapshots row (node/edge/label counts, git_commit)
+    PIPE->>PIPE: Attach training_labels from (t0, t0+horizon]
 ```
 
-- **Incremental update:** the default path (FR-GC-07); only the affected node's feature row and its adjacent edges are recomputed, keeping the update proportional to the change size rather than the graph size.
-- **Full rebuild:** triggered by a schema change (e.g., a new node/edge type is added between Phase 1 and Phase 2) or by a periodic drift-correction job that reconciles the graph against PostgreSQL to catch any missed incremental updates.
-- **Idempotency:** Neo4j updates use `MERGE`, not `CREATE`, so a replayed update does not duplicate nodes/edges.
-- **What-If Simulator (Phase 2):** operates on an in-memory *copy* of the current `HeteroData` snapshot, edits are applied to that copy only, and the copy is discarded after scoring (FR-SIM-04) — it never reaches the update path described above.
+- **No incremental update path.** Each snapshot is built fresh from the as-of state of the source tables; there is no served graph to patch in place, since there is no serving layer.
+- **Measure, don't assume, reach.** After building a snapshot, compute the actual set of node types reachable in `k` hops per target type (Section 8's Cypher example, or the PyG equivalent) and use that measured table — not a theoretical one — to justify the depth prior (`10_AI_ML_Documentation.md` §8.2).
 
 ## 12. Risks
 
-| ID | Risk | Mitigation | Delivery Phase |
-|---|---|---|---|
-| GD-01 | Maintaining two graph representations (tensor + optional Neo4j) risks drift between them | Both are derived from the same PostgreSQL source via the same Graph Construction Service; Neo4j is documented as optional and non-authoritative | Phase 1 |
-| GD-02 | `MANUFACTURED_AT` capability is incompletely recorded in `product_factories`, so a real manufacturing relationship is missing from the graph | **Resolved as a design risk:** the edge is now directly foreign-keyed via `product_factories` (Document 5 §6.45) rather than inferred from shipment history, which removes the ambiguity, nullability and structural-leakage failure modes of the previous derivation. The residual risk is *coverage* — the seeding pass omits pairs it cannot confirm rather than guessing them, and gaps surface as a data-quality warning (NFR-17) | Phase 1 |
-| GD-03 | `SIMILAR_TO` edges are computed at query time, not persisted, which could be slow at larger scale | Acceptable at prototype scale (NFR-02); Neo4j vector index (Section 10) mitigates cost if adopted | Phase 2 |
-| GD-04 | `Customer` node carries only `priority_tier` as a learned feature; richer `contract_terms` (Document 5, Section 6.24) are not encoded into the tensor representation | The OR-Tools customer-allocation optimizer (FR-CUST-02) reads `contract_terms` directly from PostgreSQL rather than through the graph, so this is a scope choice, not a gap — the GNN does not need contract detail to predict shortage risk | Phase 2 |
+| ID | Risk | Mitigation |
+|---|---|---|
+| GD-01 | Maintaining an optional Neo4j representation risks drift from the tensor graph | Neo4j is documented as strictly optional and non-authoritative; both are derived from the same PostgreSQL source, and the pipeline is fully correct with Neo4j entirely absent |
+| GD-02 | `MANUFACTURED_AT` capability incompletely recorded in `product_factories` | The edge is directly foreign-keyed (`05_Database_Design.md` §6.8) rather than inferred from shipment history, removing the ambiguity/nullability/structural-leakage failure modes a shipment-derived edge would have. Residual risk is *coverage* — the seeding pass omits pairs it cannot confirm rather than guessing |
+| GD-03 | Omitting reverse relations (Section 6) would silently starve message passing to Suppliers and Components without an obvious symptom (the graph still "runs," it just under-performs) | `ToUndirected()` applied unconditionally at graph assembly; the measured k-hop reach table (Section 11) is checked before trusting any depth-prior claim |
 
 ## 13. Future Extension
 
-If unstructured document volume grows (Document 1, Section 15), additional node/edge types (e.g., a `Contract` node linked to `Supplier`) could be introduced following the same node-property/edge-derivation pattern established in Sections 5–6, without altering the existing eight node types.
-
-## 14. Optimization Constraint Inputs (Decision Intelligence / OR-Tools)
-
-The OR-Tools optimization engine (Document 1, Section 8.16; `problem_statement.md`, Section 5.7) does not query the graph or GNN embeddings directly — the Decision Intelligence Service (Document 2, Section 4) assembles its constraint set from the same PostgreSQL source-of-truth properties already listed as node properties in Section 5, read directly rather than through the tensor/Neo4j representation:
-
-| Constraint | Source Node Property (Section 5) | Used By |
-|---|---|---|
-| Inventory availability | `Product`/`Warehouse` via `inventory.stock_level` (Document 5, Section 6.8) | Safety-stock, PO-split, customer allocation |
-| Supplier capacity | `Supplier.capacity_score` | PO-split, customer allocation |
-| Warehouse capacity | `Warehouse.capacity_units` | Customer allocation |
-| Production capacity | `Factory.capacity_units_per_day` | Customer allocation |
-| Lead time | `Supplier.lead_time_days` | Safety-stock, PO-split, customer allocation |
-
-No new node/edge type or tensor feature is required for this — these fields already exist as node properties (Section 5) for the GNN's own use; the optimizer simply reads them a second time, directly, for a different purpose (a deterministic constraint, not a learned feature).
-
-- **Delivery Phase:** Phase 2
+If additional structured data becomes available (e.g. real `SUB_SUPPLIES` relationships), Section 6's `SUB_SUPPLIES` meta-relation is already specified and only needs `supplier_relationships` to be populated — no schema or encoding redesign is required to activate it.
 
 ---
 
 ## Document Control
 
-- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 12. **Future Extension:** Section 13. **Optimization Constraint Inputs:** Section 14.
-- Baseline for Document 10 (AI/ML Documentation).
+- **Purpose:** Section 1. **Scope:** Section 2. **Assumptions:** Section 3. **Dependencies:** Section 4. **Risks:** Section 12. **Future Extension:** Section 13.
+- Baseline for `10_AI_ML_Documentation.md`.
