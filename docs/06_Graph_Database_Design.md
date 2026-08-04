@@ -49,7 +49,7 @@ All node types additionally carry a `risk_embedding` vector property populated a
 | `SUPPLIES` | `Supplier → Component` | `components.supplier_id` | `since` (optional) | Phase 1 |
 | `USED_IN` | `Component → Product` | `product_components` | `quantity_required` | Phase 1 |
 | `STOCKED_AT` | `Product → Warehouse` | `inventory` | `stock_level`, `reorder_threshold` | Phase 1 |
-| `MANUFACTURED_AT` | `Product → Factory` | inferred from `shipments.factory_id` linkage to product's order fulfillment | — | Phase 1 |
+| `MANUFACTURED_AT` | `Product → Factory` | `product_factories` (Document 5 §6.45) | `capacity_units_per_day` (per-product throughput at that site) | Phase 1 |
 | `SHIPS_FROM` | `Shipment → Supplier` / `Shipment → Factory` | `shipments.supplier_id` / `shipments.factory_id` | — | Phase 1 |
 | `SHIPS_TO` | `Shipment → Warehouse` | `shipments.warehouse_id` | `eta`, `status` | Phase 1 |
 | `FULFILLS` | `Shipment → Order` | `shipments.order_id` | — | Phase 1 |
@@ -170,7 +170,7 @@ sequenceDiagram
 | ID | Risk | Mitigation | Delivery Phase |
 |---|---|---|---|
 | GD-01 | Maintaining two graph representations (tensor + optional Neo4j) risks drift between them | Both are derived from the same PostgreSQL source via the same Graph Construction Service; Neo4j is documented as optional and non-authoritative | Phase 1 |
-| GD-02 | `MANUFACTURED_AT` edge is inferred rather than directly foreign-keyed in PostgreSQL, risking incorrect inference on ambiguous data | Restrict inference to shipments with an unambiguous factory-to-product link; flag ambiguous cases as a data-quality warning (NFR-17) | Phase 1 |
+| GD-02 | `MANUFACTURED_AT` capability is incompletely recorded in `product_factories`, so a real manufacturing relationship is missing from the graph | **Resolved as a design risk:** the edge is now directly foreign-keyed via `product_factories` (Document 5 §6.45) rather than inferred from shipment history, which removes the ambiguity, nullability and structural-leakage failure modes of the previous derivation. The residual risk is *coverage* — the seeding pass omits pairs it cannot confirm rather than guessing them, and gaps surface as a data-quality warning (NFR-17) | Phase 1 |
 | GD-03 | `SIMILAR_TO` edges are computed at query time, not persisted, which could be slow at larger scale | Acceptable at prototype scale (NFR-02); Neo4j vector index (Section 10) mitigates cost if adopted | Phase 2 |
 | GD-04 | `Customer` node carries only `priority_tier` as a learned feature; richer `contract_terms` (Document 5, Section 6.24) are not encoded into the tensor representation | The OR-Tools customer-allocation optimizer (FR-CUST-02) reads `contract_terms` directly from PostgreSQL rather than through the graph, so this is a scope choice, not a gap — the GNN does not need contract detail to predict shortage risk | Phase 2 |
 

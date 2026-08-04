@@ -38,3 +38,9 @@ Thumbs.db
 
 # Study Materials
 study_materials/
+
+# Updates
+updates/
+
+# Database Generation Confirmation
+db/gen_out.txt
