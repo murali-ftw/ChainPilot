@@ -160,10 +160,16 @@ def pytest_read_distinct(conn, sql: str) -> list:
 
 # A known substitution from the synthetic dataset (db/README.md: "4
 # substitutions Feb-May, count-neutral swaps"): product c0f44500... dropped
-# component c9260a33... on 2024-02-12 and picked up 2264814a... the same day.
+# one component on 2024-02-12 and picked up another the same day. Component
+# UUIDs shift whenever the dataset is regenerated with a different world
+# size (db/generate_dataset.py's SUP_N/SCALE) -- the RNG draw order changes
+# which specific component lands in this BOM slot, even though the
+# substitution DATE and PRODUCT (index 0, so its uid() hash is stable) don't.
+# Re-derive via: SELECT product_id, component_id, deactivated_at FROM
+# product_components WHERE deactivated_at IS NOT NULL ORDER BY deactivated_at LIMIT 1;
 _SUBSTITUTED_PRODUCT = "c0f44500-e1d1-59e0-b53b-e0e98b24a7cf"
-_OLD_COMPONENT = "c9260a33-ee36-5419-bd15-44645e4537fa"
-_NEW_COMPONENT = "2264814a-975b-52c8-a510-4ac3f21eee07"
+_OLD_COMPONENT = "9f704fee-a838-5065-8646-a444247df7fa"
+_NEW_COMPONENT = "28634240-17f1-5b89-b1fe-73fcfa27c5f5"
 _SUBSTITUTION_DATE = dt.datetime(2024, 2, 12, 13, 30, tzinfo=UTC)
 
 
