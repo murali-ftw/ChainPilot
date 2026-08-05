@@ -146,7 +146,8 @@ def _mean_val_auc(model, val_bundles: list[SnapshotBundle]) -> float | None:
 
 
 def train_model(architecture: str, train_bundles, val_bundles, num_layers: int = 4,
-                 shared_depth: int | None = None, hidden: int = 64, epochs: int = 100,
+                 shared_depth: int | None = None, depth_prior: dict[str, int] | None = None,
+                 hidden: int = 64, epochs: int = 100,
                  lr: float = 1e-3, weight_decay: float = 1e-4, seed: int = 0) -> dict:
     """
     Train one model for `epochs` epochs (matching
@@ -157,13 +158,23 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     than plain Adam so `weight_decay=1e-4` is decoupled, per
     `project_HADES.md` §8.2's fuller optimizer spec, while keeping the
     lr/weight-decay values as specified.
+
+    `depth_prior`: which fixed structural-prior dict to read from (None ->
+    `ml.models.depth.STRUCTURAL_DEPTH_PRIOR`, the as-documented prior).
+    Ignored when `shared_depth` is set (the L-sweep ablation). Step A's
+    corrected-impact-prior comparison passes `STRUCTURAL_DEPTH_PRIOR_V2`.
+
+    `seed`: controls model init (and dropout masks) only -- the dataset,
+    split, and feature assembly are already fixed/deterministic upstream of
+    this call, so varying `seed` alone is a clean model-fit-variance probe
+    (Step B).
     """
     torch.manual_seed(seed)
     metadata = train_bundles[0].data.metadata()
     in_dims = {nt: train_bundles[0].data[nt].x.size(-1) for nt in train_bundles[0].data.node_types}
 
     model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
-                        shared_depth=shared_depth)
+                        shared_depth=shared_depth, depth_prior=depth_prior)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     alphas = compute_task_alphas(train_bundles)
     losses = {task: FocalLoss(gamma=2.0, alpha=alphas[task]) for task in TASKS}
@@ -202,7 +213,9 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
         "best_val_auc": best_auc if best_state is not None else None,
         "hyperparameters": {
             "architecture": architecture, "hidden": hidden, "num_layers": num_layers,
-            "shared_depth": shared_depth, "epochs": epochs, "lr": lr,
+            "shared_depth": shared_depth,
+            "depth_prior": depth_prior if depth_prior is not None else "as_documented",
+            "epochs": epochs, "lr": lr,
             "weight_decay": weight_decay, "focal_gamma": 2.0, "focal_alpha": alphas,
             "optimizer": "AdamW", "seed": seed,
         },
@@ -241,11 +254,13 @@ def activate_model(conn, model_version: str, status: str = "active") -> None:
 
 
 def run_training_job(conn, model_version: str, architecture: str, train_bundles, val_bundles,
-                      num_layers: int = 4, shared_depth: int | None = None, hidden: int = 64,
-                      epochs: int = 100, purpose: str = "") -> dict:
+                      num_layers: int = 4, shared_depth: int | None = None,
+                      depth_prior: dict[str, int] | None = None, hidden: int = 64,
+                      epochs: int = 100, seed: int = 0, purpose: str = "") -> dict:
     """Register -> train -> activate, one call per model_registry row."""
     result = train_model(architecture, train_bundles, val_bundles, num_layers=num_layers,
-                          shared_depth=shared_depth, hidden=hidden, epochs=epochs)
+                          shared_depth=shared_depth, depth_prior=depth_prior, hidden=hidden,
+                          epochs=epochs, seed=seed)
     register_model(conn, model_version, architecture, result["hyperparameters"],
                    result["model"].parameter_count(), purpose)
     activate_model(conn, model_version, "active")

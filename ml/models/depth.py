@@ -20,12 +20,24 @@ from __future__ import annotations
 
 STRUCTURAL_DEPTH_PRIOR = {"delay": 2, "shortage": 3, "impact": 3}
 
+# Step A (post-Steps-0-5 follow-up, reports/steps_0-5_findings.md's Part I):
+# the L=1..4 sweep found impact's AUC *peaks* at L2 (+0.292 vs L1, both
+# significant) and then *drops* at L3 (-0.292 vs L2, significant) -- a
+# structural signal at L2, not the documented h^3. impact's label
+# (db/generate_dataset.py) is supplier-level, a shallower structural
+# distance than the Order/Customer-level path `project_HADES.md` §4.2 used
+# to derive h^3 for it. Kept as an explicit *alternate*, not a replacement:
+# this is a controlled A/B, and the as-documented prior above is still what
+# Steps 3-5's baseline and every prior report number used.
+STRUCTURAL_DEPTH_PRIOR_V2 = {"delay": 2, "shortage": 3, "impact": 2}
+
 TASK_ENTITY_TYPE = {"delay": "Shipment", "shortage": "Product", "impact": "Supplier"}
 
 TASKS = tuple(STRUCTURAL_DEPTH_PRIOR.keys())
 
 
-def readout_layer_for_task(task: str, num_layers: int, shared_depth: int | None = None) -> int:
+def readout_layer_for_task(task: str, num_layers: int, shared_depth: int | None = None,
+                           prior: dict[str, int] | None = None) -> int:
     """
     1-indexed encoder layer a given task's head reads from.
 
@@ -39,7 +51,13 @@ def readout_layer_for_task(task: str, num_layers: int, shared_depth: int | None 
     final-layer readout" the structural prior is being compared against
     (`docs/14_Model_Development_Roadmap.md` §7: "does the structural depth
     prior actually improve on a single shared depth").
+
+    `prior`: which prior dict to read from when `shared_depth is None`.
+    Defaults to `STRUCTURAL_DEPTH_PRIOR` (as-documented); pass
+    `STRUCTURAL_DEPTH_PRIOR_V2` for Step A's corrected-impact-prior
+    comparison run.
     """
+    prior = prior if prior is not None else STRUCTURAL_DEPTH_PRIOR
     if shared_depth is not None:
         return min(shared_depth, num_layers)
-    return min(STRUCTURAL_DEPTH_PRIOR[task], num_layers)
+    return min(prior[task], num_layers)

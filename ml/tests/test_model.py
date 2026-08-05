@@ -17,7 +17,11 @@ import torch
 from torch_geometric.data import HeteroData
 from torch_geometric.transforms import ToUndirected
 
-from ml.models.depth import STRUCTURAL_DEPTH_PRIOR, readout_layer_for_task
+from ml.models.depth import (
+    STRUCTURAL_DEPTH_PRIOR,
+    STRUCTURAL_DEPTH_PRIOR_V2,
+    readout_layer_for_task,
+)
 from ml.models.encoder import build_encoder
 from ml.models.heads import FocalLoss, PredictionHead, alpha_from_positive_rate
 
@@ -98,6 +102,19 @@ def test_structural_depth_prior_clamps_to_available_layers():
     assert readout_layer_for_task("shortage", num_layers=1) == 1
     assert readout_layer_for_task("impact", num_layers=2) == 2
     assert readout_layer_for_task("delay", num_layers=1) == 1
+
+
+def test_structural_depth_prior_v2_only_changes_impact():
+    """Step A: the corrected prior changes impact (h3 -> h2) and leaves
+    delay/shortage exactly as documented -- a controlled, single-variable
+    change, not a wholesale re-derivation."""
+    assert STRUCTURAL_DEPTH_PRIOR_V2["delay"] == STRUCTURAL_DEPTH_PRIOR["delay"]
+    assert STRUCTURAL_DEPTH_PRIOR_V2["shortage"] == STRUCTURAL_DEPTH_PRIOR["shortage"]
+    assert STRUCTURAL_DEPTH_PRIOR_V2["impact"] == 2
+    assert STRUCTURAL_DEPTH_PRIOR["impact"] == 3  # original untouched
+
+    assert readout_layer_for_task("impact", num_layers=4, prior=STRUCTURAL_DEPTH_PRIOR_V2) == 2
+    assert readout_layer_for_task("impact", num_layers=4) == 3  # default still as-documented
 
 
 def test_shared_depth_overrides_structural_prior_uniformly():
