@@ -1,0 +1,39 @@
+"""
+`HADESModel` — encoder + depth-prior readout + prediction heads composed
+into one module, so the *only* thing that changes between Step 3's baseline,
+Step 4's L-sweep, and Step 5's architecture ablation is a constructor
+argument (`architecture`, `num_layers`, `shared_depth`), never the training
+or evaluation code around it.
+"""
+
+from __future__ import annotations
+
+from torch import nn
+
+from ml.models.depth import TASK_ENTITY_TYPE, TASKS, readout_layer_for_task
+from ml.models.encoder import build_encoder
+from ml.models.heads import PredictionHead
+
+
+class HADESModel(nn.Module):
+    def __init__(self, architecture: str, metadata, in_dims: dict[str, int], hidden: int = 64,
+                 num_layers: int = 4, shared_depth: int | None = None, dropout: float = 0.2):
+        super().__init__()
+        self.encoder = build_encoder(architecture, metadata, in_dims, hidden=hidden,
+                                      num_layers=num_layers, dropout=dropout)
+        self.heads = nn.ModuleDict({task: PredictionHead(hidden) for task in TASKS})
+        self.num_layers = num_layers
+        self.shared_depth = shared_depth
+        self.architecture = architecture
+        self.hidden = hidden
+
+    def forward(self, x_dict: dict, edge_index_dict: dict) -> tuple[dict, list[dict]]:
+        layers = self.encoder(x_dict, edge_index_dict)
+        logits = {}
+        for task, entity_type in TASK_ENTITY_TYPE.items():
+            layer_idx = readout_layer_for_task(task, len(layers), self.shared_depth) - 1
+            logits[task] = self.heads[task](layers[layer_idx][entity_type])
+        return logits, layers
+
+    def parameter_count(self) -> int:
+        return sum(p.numel() for p in self.parameters())
