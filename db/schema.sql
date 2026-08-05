@@ -262,7 +262,13 @@ CREATE TABLE training_labels (
     task         VARCHAR(50) NOT NULL,       -- 'delay' | 'shortage' | 'impact'
     label        BOOLEAN NOT NULL,
     event_at     TIMESTAMPTZ,                -- positives only; must lie in (t0, t0+horizon]
-    label_source VARCHAR(100) NOT NULL
+    label_source VARCHAR(100) NOT NULL,
+    -- Populated for task='shortage' only (entity_id there is a product_id, and a
+    -- product can be stocked at multiple warehouses with different outcomes in
+    -- the same snapshot -- without this column, (snapshot_id, entity_id) alone
+    -- could carry conflicting true/false rows for the same product. NULL for
+    -- delay/impact, whose entity_id already uniquely identifies one instance.
+    warehouse_id UUID REFERENCES warehouses(id)
 );
 CREATE INDEX idx_training_labels_snapshot ON training_labels (snapshot_id, task, entity_type);
 CREATE INDEX idx_training_labels_entity   ON training_labels (entity_type, entity_id);

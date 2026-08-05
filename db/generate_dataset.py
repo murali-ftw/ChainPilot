@@ -59,7 +59,14 @@ COUNTRIES = {  # lead-time profile (lognormal mu in days), sea-freight?, base re
     "Mexico":  (math.log(10), False, 6, 2.5),
 }
 C_NAMES = list(COUNTRIES)
-SUP_N = 50
+# Scaled up from the original 50 (docs/01_Product_Requirement_Document.md §8's own
+# stated assumption of "hundreds to low thousands" positive labels; the 50-supplier
+# world produced single/low-double-digit positives for delay/impact). SCALE is
+# applied to every entity count below that's meant to track world size
+# (components/products/customers/orders) so the world stays internally
+# proportioned, not just supplier count in isolation.
+SUP_N = 180
+SCALE = SUP_N / 50
 
 # power-law-ish component degree weights: few dominant suppliers
 sup_weight = sorted((random.paretovariate(1.6) for _ in range(SUP_N)), reverse=True)
@@ -78,16 +85,58 @@ for i in range(SUP_N):
 # ------- Hidden factors (never emitted). members chosen so no graph edge links them.
 def pick(pred, k):
     pool = [s for s in suppliers if pred(s)]; random.shuffle(pool); return set(s["id"] for s in pool[:k])
-H_PORT    = pick(lambda s: s["sea"], 12)                                   # shared port congestion
-H_POLYMER = pick(lambda s: True, 4)                                        # shared polymer plant (cross-country!)
-H_TRUCK   = pick(lambda s: s["country"] in ("USA","Mexico"), 8)            # shared trucking firm
+H_PORT    = pick(lambda s: s["sea"], round(12 * SCALE))                    # shared port congestion
+H_TRUCK   = pick(lambda s: s["country"] in ("USA","Mexico"), round(8 * SCALE))   # shared trucking firm
+H_CUSTOMS = pick(lambda s: s["country"]=="Germany", round(5 * SCALE))      # customs friction pool
+
+# ---------------------------------------------------------------- Chapter 4
+CTYPES = [("fastener", 30, 0.4), ("electronic", 35, 1.0), ("mechanical", 40, 3.0),
+          ("polymer", 25, 1.5), ("specialty", 20, 12.0)]
+CTYPES = [(ctype, max(1, round(n * SCALE)), cost_mu) for ctype, n, cost_mu in CTYPES]
+components, comp_common = [], {}
+ci = 0
+for ctype, n, cost_mu in CTYPES:
+    for j in range(n):
+        s = random.choices(suppliers, weights=[x["w"] for x in suppliers])[0]
+        common = random.paretovariate(1.2) if ctype in ("fastener","electronic") else random.paretovariate(2.5)
+        cid = uid("comp", ci)
+        components.append(dict(id=cid, supplier_id=s["id"], name=f"{ctype.title()} {ci:03d}",
+                               component_type=ctype, unit_cost=round(random.lognormvariate(math.log(cost_mu), 0.6), 2)))
+        comp_common[cid] = common
+        ci += 1
+
+# H_POLYMER: the hidden-dependency scenario's 4 shared-upstream suppliers. Picked
+# AFTER components exist, and deliberately spanning 4 DISTINCT component_types
+# (never "polymer" itself) -- so the shared factor cannot be recovered from
+# component_type or any other single observable categorical column
+# (project_HADES.md §5.4: this is required for Transformer 2's eventual
+# validation to mean anything). Deterministic: first-generated supplier, by
+# component insertion order, for each of 4 non-polymer types.
+_seen_types, H_POLYMER = [], set()
+for c in components:
+    ctype = c["component_type"]
+    if ctype == "polymer" or ctype in _seen_types:
+        continue
+    H_POLYMER.add(c["supplier_id"]); _seen_types.append(ctype)
+    if len(H_POLYMER) == 4:
+        break
 
 # Disruption timeline: (factor-members, start, peak, end, magnitude)   -- Chapter 10
+# Spread across the full Jul-Dec snapshot window rather than concentrated in
+# Aug-Dec (an earlier draft clustered all 4 events there), so a chronological
+# train (Jul-Sep) / test (Nov-Dec) split sees a comparable mix of quiet and
+# disrupted periods on both sides instead of "train on quiet, test on disrupted."
+PORT_EVENT = (H_PORT, ts(2024,9,10), ts(2024,10,8), ts(2024,11,12), 0.65)
 EVENTS = [
-    (H_TRUCK,   ts(2024,5,6),  ts(2024,5,20), ts(2024,6,10), 0.55),        # trucking strike, gradual recovery
-    (H_PORT,    ts(2024,8,5),  ts(2024,9,2),  ts(2024,10,7), 0.65),        # port congestion
-    (H_POLYMER, ts(2024,9,10), ts(2024,10,10),ts(2024,12,15), 0.95),       # hidden upstream polymer shortage
-    (pick(lambda s: s["country"]=="Germany", 5), ts(2024,2,5), ts(2024,2,19), ts(2024,3,4), 0.45),  # customs
+    (H_TRUCK,   ts(2024,7,3),   ts(2024,7,17), ts(2024,8,7),   0.55),   # trucking strike -- train (Jul-Aug)
+    (H_CUSTOMS, ts(2024,8,1),   ts(2024,8,15), ts(2024,9,5),   0.45),   # customs friction -- train (Aug-Sep)
+    PORT_EVENT,                                                         # port congestion -- train/val/test (Sep-Nov)
+    # Peak kept at Oct 10 (not pushed later, unlike the other three) so delayed
+    # shipments have ~7 weeks to be dispatched/delayed/delivered and show up in
+    # the Dec-1 90-day trailing on-time-rate the co-degradation check reads --
+    # pushing this one later too breaks that check (verified: peak Nov 20 gave
+    # members 0.92 vs fleet 0.84, the WRONG direction).
+    (H_POLYMER, ts(2024,9,10),  ts(2024,10,10),ts(2024,12,15), 0.95),   # hidden polymer shortage -- train tail/val/test
 ]
 IDIO = {s["id"]: [(random.uniform(0,1) < 0.25) and
                   (lambda st=ts(2024, random.randint(1,11), random.randint(1,25)):
@@ -109,26 +158,10 @@ def stress(sup_id, base_rel, t):
             x += mag * max(0.0, min(1.0, frac))
     return min(0.95, x)
 
-# ---------------------------------------------------------------- Chapter 4
-CTYPES = [("fastener", 30, 0.4), ("electronic", 35, 1.0), ("mechanical", 40, 3.0),
-          ("polymer", 25, 1.5), ("specialty", 20, 12.0)]
-components, comp_common = [], {}
-ci = 0
-for ctype, n, cost_mu in CTYPES:
-    for j in range(n):
-        s = random.choices(suppliers, weights=[x["w"] for x in suppliers])[0]
-        if ctype == "polymer" and j < 18:                       # polymer parts concentrate on H_POLYMER members
-            s = random.choice([x for x in suppliers if x["id"] in H_POLYMER])
-        common = random.paretovariate(1.2) if ctype in ("fastener","electronic") else random.paretovariate(2.5)
-        cid = uid("comp", ci)
-        components.append(dict(id=cid, supplier_id=s["id"], name=f"{ctype.title()} {ci:03d}",
-                               component_type=ctype, unit_cost=round(random.lognormvariate(math.log(cost_mu), 0.6), 2)))
-        comp_common[cid] = common
-        ci += 1
-
 products, boms = [], []          # boms: (product_id, component_id, qty, created_at, deactivated_at)
 CATS = ["industrial_pump","controller","actuator","sensor_array","drive_unit","valve_system"]
-for p in range(80):
+PROD_N = round(80 * SCALE)
+for p in range(PROD_N):
     pid = uid("prod", p)
     products.append(dict(id=pid, sku=f"SKU-{1000+p}", name=f"{CATS[p%6].replace('_',' ').title()} M{p:02d}",
                          category=CATS[p % 6]))
@@ -192,9 +225,11 @@ for p in products:
                               stock=float(thr * random.uniform(1.6, 3.2))))
 
 # ---------------------------------------------------------------- Chapter 6
+CUST_N = round(100 * SCALE)
+_strategic_cut, _low_cut = round(0.15 * CUST_N), round(0.85 * CUST_N)
 customers = [dict(id=uid("cust", i), name=f"Customer {i:03d}",
-                  priority_tier=("strategic" if i < 15 else "low" if i >= 85 else "standard"))
-             for i in range(100)]
+                  priority_tier=("strategic" if i < _strategic_cut else "low" if i >= _low_cut else "standard"))
+             for i in range(CUST_N)]
 
 def season(t):                   # seasonal demand multiplier, spike Sep-Oct
     m = t.month
@@ -202,7 +237,8 @@ def season(t):                   # seasonal demand multiplier, spike Sep-Oct
 
 orders, order_items = [], []
 oi = 0
-for o in range(1000):
+ORDER_N = round(1000 * SCALE)
+for o in range(ORDER_N):
     day = random.randint(0, 360)
     placed = T_START + timedelta(days=day, hours=random.randint(8, 17))
     if random.random() > season(placed) / 1.6:                    # thin non-season, keep spike months dense
@@ -250,8 +286,8 @@ def new_shipment(idx, kind, when, sup=None, fac=None, wh=None, order=None, origi
         if fac == FACTORY_OUTAGE[0] and FACTORY_OUTAGE[1] <= dispatch <= FACTORY_OUTAGE[2]:
             st = min(0.95, st + 0.35)
     if carrier in SEA:
-        for members, s0, pk, s1, mag in EVENTS[1:2]:              # port event also slows sea carriers directly
-            if s0 <= dispatch <= s1: st = min(0.95, st + 0.10)
+        _members, s0, pk, s1, _mag = PORT_EVENT                   # port event also slows sea carriers directly
+        if s0 <= dispatch <= s1: st = min(0.95, st + 0.10)
     p_delay = min(0.80, 0.025 + 0.38 * st)
     delayed = random.random() < p_delay
     late_by = timedelta(days=max(1, int(random.lognormvariate(1.1, 0.6) * (1 + 2*st)))) if delayed else timedelta(0)
@@ -383,24 +419,28 @@ for t0 in T0S:
         if lab and sh["supplier_id"]: sup_hit.add(sh["supplier_id"])
         n_pos["delay"] += int(lab)
         label_rows.append([uid("lbl", t0, "delay", sh["id"]), uid("snap", t0), "shipment", sh["id"], "delay",
-                           str(lab).lower(), fmt(ev) if ev else "", "shipment_status_history"])
+                           str(lab).lower(), fmt(ev) if ev else "", "shipment_status_history", ""])
     for ip in inv_pairs:
         key = (ip["product_id"], ip["warehouse_id"])
         ev = next((w + timedelta(hours=6) for w in shortage_events.get(key, [])
                    if t0 < w + timedelta(hours=6) <= hz), None)      # compare on observed_at, incl. the 6h offset
         lab = ev is not None
         n_pos["shortage"] += int(lab)
+        # entity_id stays product_id (entity_type='product'), but warehouse_id is now
+        # carried alongside it -- Fix 3: previously two rows for the SAME product could
+        # disagree (different warehouses, different outcomes) with nothing in the row to
+        # tell them apart; grouping by (entity_id, warehouse_id) is now unambiguous.
         label_rows.append([uid("lbl", t0, "short", *key), uid("snap", t0), "product", ip["product_id"], "shortage",
-                           str(lab).lower(), fmt(ev) if ev else "", "inventory_history"])
+                           str(lab).lower(), fmt(ev) if ev else "", "inventory_history", ip["warehouse_id"]])
     for s in suppliers:
         lab = s["id"] in sup_hit
         n_pos["impact"] += int(lab)
         label_rows.append([uid("lbl", t0, "impact", s["id"]), uid("snap", t0), "supplier", s["id"], "impact",
-                           str(lab).lower(), "", "shipment_status_history"])
+                           str(lab).lower(), "", "shipment_status_history", ""])
     live_edges = sum(1 for b in boms if b[3] <= fmt(t0) and (b[4] == "" or b[4] > fmt(t0)))
     snap_rows.append([uid("snap", t0), fmt(t0), HORIZON,
-        json.dumps({"supplier":SUP_N,"component":len(components),"product":len(products),"factory":5,
-                    "warehouse":8,"customer":100,"inventory":len(inv_pairs),
+        json.dumps({"supplier":SUP_N,"component":len(components),"product":len(products),"factory":len(factories),
+                    "warehouse":len(warehouses),"customer":CUST_N,"inventory":len(inv_pairs),
                     "order":sum(1 for o in orders if o["placed_at"] <= t0),
                     "shipment":sum(1 for sh in shipments if sh["created_at"] <= t0)}),
         json.dumps({"SUPPLIES":len(components),"USED_IN":live_edges,"MANUFACTURED_AT":len(product_factories),
@@ -464,7 +504,7 @@ write("shipment_status_history.csv", ["id","shipment_id","status","previous_stat
 write("supplier_temporal_features.csv", ["id","supplier_id","as_of_date","on_time_rate_30d","on_time_rate_90d","on_time_rate_180d","trend_slope","lateness_variance","days_since_last_late","shipment_count_180d","computed_at","feature_spec_version"], stf_rows)
 write("carrier_performance_snapshots.csv", ["id","carrier","origin_location","destination_location","as_of_date","on_time_rate_90d","shipment_count_90d","computed_at"], carrier_rows)
 write("graph_snapshots.csv", ["id","t0","horizon_days","node_counts","edge_counts","label_counts","feature_spec_version","git_commit","construction_seconds","created_at"], snap_rows)
-write("training_labels.csv", ["id","snapshot_id","entity_type","entity_id","task","label","event_at","label_source"], label_rows)
+write("training_labels.csv", ["id","snapshot_id","entity_type","entity_id","task","label","event_at","label_source","warehouse_id"], label_rows)
 write("risk_scores.csv", ["id","entity_type","entity_id","delay_probability","shortage_risk","impact_score","confidence","risk_category","scoring_method","model_version","snapshot_t0","horizon_days","scored_at"], risk_rows)
 
 # ---------------------------------------------------------------- Chapter 15 — validation suite
@@ -484,6 +524,19 @@ check("FK shipments", all((not s["supplier_id"] or s["supplier_id"] in sup_ids) 
                           and (not s["warehouse_id"] or s["warehouse_id"] in wh_ids) and (not s["order_id"] or s["order_id"] in ord_ids) for s in shipments))
 check("PK unique shipments", len({s["id"] for s in shipments}) == len(shipments))
 check("PK unique labels", len({r[0] for r in label_rows}) == len(label_rows))
+# Fix 3: shortage labels now carry warehouse_id (r[8]) alongside entity_id=product_id (r[3]),
+# so grouping by (snapshot, entity_id, warehouse_id) must be conflict-free by construction.
+# Also report the entity_id-only view for comparison -- that's the ambiguity the fix removes.
+short_rows = [r for r in label_rows if r[4] == "shortage"]
+by_ewh, by_e = {}, {}
+for r in short_rows:
+    by_ewh.setdefault((r[1], r[3], r[8]), set()).add(r[5])
+    by_e.setdefault((r[1], r[3]), set()).add(r[5])
+conflicts_with_wh = sum(1 for v in by_ewh.values() if len(v) > 1)
+conflicts_without_wh = sum(1 for v in by_e.values() if len(v) > 1)
+check("shortage labels: zero conflicts once warehouse_id disambiguates entity_id",
+      conflicts_with_wh == 0,
+      f"({conflicts_with_wh} conflicting groups; {conflicts_without_wh} would conflict without warehouse_id)")
 chron = all(s["created_at"] <= s["dispatched_at"] < s["eta"] and (not s["delivered_at"] or s["delivered_at"] >= s["dispatched_at"]) for s in shipments)
 check("chronology created<=dispatch<eta<=delivered", chron)
 check("inventory never negative", all(r["stock_level"] >= 0 for r in inv_hist))
@@ -504,6 +557,11 @@ for r in label_rows:
     tot[r[4]] += 1; pos[r[4]] += (r[5] == "true")
 for k in pos:
     print(f"  label balance {k:9s}: {pos[k]:>4}/{tot[k]:<5} = {pos[k]/max(tot[k],1):.1%}")
+# Fix 4: hidden-dependency members must span >=2 component_types (never recoverable
+# from component_type alone) -- report the actual composition, not just count.
+poly_types = {c["component_type"] for c in components if c["supplier_id"] in H_POLYMER}
+check("hidden dependency: members span >=2 component_types (decoupled from component_type)",
+      len(poly_types) >= 2, f"(types: {sorted(poly_types)})")
 # hidden-dependency observable: polymer members co-degrade in Oct-Nov with no shared edge
 poly = list(H_POLYMER)
 co = [next((float(r[4]) for r in stf_rows if r[1] == p and r[2] == "2024-12-01" and r[4] != ""), None) for p in poly]

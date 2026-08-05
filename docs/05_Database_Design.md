@@ -412,9 +412,11 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 | label | BOOLEAN | NOT NULL |
 | event_at | TIMESTAMPTZ | NULL — positives only |
 | label_source | VARCHAR(100) | NOT NULL |
+| warehouse_id | UUID | NULL, FK → `warehouses(id)` — populated for `task='shortage'` only |
 
 - **Indexes:** composite index on (`snapshot_id`, `task`, `entity_type`); index on (`entity_type`, `entity_id`).
 - **Invariant that must hold:** every non-NULL `event_at` satisfies `t₀ < event_at <= t₀ + horizon_days`. Enforce in the loader, assert in a test.
+- **`warehouse_id` (added post-Steps-0-5, "Step C"):** `shortage`'s `entity_id` is a `product_id`, and a product can be stocked at multiple warehouses with independent shortage outcomes in the same snapshot — without a disambiguator, `(snapshot_id, entity_id)` alone could carry conflicting `true`/`false` rows for what looks like "the same" label. `warehouse_id` resolves that: grouping by `(snapshot_id, entity_id, warehouse_id)` is conflict-free by construction (`db/generate_dataset.py`'s validation suite asserts this every run). NULL for `delay`/`impact`, whose `entity_id` already uniquely identifies one instance. Note this is a data-level fix only — the graph has no Product×Warehouse node, so the model pipeline (`ml/models/heads.py`) still reads the Product node's own embedding for every one of that product's labelled instances; resolving that would mean an edge-level head, a separate architectural question.
 
 ---
 
