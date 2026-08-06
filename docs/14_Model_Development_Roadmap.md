@@ -57,7 +57,7 @@ As of this document, the following are already built and should not be redone:
 - Assemble `HeteroData` per snapshot (`06_Graph_Database_Design.md` §11): 8 node types, 10 forward relations.
 - Apply `ToUndirected()` to add the 10 reverse relations (`06_Graph_Database_Design.md` §6) — 20 meta-relations total.
 - **Measure, don't assume, the actual k-hop reach per target node type** (`06_Graph_Database_Design.md` §11) — this is what the depth prior in Step 4 will actually be justified by, not the planning table in `project_HADES.md` §3.7.
-- Verify feature dimensionality matches Section 7 of `06_Graph_Database_Design.md` (Supplier 21, Shipment 10, etc. — recompute against the real one-hot cardinalities, don't assume the placeholder numbers).
+- Verify feature dimensionality matches Section 7 of `06_Graph_Database_Design.md` — recompute against the real one-hot cardinalities, don't assume the placeholder numbers. Done: measured values are Supplier 14, Component 6, Product 13, Factory 6, Warehouse 7, Shipment 7, Order 5, Customer 3 (not the original 21/10/8/10/10/10/6/4 planning estimate — `06_Graph_Database_Design.md` §7 now carries the measured table, confirmed unchanged across the v2 and v3 dataset scale-ups since only population sizes grew, not category cardinalities).
 - Write one `graph_snapshots` row per `t₀` with real node/edge/label counts.
 
 **Done when:** a `HeteroData` object exists for every `t₀` in the schedule, reverse relations are confirmed present (spot-check: a Supplier node has nonzero in-degree from `rev_SUPPLIES`), and the measured k-hop reach table is in hand.

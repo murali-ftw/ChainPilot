@@ -83,7 +83,7 @@ flowchart TB
 |---|---|
 | Training environment | A single machine — a consumer GPU if available, CPU is workable given the model's size (Section 6) |
 | Model size | `d=64`, `L=4`: ~773K parameters, ~1.4 GFLOP full-graph forward pass at the full architecture (`project_HADES.md` Part 7) — small by modern standards; the constraint is label volume, not compute |
-| Graph scale | ~5,000 nodes, ~40,000 directed edges (with reverse relations), ~600 suppliers — planning figures, to be replaced with measured values once the real graph is built |
+| Graph scale | **Measured** (`reports/step5_result_v3.md`, Step 2): 22,155–66,973 nodes and 122,594–388,242 directed edges (20 meta-relations, with reverse relations), growing snapshot to snapshot across the 15-month simulated timeline; 800 suppliers. Superseded the original ~5,000/~40,000/~600 planning figures — real scale turned out an order of magnitude larger |
 | Reproducibility | Seeded RNG throughout (dataset generation, train/val/test assignment where applicable, model initialization); every run's dataset snapshot, git commit, and hyperparameters recorded in `model_registry` |
 | No distributed training | Not required at this scale; not planned |
 

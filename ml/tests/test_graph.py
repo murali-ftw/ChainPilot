@@ -168,8 +168,8 @@ def pytest_read_distinct(conn, sql: str) -> list:
 # Re-derive via: SELECT product_id, component_id, deactivated_at FROM
 # product_components WHERE deactivated_at IS NOT NULL ORDER BY deactivated_at LIMIT 1;
 _SUBSTITUTED_PRODUCT = "c0f44500-e1d1-59e0-b53b-e0e98b24a7cf"
-_OLD_COMPONENT = "9f704fee-a838-5065-8646-a444247df7fa"
-_NEW_COMPONENT = "28634240-17f1-5b89-b1fe-73fcfa27c5f5"
+_OLD_COMPONENT = "0810a1fe-71ab-5234-ad85-27da3b9b87ef"
+_NEW_COMPONENT = "5a9ef7e6-98e2-53bd-b040-83ca307b68cb"
 _SUBSTITUTION_DATE = dt.datetime(2024, 2, 12, 13, 30, tzinfo=UTC)
 
 

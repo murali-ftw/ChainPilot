@@ -99,9 +99,9 @@ Fix these once; every formula below uses them.
 | `L` | Encoder layers | **4** | §4.6 — deepest blanket + 1 headroom |
 | `T` | Node types | **8** | Doc 6 §5 |
 | `R` | Meta-relations | **20** | 10 forward + 10 reverse (§2.2) |
-| `V` | Nodes | ~5,000 | NFR-02 ceiling |
-| `E` | Directed edges | ~40,000 | 20,000 forward, doubled by reverse |
-| `N_s` | Supplier nodes | ~600 | Estimate |
+| `V` | Nodes | **22,155 – 66,973** | Measured, `ml/graph/builder.py` against the v3 dataset (15 snapshots, Jul 2024 - Sep 2025) — grows snapshot to snapshot as orders/shipments accumulate; NFR-02's ~5,000 ceiling was a pre-graph planning estimate, superseded (`reports/step5_result_v3.md`) |
+| `E` | Directed edges (20 meta-relations, forward+reverse) | **122,594 – 388,242** | Measured, same source; ~40,000 was the planning estimate |
+| `N_s` | Supplier nodes | **800** | Measured (`db/generate_dataset.py`'s `SUP_N`) — no longer an estimate |
 | `k` | T2 candidate pool size | **64** | §5.4 |
 | `τ` | Prior width | **0.8** | §4.3 |
 | `λ` | Prior KL strength | **0.01** | §4.3 |
@@ -1235,10 +1235,19 @@ dyadic_risk = global_risk × f(order_volume_share, contract_priority, fulfilment
 
 ```
 d = 64          h = 4           d/h = 16        L = 4
-T = 8           R = 20          V ≈ 5,000       E ≈ 40,000      N_s ≈ 600
+T = 8           R = 20          V = 22,155-66,973 (measured)   E = 122,594-388,242 (measured)
+N_s = 800 (measured)
 k = 64          τ = 0.8         λ = 0.01        H = 14 days
 γ = 2 (focal)   lr = 1e-3       wd = 1e-4       dropout = 0.2 / 0.1
 ```
+
+**V/E/N_s recomputed from the real v3 graph** (`reports/step5_result_v3.md`, Step 2) — this is
+the update Part 1's own closing note (below) asks for: "the absolute values depend on ...
+real graph size and real degree distribution, and should be recomputed the moment you have a
+graph." They're no longer a pre-code estimate. Everything else in this budget (parameter counts,
+FLOP ratios) still assumes `d=64` and the planning-time node/edge counts it was derived against;
+recomputing the parameter/FLOP budget itself against the real per-snapshot graph size is not yet
+done and is a fair next step, not claimed here.
 
 ## A.3 Budget at a glance
 
@@ -1274,7 +1283,15 @@ PARAMETERS                          FLOPs (full-graph forward)
 
 ## Final note to the reader
 
-Everything numerical in this document is **derived analytically from the specification**, because no code exists yet. The relative orderings are robust — the gate really is 45× smaller than a full depth Transformer, the encoder really is 90% of the model, reverse relations really do double the edge term. The **absolute** values depend on `d`, `L`, real graph size and real degree distribution, and should be recomputed the moment you have a graph.
+Everything numerical in this document was originally **derived analytically from the specification**, because no code existed yet. The relative orderings are robust — the gate really is 45× smaller than a full depth Transformer, the encoder really is 90% of the model, reverse relations really do double the edge term. The **absolute** values depend on `d`, `L`, real graph size and real degree distribution, and should be recomputed the moment you have a graph.
+
+**That graph now exists.** Part 1's `V`/`E`/`N_s` and Appendix A.2's constants block have been
+recomputed against it (`reports/step5_result_v3.md`, Step 2) — this fulfills the instruction
+above. `V`/`E` turned out to be an order of magnitude larger than the ~5,000/~40,000 planning
+estimate (22,155–66,973 nodes / 122,594–388,242 edges, growing snapshot to snapshot as the
+15-month simulated timeline accumulates orders and shipments) and `N_s` grew from an estimated
+~600 to a measured 800. The relative-ordering claims in the paragraph above are unaffected by
+this — they were never claims about the absolute node/edge counts.
 
 The lineage claim to make, and to make precisely:
 

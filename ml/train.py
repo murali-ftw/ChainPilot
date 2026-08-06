@@ -3,11 +3,21 @@ Unified training loop + model_registry logger — Steps 3-5
 (`docs/14_Model_Development_Roadmap.md` §6-8, `docs/11_Implementation_Guide.md`
 §11).
 
-Split is strictly by `t0` (`project_HADES.md` §8.1: "NEVER randomly"):
+Split is strictly by `t0` (`project_HADES.md` §8.1: "NEVER randomly").
 
-    train      t0 <= 2024-09-01   (Jul, Aug, Sep -- 3 snapshots)
-    validation t0 == 2024-10-01   (Oct -- 1 snapshot)
-    test       t0 >= 2024-11-01   (Nov, Dec -- 2 snapshots)
+v3 (800 suppliers, 15 monthly snapshots Jul 2024 - Sep 2025) redefines the
+cutoffs used by v1/v2's 6-snapshot schedule -- reusing "last 2 snapshots as
+test" would put Aug/Sep 2025 in test, which is fine, but "first 3 as train"
+would leave the Oct/Nov 2024 label spike (delay 248/194 vs a 27-74 baseline
+every other month, `reports/step5_result_v3.md` Part I) sitting inside
+validation, isolated from both train and test. Chosen instead:
+
+    train      t0 <= 2024-12-31   (Jul-Dec 2024 -- 6 snapshots, includes the
+                                    Oct/Nov spike so the model trains on the
+                                    disrupted regime rather than being
+                                    evaluated against a regime it never saw)
+    validation 2025-01-01 <= t0 < 2025-04-01   (Jan-Mar 2025 -- 3 snapshots)
+    test       t0 >= 2025-04-01   (Apr-Sep 2025 -- 6 snapshots)
 
 One `model_registry` row is written *before* training starts (status
 `training`) and flipped to `active` on completion, so `git_commit` and
@@ -38,9 +48,8 @@ from ml.models.model import HADESModel
 
 TASK_DB_ENTITY_TYPE = {"delay": "shipment", "shortage": "product", "impact": "supplier"}
 
-TRAIN_CUTOFF = dt.datetime(2024, 9, 30, tzinfo=dt.timezone.utc)
-VAL_T0 = dt.datetime(2024, 10, 1, tzinfo=dt.timezone.utc)
-TEST_START = dt.datetime(2024, 11, 1, tzinfo=dt.timezone.utc)
+TRAIN_CUTOFF = dt.datetime(2024, 12, 31, tzinfo=dt.timezone.utc)
+TEST_START = dt.datetime(2025, 4, 1, tzinfo=dt.timezone.utc)
 
 
 @dataclass

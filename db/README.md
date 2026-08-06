@@ -16,53 +16,63 @@ db/
 └── csv/                  one file per table, FK-safe naming
 ```
 
-**v2 (current)** — scaled up post-Steps-0-5 (`reports/steps_0-5_findings_v2.md`'s "Step C"):
-`docs/01_Product_Requirement_Document.md` §8 assumes "hundreds to low thousands" positive
-labels; the original 50-supplier world produced single/low-double-digit positives for
-delay/impact. `SUP_N` went 50→180 with every other world-size count (`SCALE = SUP_N/50 =
-3.6`) scaled proportionally.
+**v3 (current)** — scaled up further and extended in time (`reports/step5_result_v3.md`):
+v2 fixed delay/shortage label volume but left impact under-scaled (44 total, ~21 in a test
+split) because impact is a per-supplier, per-snapshot label — it scales with supplier count
+**and** snapshot count, not shipment volume. `SUP_N` went 180→800 (`SCALE = SUP_N/50 = 16`,
+propagated the same way as v2), and the simulated timeline extended from 6 monthly snapshots
+(Jul–Dec 2024) to **15** (Jul 2024 – Sep 2025).
 
 | Table | Rows | Notes |
 |---|---|---|
-| suppliers | 180 | 6 countries, power-law degree, `reliability_history` display-only |
-| components | 540 | each belongs to exactly one supplier; fasteners/electronics reused widely |
-| products | 288 | 6 categories |
-| product_components | 1,580 | BOM with validity windows; 4 substitutions + 4 pure additions spread Feb–Nov |
-| factories / product_factories | 5 / 427 | per-product capacity, `is_primary` (factory count NOT scaled — physical DCs, not supply-chain-proportional) |
-| warehouses / inventory | 8 / 723 | current state only (warehouse count NOT scaled, same reason) |
-| inventory_history | ~38,320 | weekly observations, bitemporal (`observed_at`+`recorded_at`) |
-| customers | 360 | strategic ~15% / standard ~70% / low ~15% |
-| orders / order_items | 3,600 / ~8,970 | seasonal spike Sep–Oct, 5% enterprise orders |
-| shipments | ~5,130 | supplier→warehouse replenishment + factory fulfilment |
-| shipment_status_history | ~15,840 | full transition log — the delay-label source |
-| supplier_temporal_features | 1,080 | 6 monthly `as_of_date`s × 180 suppliers, windows end at t0 |
-| carrier_performance_snapshots | 30 | 5 carriers × 6 t0s |
-| graph_snapshots | 6 | t0 = Jul 1 … Dec 1 2024, horizon 14d, counts JSON; `USED_IN` edge count grows across snapshots as BOM additions land |
-| training_labels | ~6,640 | tasks `delay` / `shortage` / `impact`; ~11.4% / ~9.1% / ~4.1% positive (140/396/44 total positives — delay and shortage now solidly in the "low hundreds" the PRD assumes; impact reached the low 40s, a 4x improvement over v1's 11 but still short of "hundreds" — pushing it further would need supplier counts well beyond the 150-200 range this scale-up targeted, see `reports/steps_0-5_findings_v2.md`) |
-| risk_scores | 180 | seed rows, `weighted_formula` — **not** model output |
+| suppliers | 800 | 6 countries, power-law degree, `reliability_history` display-only |
+| components | 2,400 | each belongs to exactly one supplier |
+| products | 1,280 | 6 categories |
+| product_components | 7,098 | BOM with validity windows; substitutions/additions now extend into 2025 (see "v3 fixes") |
+| factories / product_factories | 5 / 1,933 | per-product capacity, `is_primary` (factory count NOT scaled — physical infrastructure) |
+| warehouses / inventory | 8 / 3,194 | current state only (warehouse count NOT scaled, same reason) |
+| inventory_history | 293,848 | weekly observations, bitemporal (`observed_at`+`recorded_at`) |
+| customers | 1,600 | strategic ~15% / standard ~70% / low ~15% |
+| orders / order_items | 27,967 / 69,828 | order count scales with BOTH world size and timeline length (`SCALE x TIMELINE_DAYS/365`), keeping per-product weekly demand intensity at the calibrated level |
+| shipments | 39,130 | supplier→warehouse replenishment + factory fulfilment |
+| shipment_status_history | 121,057 | full transition log — the delay-label source |
+| supplier_temporal_features | 12,000 | 15 monthly `as_of_date`s × 800 suppliers, windows end at t0 |
+| carrier_performance_snapshots | 75 | 5 carriers × 15 t0s |
+| graph_snapshots | 15 | t0 = Jul 1 2024 … Sep 1 2025, horizon 14d, counts JSON |
+| training_labels | 71,078 | tasks `delay`/`shortage`/`impact`; 9.55%/6.00%/2.33% positive (1,066/2,875/279 total — delay and shortage stay well into the hundreds; **impact reached 279 total, 114 in the chosen test split** — clears the PRD's "hundreds" bar in total, though its per-split test count still falls short of the 200-positive CI-table floor for a clearly detectable effect; see `reports/step5_result_v3.md`) |
+| risk_scores | 800 | seed rows, `weighted_formula` — **not** model output |
 
 Exact counts vary slightly on regeneration-affecting edits (RNG draw order shifts downstream), but are always internally consistent and re-validated by the generator's own suite — see `Regenerating` below.
+
+**v2 (superseded)** — the 180-supplier, 6-snapshot world: suppliers 180, components 540,
+products 288, product_components 1,580, factories/product_factories 5/427,
+warehouses/inventory 8/723, inventory_history ~38,320, customers 360, orders/order_items
+3,600/~8,970, shipments ~5,130, shipment_status_history ~15,840, supplier_temporal_features
+1,080, training_labels ~6,640 (delay/shortage/impact ~11.4%/~9.1%/~4.1%, 140/396/44 total
+positives). Superseded by v3; its Step 3–5 governance rows were reconstructed (best-effort,
+`status='archived'`) after an accidental `--drop` destroyed the live ones during the v3 pass —
+see `reports/step5_result_v3.md`'s operational note.
 
 **v1 (superseded)** — the original 50-supplier world: suppliers 50, components 150,
 products 80, product_components 450, factories/product_factories 5/119,
 warehouses/inventory 8/194, inventory_history ~10,280, customers 100, orders/order_items
 1,000/~2,490, shipments ~1,440, shipment_status_history ~4,460,
 supplier_temporal_features 300, training_labels ~1,774 (delay/shortage/impact ~11%/~7%/~4%,
-34/84/11 total positives). Kept here for the record; `db/csv/` and the database now hold v2.
+34/84/11 total positives). Kept here for the record; `db/csv/` and the database now hold v3.
 
 ## How the world works (causality, not randomness)
 
 Nothing is sampled independently. A latent **stress** value per supplier per
 day drives everything observable:
 
-1. **Disruption events** (Chapter 10): a NA trucking strike (Jul–Aug), German
-   customs friction (Aug–Sep), port congestion hitting sea-freight suppliers
-   (Sep–Nov), a factory outage (Jun), and a **hidden upstream polymer
-   shortage** (Sep–Dec). Each ramps up to a peak and decays — gradual recovery.
-   Spread across Jul–Dec (v2 — see below) rather than concentrated in the
-   back half of the year, so the chronological train (Jul–Sep) / test
-   (Nov–Dec) split sees a comparable mix of quiet and disrupted periods on
-   both sides.
+1. **Disruption events** (Chapter 10): a factory outage (Jun 2024) plus 8
+   recurring disruption events (trucking strikes, customs friction, port
+   congestion, and 2 hidden polymer-shortage flares) spread across the full
+   Jul 2024 – Sep 2025 timeline (v3 — extended from the original Jul-Dec 2024
+   window; see "v3 fixes" below), so every one of the 15 monthly snapshots
+   sees at least one active event, on both sides of whatever train/val/test
+   split is chosen. Each event ramps up to a peak and decays — gradual
+   recovery, never a step function.
 2. Stress raises per-shipment delay probability and lateness magnitude at
    dispatch time → `shipment_status_history` transitions → delay labels.
 3. Delayed replenishment shipments postpone warehouse arrivals → stock drifts
@@ -80,23 +90,23 @@ mean (checked and asserted by the generator's validation suite every run,
 margin > 0.10). A structural model cannot see this; an embedding-similarity
 model can. That gap is the Transformer 2 acceptance test.
 
-**v2 fix:** in v1, the 4 members were chosen unconstrained, but polymer
-*components* were then deliberately concentrated onto those same 4 suppliers
-(18 of 25 polymer parts), making `component_type='polymer'` an accidental
-giveaway of membership — the exact observable column the scenario is
-supposed to be invisible through. v2 removes that concentration and instead
-picks the 4 members deterministically to span **4 distinct component_types**
-(never `polymer` as any member's dominant type). Current composition
-(countries: Germany, Vietnam, USA, Vietnam — still cross-country as a group;
-each member's own component types, collectively spanning all 5 categories,
-no member polymer-only):
+**v2 fix (still in effect in v3):** in v1, the 4 members were chosen
+unconstrained, but polymer *components* were then deliberately concentrated
+onto those same 4 suppliers (18 of 25 polymer parts), making
+`component_type='polymer'` an accidental giveaway of membership — the exact
+observable column the scenario is supposed to be invisible through. v2
+removed that concentration and instead picks the 4 members deterministically
+(first-generated supplier, by component insertion order, for each of 4
+distinct non-polymer component_types). Current (v3, 800-supplier) composition
+— 4 distinct countries, each member's own component types collectively
+spanning all 5 categories, no member polymer-only:
 
 | Supplier (country) | Component types supplied |
 |---|---|
-| Germany | electronic, fastener, mechanical |
+| USA | electronic, fastener, mechanical, polymer, specialty |
+| India | electronic, mechanical, polymer, specialty |
+| China | electronic, fastener, mechanical, polymer, specialty |
 | Vietnam | electronic, fastener, mechanical, polymer, specialty |
-| USA | electronic, fastener, mechanical, polymer |
-| Vietnam | specialty |
 
 Shared port and shared trucking factors are implemented the same way
 (members correlated, mechanism never emitted), per Dataset.md Chapter 9.
@@ -188,6 +198,50 @@ addressed in `generate_dataset.py`:
   causal mechanism (shared stress via the hidden factor) is unchanged, only
   its observability via `component_type` is removed, per `project_HADES.md`
   §5.4's requirement that Transformer 2's eventual validation mean anything.
+
+## v3 fixes (post-Steps-0-5, `reports/step5_result_v3.md`)
+
+v2 fixed delay/shortage label volume but left impact under-scaled (44 total, ~21 in a test
+split) — impact is a per-supplier, per-snapshot label, so it scales with supplier count **and**
+snapshot count, not shipment volume the way delay/shortage do. Four changes in
+`generate_dataset.py`:
+
+- **Further scale.** `SUP_N` 180→800 (`SCALE=16`), propagated the same way as v2. Delay/shortage
+  positives: 140→1,066 / 396→2,875. Impact: 44→279 total (114 in the chosen test split) — clears
+  "hundreds" in total, though its test-split count still falls short of the 200-positive floor a
+  clearly detectable single-comparison effect needs (see `reports/step5_result_v3.md` for why
+  that's a softer problem than it sounds: impact's seed-to-seed AUC stability is now the
+  *tightest* of the three tasks, despite the lower raw count).
+- **Timeline extended 6→15 monthly snapshots** (Jul 2024 – Sep 2025, was Jul–Dec 2024 only).
+  More snapshots directly means more impact-label opportunities (impact is one label per
+  supplier per snapshot) without needing an even larger supplier count. `T_START` unchanged
+  (the first t0 keeps its full trailing-history margin); `T_END` pushed to 2025-09-30.
+- **Disruption timeline extended alongside it.** 6 new 2025 events (reusing the same
+  hidden-factor pools and event shapes) so all 15 snapshot months carry real disruption signal,
+  not 9 months of quiet padding after the original Jul-Dec 2024 events end. BOM evolution dates
+  (substitutions/additions) extended into 2025 for the same reason — otherwise `USED_IN` would
+  freeze for 9 of 15 snapshots, re-introducing the "static topology" tell an earlier audit fixed.
+  One timing constraint re-verified at this scale: the hidden-dependency check reads the Dec-1-
+  2024 90-day trailing on-time rate, and at 800 suppliers the 4 members drawn skew toward
+  longer-lead sea suppliers (23-38 days) than at 180 — the first flare's start had to move
+  earlier (Sep 10 -> Aug 5) so even a 38-day-lead member's disrupted shipments resolve into that
+  window by Dec 1; the original Sep-10 start passed the check at 180 suppliers but failed it
+  (members *above* the fleet mean, the wrong direction) at 800.
+- **Generation-time cost.** Several per-call linear scans (`asof_status`'s scan over all
+  transitions, repeated `next(s for s in suppliers ...)` lookups) were fine at 180 suppliers but
+  would have been tens of billions of iterations at 800. Replaced with one-time dict/list
+  indexes (`trans_by_sid`, `sup_by_id`, precomputed weight lists) — pure indexing, no RNG
+  involvement, identical draws. Generation now takes ~7s.
+- **A latent determinism bug, found and fixed.** Two back-to-back runs produced CSVs that were
+  *nearly* but not exactly identical — same UUIDs and timestamps, but small integer drifts in
+  aggregates. Root cause: a BOM-selection loop iterated a `set` of string UUIDs directly, whose
+  iteration order is `PYTHONHASHSEED`-dependent (randomized per Python process by default) —
+  this silently permuted quantity draws and, through a later `random.choice` over that same
+  order, changed *which* BOM edge got deactivated in the substitution loop, run to run. This
+  was a pre-existing gap in the "byte-identical CSVs" guarantee, only surfaced because this pass
+  happened to diff two real runs against each other. Fixed with `sorted(chosen)`; reverified
+  byte-identical across 4 separate runs, including two with `PYTHONHASHSEED` forced to different
+  values.
 
 ## Loading
 

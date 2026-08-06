@@ -36,9 +36,16 @@ def J(t, spread=2700):
     Never applied to defined analytical boundaries (t0, T_START, BOM validity dates) --
     those are legitimate clean business-date cutoffs, not recorded ERP events."""
     return t + timedelta(seconds=random.randint(0, spread))
+# Timeline extended (v3): T_END pushed ~9 months past 2024 so the snapshot
+# schedule can cover Jul 2024 .. Sep 2025 (15 monthly t0s instead of 6).
+# T_START stays 2024-01-01 -- the FIRST t0 (2024-07-01) keeps its full 182-day
+# trailing-history margin (>= the 180-day rule), same as before; extending the
+# window forward doesn't shrink it.
 T_START = ts(2024, 1, 1)
-T_END   = ts(2024, 12, 31, 23)
-GEN_AT_DT = ts(2025, 1, 2, 9)              # system-time anchor for master rows written "now"
+T_END   = ts(2025, 9, 30, 23)
+TIMELINE_DAYS  = (T_END - T_START).days     # ~638
+TIMELINE_WEEKS = TIMELINE_DAYS / 7.0        # ~91 -- weekly-demand conversion base (was /52 in the 1-year world)
+GEN_AT_DT = ts(2025, 10, 2, 9)             # system-time anchor for master rows written "now" (after T_END)
 def GJ(): return fmt(J(GEN_AT_DT, 1800))   # fresh ~0-30min batch-load jitter per call
 HORIZON = 14
 
@@ -61,11 +68,13 @@ COUNTRIES = {  # lead-time profile (lognormal mu in days), sea-freight?, base re
 C_NAMES = list(COUNTRIES)
 # Scaled up from the original 50 (docs/01_Product_Requirement_Document.md §8's own
 # stated assumption of "hundreds to low thousands" positive labels; the 50-supplier
-# world produced single/low-double-digit positives for delay/impact). SCALE is
-# applied to every entity count below that's meant to track world size
-# (components/products/customers/orders) so the world stays internally
-# proportioned, not just supplier count in isolation.
-SUP_N = 180
+# world produced single/low-double-digit positives for delay/impact, and the
+# 180-supplier pass still left impact in the low 40s because impact is a
+# per-supplier, per-snapshot label -- it scales with supplier count x snapshot
+# count, not shipment volume). SCALE is applied to every entity count below
+# that's meant to track world size (components/products/customers/orders) so
+# the world stays internally proportioned, not just supplier count in isolation.
+SUP_N = 800
 SCALE = SUP_N / 50
 
 # power-law-ish component degree weights: few dominant suppliers
@@ -82,6 +91,13 @@ for i in range(SUP_N):
         country=country, capacity_score=round(random.lognormvariate(4.2, 0.5), 2),
         lead_time_days=lead, sea=sea, base_rel=rel, w=sup_weight[i]))
 
+# O(1) lookup + precomputed weights: at SUP_N=800 the per-call `next(s for s in
+# suppliers ...)` scans and per-call weight-list rebuilds in the hot loops below
+# turn into tens of millions of wasted iterations. Pure indexing -- no RNG
+# involvement, identical draws, probability model unchanged.
+sup_by_id = {s["id"]: s for s in suppliers}
+SUP_W = [s["w"] for s in suppliers]
+
 # ------- Hidden factors (never emitted). members chosen so no graph edge links them.
 def pick(pred, k):
     pool = [s for s in suppliers if pred(s)]; random.shuffle(pool); return set(s["id"] for s in pool[:k])
@@ -97,7 +113,7 @@ components, comp_common = [], {}
 ci = 0
 for ctype, n, cost_mu in CTYPES:
     for j in range(n):
-        s = random.choices(suppliers, weights=[x["w"] for x in suppliers])[0]
+        s = random.choices(suppliers, weights=SUP_W)[0]
         common = random.paretovariate(1.2) if ctype in ("fastener","electronic") else random.paretovariate(2.5)
         cid = uid("comp", ci)
         components.append(dict(id=cid, supplier_id=s["id"], name=f"{ctype.title()} {ci:03d}",
@@ -122,26 +138,54 @@ for c in components:
         break
 
 # Disruption timeline: (factor-members, start, peak, end, magnitude)   -- Chapter 10
-# Spread across the full Jul-Dec snapshot window rather than concentrated in
-# Aug-Dec (an earlier draft clustered all 4 events there), so a chronological
-# train (Jul-Sep) / test (Nov-Dec) split sees a comparable mix of quiet and
-# disrupted periods on both sides instead of "train on quiet, test on disrupted."
-PORT_EVENT = (H_PORT, ts(2024,9,10), ts(2024,10,8), ts(2024,11,12), 0.65)
-EVENTS = [
-    (H_TRUCK,   ts(2024,7,3),   ts(2024,7,17), ts(2024,8,7),   0.55),   # trucking strike -- train (Jul-Aug)
-    (H_CUSTOMS, ts(2024,8,1),   ts(2024,8,15), ts(2024,9,5),   0.45),   # customs friction -- train (Aug-Sep)
-    PORT_EVENT,                                                         # port congestion -- train/val/test (Sep-Nov)
-    # Peak kept at Oct 10 (not pushed later, unlike the other three) so delayed
-    # shipments have ~7 weeks to be dispatched/delayed/delivered and show up in
-    # the Dec-1 90-day trailing on-time-rate the co-degradation check reads --
-    # pushing this one later too breaks that check (verified: peak Nov 20 gave
-    # members 0.92 vs fleet 0.84, the WRONG direction).
-    (H_POLYMER, ts(2024,9,10),  ts(2024,10,10),ts(2024,12,15), 0.95),   # hidden polymer shortage -- train tail/val/test
+# Spread across the FULL Jul-2024 .. Sep-2025 snapshot window, same principle
+# Step C applied to the original Jul-Dec window: every monthly snapshot sees at
+# least one active event (a comparable disrupted/quiet mix on both sides of
+# wherever a future train/val/test split falls), never a re-concentration into
+# the original Jul-Dec 2024 months with 2025 as quiet padding.
+#
+# Month coverage (>=1 active event each): Jul24 TRUCK | Aug24 TRUCK+CUSTOMS+POLYMER |
+# Sep24 CUSTOMS+PORT+POLYMER | Oct24 PORT+POLYMER | Nov24 PORT+POLYMER |
+# Dec24 POLYMER | Jan25 CUSTOMS | Feb25 CUSTOMS+TRUCK | Mar25 TRUCK |
+# Apr25 TRUCK+PORT | May25 PORT+POLYMER | Jun25 PORT+POLYMER |
+# Jul25 POLYMER+CUSTOMS | Aug25 POLYMER+CUSTOMS+TRUCK | Sep25 TRUCK.
+PORT_EVENTS = [
+    (H_PORT, ts(2024,9,10), ts(2024,10,8), ts(2024,11,12), 0.65),       # port congestion, autumn 2024
+    (H_PORT, ts(2025,4,7),  ts(2025,5,5),  ts(2025,6,9),   0.60),       # port congestion, spring 2025
 ]
-IDIO = {s["id"]: [(random.uniform(0,1) < 0.25) and
-                  (lambda st=ts(2024, random.randint(1,11), random.randint(1,25)):
-                   (st, st+timedelta(days=10), st+timedelta(days=25), random.uniform(0.3,0.6)))() or None
-                  for _ in range(1)][0] for s in suppliers}   # occasional idiosyncratic strike/outage
+EVENTS = [
+    (H_TRUCK,   ts(2024,7,3),   ts(2024,7,17), ts(2024,8,7),   0.55),   # trucking strike
+    (H_CUSTOMS, ts(2024,8,1),   ts(2024,8,15), ts(2024,9,5),   0.45),   # customs friction
+    PORT_EVENTS[0],
+    # Timing constraint (Step C finding, re-verified at 800 suppliers): the
+    # flare must RESOLVE into the Dec-1-2024 trailing-90d window the
+    # co-degradation check reads. At this scale the members drawn are mostly
+    # LONG-lead sea suppliers (23-38d) -- with a Sep-10 start, most of their
+    # Sep-Dec window deliveries stem from pre-event dispatches and their
+    # peak-period delayed shipments slip past Dec 1 (measured: one 38d-lead
+    # member showed 0.92 on-time, the event missed its window entirely). Start
+    # moved to Aug 5 / peak Sep 15 so even a 38d-lead member's in-window
+    # dispatch range (late Jul - late Oct) is event-covered; end stays Dec 15.
+    # The validation suite still checks THAT snapshot (2024-12-01), unchanged.
+    (H_POLYMER, ts(2024,8,5),   ts(2024,9,15), ts(2024,12,15), 0.95),   # hidden polymer shortage, flare 1
+    # -- 2025 continuation: same pools, same event shapes, so the 9 added
+    #    snapshot months carry real disruption signal, not quiet padding --
+    (H_CUSTOMS, ts(2025,1,8),   ts(2025,1,24), ts(2025,2,12),  0.50),   # winter customs backlog
+    (H_TRUCK,   ts(2025,2,18),  ts(2025,3,6),  ts(2025,4,2),   0.55),   # second trucking action
+    PORT_EVENTS[1],
+    (H_POLYMER, ts(2025,5,20),  ts(2025,6,24), ts(2025,8,15),  0.85),   # hidden polymer shortage, flare 2
+    (H_CUSTOMS, ts(2025,7,10),  ts(2025,7,28), ts(2025,8,20),  0.45),   # summer customs friction
+    (H_TRUCK,   ts(2025,8,12),  ts(2025,9,2),  ts(2025,9,28),  0.55),   # late-summer trucking action
+]
+# occasional idiosyncratic strike/outage: 25% of suppliers get one event at a
+# uniformly random start anywhere in the (now 21-month) timeline
+IDIO = {}
+for s in suppliers:
+    if random.uniform(0, 1) < 0.25:
+        st = T_START + timedelta(days=random.randint(0, TIMELINE_DAYS - 30))
+        IDIO[s["id"]] = (st, st + timedelta(days=10), st + timedelta(days=25), random.uniform(0.3, 0.6))
+    else:
+        IDIO[s["id"]] = None
 
 def stress(sup_id, base_rel, t):
     """Latent supplier stress in [0,1] at time t — the causal driver of everything."""
@@ -161,6 +205,7 @@ def stress(sup_id, base_rel, t):
 products, boms = [], []          # boms: (product_id, component_id, qty, created_at, deactivated_at)
 CATS = ["industrial_pump","controller","actuator","sensor_array","drive_unit","valve_system"]
 PROD_N = round(80 * SCALE)
+COMP_W = [comp_common[c["id"]] for c in components]   # precomputed once (identical values per draw)
 for p in range(PROD_N):
     pid = uid("prod", p)
     products.append(dict(id=pid, sku=f"SKU-{1000+p}", name=f"{CATS[p%6].replace('_',' ').title()} M{p:02d}",
@@ -168,16 +213,26 @@ for p in range(PROD_N):
     n_bom = random.randint(3, 8)
     chosen = set()
     while len(chosen) < n_bom:
-        c = random.choices(components, weights=[comp_common[c_["id"]] for c_ in components])[0]
+        c = random.choices(components, weights=COMP_W)[0]
         chosen.add(c["id"])
-    for cidx in chosen:
+    # sorted(): iterating the raw set here is PYTHONHASHSEED-dependent (str-hash
+    # order varies per process), which silently permuted qty draws and boms row
+    # order -- and, through random.choice() over that order in the swap loop
+    # below, changed WHICH BOM edge gets deactivated, run to run. This was a
+    # pre-existing latent break of the byte-identical-CSVs guarantee, exposed
+    # by an actual two-run diff at the v3 scale-up.
+    for cidx in sorted(chosen):
         boms.append([pid, cidx, random.randint(1, 6), fmt(T_START), ""])
-# BOM evolution -- Chapter 4/11: 4 substitutions (swap, count-neutral) + 4 pure additions
-# (a design change picks up an extra component, net +1), spread across the year so the
-# active edge SET *and* the active edge COUNT both move across the 6 monthly snapshots
-# instead of every change landing on the first snapshot date.
-SWAP_DATES = [ts(2024,2,12), ts(2024,3,18), ts(2024,4,9), ts(2024,5,21)]
-ADD_DATES  = [ts(2024,7,15), ts(2024,8,10), ts(2024,9,20), ts(2024,11,5)]
+# BOM evolution -- Chapter 4/11: substitutions (swap, count-neutral) + pure additions
+# (a design change picks up an extra component, net +1), spread across the FULL
+# timeline so the active edge SET *and* COUNT both keep moving across all 15
+# monthly snapshots -- leaving the 2025 months without any BOM change would
+# re-freeze USED_IN for 9 of 15 snapshots, the exact "static graph topology"
+# tell an earlier audit fixed. (Products indexed k*9 and k*9+4 stay disjoint.)
+SWAP_DATES = [ts(2024,2,12), ts(2024,3,18), ts(2024,4,9), ts(2024,5,21),
+              ts(2025,2,11), ts(2025,4,15)]
+ADD_DATES  = [ts(2024,7,15), ts(2024,8,10), ts(2024,9,20), ts(2024,11,5),
+              ts(2025,1,21), ts(2025,3,18), ts(2025,6,10), ts(2025,8,12)]
 for k, chdate in enumerate(SWAP_DATES):
     pid = products[k*9]["id"]
     mine = [b for b in boms if b[0] == pid]
@@ -191,11 +246,11 @@ for k, chdate in enumerate(ADD_DATES):
     if not any(b[0]==pid and b[1]==new_c and b[4]=="" for b in boms):
         boms.append([pid, new_c, random.randint(1,4), fmt(chdate), ""])
 
+comp_sup_by_id = {c["id"]: c["supplier_id"] for c in components}
 prod_bom_sup = {}                # product -> set of supplier ids (via current BOM) for causality
 for b in boms:
     if b[4] == "":
-        sup = next(c["supplier_id"] for c in components if c["id"] == b[1])
-        prod_bom_sup.setdefault(b[0], set()).add(sup)
+        prod_bom_sup.setdefault(b[0], set()).add(comp_sup_by_id[b[1]])
 
 # ---------------------------------------------------------------- Chapter 5
 factories = [dict(id=uid("fac", i), name=f"Plant {chr(65+i)}", location=loc,
@@ -237,12 +292,20 @@ def season(t):                   # seasonal demand multiplier, spike Sep-Oct
 
 orders, order_items = [], []
 oi = 0
-ORDER_N = round(1000 * SCALE)
+# Order count tracks world size AND timeline length (a 21-month world at the
+# same monthly order rate has proportionally more orders than a 12-month one)
+# -- this keeps per-product weekly demand intensity at the level the shortage/
+# replenishment dynamics were calibrated against, rather than silently diluting
+# demand across the longer window. Same principle as TIMELINE_WEEKS below.
+ORDER_N = round(1000 * SCALE * TIMELINE_DAYS / 365)
+_SPIKE_MONTHS = [(2024,9),(2024,10),(2024,9),(2024,10),(2024,3),(2024,11),
+                 (2025,9),(2025,9),(2025,3)]      # season() spike/shoulder months present in the window
 for o in range(ORDER_N):
-    day = random.randint(0, 360)
+    day = random.randint(0, TIMELINE_DAYS - 8)
     placed = T_START + timedelta(days=day, hours=random.randint(8, 17))
     if random.random() > season(placed) / 1.6:                    # thin non-season, keep spike months dense
-        placed = ts(2024, random.choice([9,10,9,10,3,11]), random.randint(1,27), random.randint(8,17))
+        yr, mo = random.choice(_SPIKE_MONTHS)
+        placed = ts(yr, mo, random.randint(1,27), random.randint(8,17))
     placed = J(placed)                                            # observed event, not a clean boundary
     cust = random.choice(customers)
     ent  = random.random() < 0.05                                 # enterprise mega-order
@@ -255,7 +318,7 @@ for o in range(ORDER_N):
         order_items.append(dict(id=uid("oi", oi), order_id=oid, product_id=pr["id"],
                                 quantity=qty, created_at=fmt(placed))); oi += 1
         val += qty * random.uniform(80, 400)
-    orders.append(dict(id=oid, order_number=f"ORD-2024-{o:05d}", customer_id=cust["id"],
+    orders.append(dict(id=oid, order_number=f"ORD-{placed.year}-{o:05d}", customer_id=cust["id"],
                        status="open", placed_at=placed, due_at=due, order_value=round(val, 2)))
 
 # ---------------------------------------------------------------- Chapters 7/8 — coupled shipment + inventory simulation
@@ -265,13 +328,16 @@ shipments, transitions = [], []       # transitions: (shipment_id, status, prev,
 demand_of = {}                        # product -> weekly base demand from order volume
 for it in order_items:
     demand_of[it["product_id"]] = demand_of.get(it["product_id"], 0) + it["quantity"]
-for k in demand_of: demand_of[k] = max(4.0, demand_of[k] / 52.0)
+# divide by the ACTUAL timeline length in weeks (was /52.0 in the 1-year world;
+# keeping 52 here would inflate weekly demand ~1.75x and blow the calibrated
+# shortage rate out of Dataset.md Appendix A's guidance band)
+for k in demand_of: demand_of[k] = max(4.0, demand_of[k] / TIMELINE_WEEKS)
 
 def new_shipment(idx, kind, when, sup=None, fac=None, wh=None, order=None, origin=None, sea_ok=True):
     sid = uid("shp", idx)
     carrier = random.choice([c for c in CARRIERS if sea_ok or c not in SEA])
     if sup:
-        lead = next(s for s in suppliers if s["id"] == sup)["lead_time_days"]
+        lead = sup_by_id[sup]["lead_time_days"]
     else:
         lead = random.randint(3, 9)
     when = J(when)
@@ -279,15 +345,15 @@ def new_shipment(idx, kind, when, sup=None, fac=None, wh=None, order=None, origi
     eta = dispatch + timedelta(days=lead)
     # causal delay: driven by latent stress of the responsible supplier(s) at dispatch
     if sup:
-        st = stress(sup, next(s for s in suppliers if s["id"] == sup)["base_rel"], dispatch)
+        st = stress(sup, sup_by_id[sup]["base_rel"], dispatch)
     else:
         sups = prod_bom_sup.get(order_prod.get(order, ""), set()) if order else set()
-        st = max((stress(s, next(x for x in suppliers if x["id"] == s)["base_rel"], dispatch) for s in sups), default=0.08)
+        st = max((stress(s, sup_by_id[s]["base_rel"], dispatch) for s in sups), default=0.08)
         if fac == FACTORY_OUTAGE[0] and FACTORY_OUTAGE[1] <= dispatch <= FACTORY_OUTAGE[2]:
             st = min(0.95, st + 0.35)
     if carrier in SEA:
-        _members, s0, pk, s1, _mag = PORT_EVENT                   # port event also slows sea carriers directly
-        if s0 <= dispatch <= s1: st = min(0.95, st + 0.10)
+        for _members, s0, pk, s1, _mag in PORT_EVENTS:            # port events also slow sea carriers directly
+            if s0 <= dispatch <= s1: st = min(0.95, st + 0.10)
     p_delay = min(0.80, 0.025 + 0.38 * st)
     delayed = random.random() < p_delay
     late_by = timedelta(days=max(1, int(random.lognormvariate(1.1, 0.6) * (1 + 2*st)))) if delayed else timedelta(0)
@@ -316,13 +382,16 @@ arrivals = {}                          # (prod,wh) -> list[(when, qty)]
 pending = {}                           # (prod,wh) -> eta of open replenishment
 
 # outbound: one fulfilment shipment for ~80% of orders
+whs_by_prod = {}                       # product -> [warehouse ids], in inv_pairs order (same list random.choice saw before)
+for ip in inv_pairs:
+    whs_by_prod.setdefault(ip["product_id"], []).append(ip["warehouse_id"])
+fac_loc = {f["id"]: f["location"] for f in factories}
 for od in orders:
     if random.random() < 0.8:
         pr = order_prod[od["id"]]; fac = prim_fac[pr]
-        wh = random.choice([ip["warehouse_id"] for ip in inv_pairs if ip["product_id"] == pr])
-        loc = next(f["location"] for f in factories if f["id"] == fac)
+        wh = random.choice(whs_by_prod[pr])
         new_shipment(ship_idx, "out", J(od["placed_at"] + timedelta(days=1)), fac=fac, wh=wh,
-                     order=od["id"], origin=loc, sea_ok=False)
+                     order=od["id"], origin=fac_loc[fac], sea_ok=False)
         ship_idx += 1
 
 # weekly inventory walk + demand-triggered replenishment (supplier -> warehouse)
@@ -336,7 +405,7 @@ while week <= T_END:
         ip["stock"] = max(0.0, ip["stock"] - demand_of.get(ip["product_id"], 6) * season(week) * random.uniform(0.8, 1.2) / 2.9)
         if ip["stock"] < ip["thr"] * 1.55 and key not in pending:
             sup = random.choice(sorted(prod_bom_sup.get(ip["product_id"], {suppliers[0]["id"]})))
-            srow = next(s for s in suppliers if s["id"] == sup)
+            srow = sup_by_id[sup]
             got, _ = new_shipment(ship_idx, "in", J(week), sup=sup, wh=ip["warehouse_id"],
                                   origin=srow["country"], sea_ok=srow["sea"]); ship_idx += 1
             eta_guess = week + timedelta(days=srow["lead_time_days"] + 2)
@@ -355,13 +424,24 @@ while week <= T_END:
 print(f"world: shipments={len(shipments):,} transitions={len(transitions):,} inv_obs={len(inv_hist):,}")
 
 # ---------------------------------------------------------------- Chapter 12 — snapshots, features, labels
-T0S = [ts(2024, m, 1) for m in (7, 8, 9, 10, 11, 12)]
+# 15 monthly t0s: Jul-Dec 2024 (the original 6) + Jan-Sep 2025 (the extension).
+# First t0 keeps its 182-day trailing-history margin (T_START unchanged); last
+# t0's label horizon (Sep 1 + 14d = Sep 15) sits inside T_END (Sep 30).
+T0S = [ts(2024, m, 1) for m in (7, 8, 9, 10, 11, 12)] + [ts(2025, m, 1) for m in range(1, 10)]
 GITC = "a3f9c2e8b1d4470a9e6c5f2b8d7a1c3e5f9b2d40"
+
+# transitions indexed by shipment: the old linear scan over ALL transitions per
+# (shipment, t0) pair was ~300M iterations at the 180-supplier scale and would
+# be ~20 billion here (15 t0s x ~40k shipments x ~130k transitions). Pure
+# indexing, no RNG -- identical output.
+trans_by_sid = {}
+for tr in transitions:
+    trans_by_sid.setdefault(tr[0], []).append(tr)
 
 def asof_status(sid, t0):
     st = ""
-    for (s, stat, prev, at) in transitions:
-        if s == sid and at <= t0: st = stat
+    for (s, stat, prev, at) in trans_by_sid.get(sid, ()):
+        if at <= t0: st = stat
     return st
 
 sup_ship = {}
@@ -414,7 +494,7 @@ for t0 in T0S:
     for sh in shipments:
         if sh["created_at"] > t0: continue
         if asof_status(sh["id"], t0) not in ("scheduled", "in_transit"): continue
-        ev = next((at for (s_, stat, _p, at) in transitions if s_ == sh["id"] and stat == "delayed" and t0 < at <= hz), None)
+        ev = next((at for (_s, stat, _p, at) in trans_by_sid.get(sh["id"], ()) if stat == "delayed" and t0 < at <= hz), None)
         lab = ev is not None
         if lab and sh["supplier_id"]: sup_hit.add(sh["supplier_id"])
         n_pos["delay"] += int(lab)
@@ -450,8 +530,9 @@ for t0 in T0S:
 
 # risk_scores: deterministic weighted-formula seed rows for the final snapshot (demo data, not model output)
 risk_rows, t0 = [], T0S[-1]
+_r90_last = {r[1]: float(r[4]) for r in stf_rows if r[2] == t0.date().isoformat() and r[4] != ""}
 for s in suppliers:
-    r90 = next((float(r[4]) for r in stf_rows if r[1] == s["id"] and r[2] == t0.date().isoformat() and r[4] != ""), 0.9)
+    r90 = _r90_last.get(s["id"], 0.9)
     dp = round(min(0.95, max(0.02, 1 - r90 + 0.05)), 4)
     imp = round(min(0.95, 0.3*dp + 0.25*dp + 0.2*random.uniform(0.05,0.3) + 0.15*0.1 + 0.1*0.1), 4)
     cat = "critical" if imp >= .6 else "high" if imp >= .4 else "medium" if imp >= .2 else "low"
@@ -524,6 +605,12 @@ check("FK shipments", all((not s["supplier_id"] or s["supplier_id"] in sup_ids) 
                           and (not s["warehouse_id"] or s["warehouse_id"] in wh_ids) and (not s["order_id"] or s["order_id"] in ord_ids) for s in shipments))
 check("PK unique shipments", len({s["id"] for s in shipments}) == len(shipments))
 check("PK unique labels", len({r[0] for r in label_rows}) == len(label_rows))
+# scale guard: pick() silently truncates to the available pool -- at SUP_N=800
+# every hidden-factor pool must still be drawable at its full requested size
+# (H_CUSTOMS is the tightest: 80 requested from a ~112-expected Germany pool)
+check("hidden factor pools at full requested size",
+      len(H_PORT) == round(12*SCALE) and len(H_TRUCK) == round(8*SCALE) and len(H_CUSTOMS) == round(5*SCALE),
+      f"(port {len(H_PORT)}/{round(12*SCALE)}, truck {len(H_TRUCK)}/{round(8*SCALE)}, customs {len(H_CUSTOMS)}/{round(5*SCALE)})")
 # Fix 3: shortage labels now carry warehouse_id (r[8]) alongside entity_id=product_id (r[3]),
 # so grouping by (snapshot, entity_id, warehouse_id) must be conflict-free by construction.
 # Also report the entity_id-only view for comparison -- that's the ambiguity the fix removes.
@@ -540,12 +627,13 @@ check("shortage labels: zero conflicts once warehouse_id disambiguates entity_id
 chron = all(s["created_at"] <= s["dispatched_at"] < s["eta"] and (not s["delivered_at"] or s["delivered_at"] >= s["dispatched_at"]) for s in shipments)
 check("chronology created<=dispatch<eta<=delivered", chron)
 check("inventory never negative", all(r["stock_level"] >= 0 for r in inv_hist))
-bad_lbl = [r for r in label_rows if r[6] and not (r[6] > fmt(next(t for t in T0S if uid("snap", t) == r[1])))]
+_t0_by_snap = {uid("snap", t): t for t in T0S}    # computed once, not per label row
+bad_lbl = [r for r in label_rows if r[6] and not (r[6] > fmt(_t0_by_snap[r[1]]))]
 check("labels: event_at strictly after t0", not bad_lbl, f"({len(bad_lbl)} bad)")
 bad_win = 0
 for r in label_rows:
     if r[6]:
-        t0 = next(t for t in T0S if uid("snap", t) == r[1])
+        t0 = _t0_by_snap[r[1]]
         if not (fmt(t0) < r[6] <= fmt(t0 + timedelta(days=HORIZON))): bad_win += 1
 check("labels: event within (t0, t0+H]", bad_win == 0, f"({bad_win} outside)")
 leak = sum(1 for r in stf_rows for _ in [0] if False)

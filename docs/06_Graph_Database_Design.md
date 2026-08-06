@@ -91,26 +91,51 @@ Supplier_A  ──SUPPLIES──►  Component  ◄──SUPPLIES──  Supplie
 
 Walking the second leg requires `rev_SUPPLIES`. Without reverse relations this path does not exist for message passing, and the depth-prior derivation in `10_AI_ML_Documentation.md` §8.2 would be unfounded, not merely conservative.
 
+**Measured finding (`ml/graph/reach.py`, Step 2, reconfirmed against v3's 800-supplier graph):
+this specific path does not actually reach a co-parent under the current schema.**
+`components.supplier_id` is a single not-null FK — every Component row belongs to exactly one
+Supplier — so a `Supplier -SUPPLIES-> Component -rev_SUPPLIES-> Supplier` round trip can only
+return to the *same* supplier it started from, never a different one. Checked directly across
+all 800 suppliers: 0 reached a different supplier in 2 hops, both at v2's 180-supplier scale and
+v3's 800-supplier scale. This is not a reason to abandon the `L=2` floor — Section 11's measured
+reach table shows Supplier nodes do gain real 2-hop context (Products, Warehouses, other
+Shipments) — but the *specific* co-parent mechanism described above is not what provides it, and
+the depth prior's justification should cite the measured reach table (Section 11), not this
+paragraph's claim as originally written.
+
 ## 7. Node and Edge Properties — Tensor Encoding
 
 Each node type has a feature matrix `x` built as `h⁰_v = W_in[τ(v)] · x_v + b_in[τ(v)]`, projected into a shared `d=64` space (`project_HADES.md` §2.1).
 
-| Node Type | Feature Encoding | Approx. Dim |
+**Measured** (`ml/graph/builder.py`, `ml/data/features.py`; verified against v3 — dimensions are
+unchanged from v2 since the scale-up grew population sizes, not category cardinalities):
+
+| Node Type | Feature Encoding | Dim |
 |---|---|---|
-| `Supplier` | `[lead_time_days (scaled), capacity_score (scaled), one-hot country, on_time_rate_30d, on_time_rate_90d, on_time_rate_180d, trend_slope, lateness_variance, days_since_last_late]` | 21 |
-| `Component` | `[unit_cost (scaled), one-hot component_type]` | 10 |
-| `Product` | `[one-hot category]` | 8 |
-| `Factory` | `[capacity_units_per_day (scaled), one-hot location bucket]` | 10 |
-| `Warehouse` | `[capacity_units (scaled), one-hot location bucket]` | 10 |
-| `Shipment` | `[days_to_eta, one-hot as-of status, days_since_dispatch, carrier_on_time_rate_90d, route_on_time_rate_90d, seasonal_index]` | 10 |
-| `Order` | `[days_to_due, one-hot as-of status]` | 6 |
-| `Customer` | `[one-hot priority_tier]` | 4 |
+| `Supplier` | `[lead_time_days (scaled), capacity_score (scaled), one-hot country (6), on_time_rate_30d, on_time_rate_90d, on_time_rate_180d, trend_slope, lateness_variance, days_since_last_late]` | **14** |
+| `Component` | `[unit_cost (scaled), one-hot component_type (5)]` | **6** |
+| `Product` | `[min_stock_ratio, avg_stock_ratio, total_stock, total_reorder_threshold, warehouse_count, bom_component_count, bom_mean_quantity_required, one-hot category (6)]` | **13** |
+| `Factory` | `[capacity_units_per_day (scaled), one-hot location bucket (5)]` | **6** |
+| `Warehouse` | `[capacity_units (scaled), one-hot location bucket (6)]` | **7** |
+| `Shipment` | `[days_to_eta, days_since_dispatch, carrier_on_time_rate_90d, one-hot as-of status (4)]` | **7** |
+| `Order` | `[days_to_due, one-hot as-of status (4)]` | **5** |
+| `Customer` | `[one-hot priority_tier (3)]` | **3** |
 
 **As-of, always.** Every feature above is computed strictly from information at or before the snapshot's `t₀` — this table restates `10_AI_ML_Documentation.md` §6.3's feature derivation in tensor-column form; that section is authoritative on *how* each value is computed, this one on *where it lands* in the tensor.
 
 Edge feature encodings (`edge_attr`) follow the same scaling principle for numeric properties (`quantity_required`, `stock_level`, `reorder_threshold`, `capacity_units_per_day`).
 
-**Recompute this table against the real one-hot widths once the dataset's actual country/location/category cardinalities are fixed** — the dimensions above are the current planning estimate (`project_HADES.md` Appendix).
+**This table previously carried placeholder estimates (Supplier 21, Component 10, Product 8,
+Factory 10, Warehouse 10, Shipment 10, Order 6, Customer 4) — corrected in code from Step 2
+onward but never updated here until now.** Two differences beyond the raw numbers, worth
+flagging: `Product`'s real feature set is the as-of stock/BOM aggregates the shortage task
+actually needs, not a bare category one-hot as originally planned; `Shipment` drops
+`route_on_time_rate_90d`/`seasonal_index` — the dataset's `carrier_performance_snapshots` never
+populates route-level (origin/destination) granularity, so a route-specific feature distinct
+from the carrier-level rate would have been fabricated, not measured. Every one-hot cardinality
+above (6 countries, 5 component types, 6 categories, 5/6 location buckets, 4 statuses, 3 tiers)
+is a real, queried distinct-value count, not an assumption — see `ml/tests/test_graph.py`'s
+`test_one_hot_cardinality_matches_distinct_db_values`.
 
 ## 8. Cypher Examples (Neo4j, Optional — Developer Use Only)
 
