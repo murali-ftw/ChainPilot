@@ -1,0 +1,554 @@
+<title>HADES Follow-up — Reach, Sparse-Relation &amp; Co-Parent Signal</title>
+<style>
+  :root {
+    --paper: #f6f4ee;
+    --paper-raise: #ffffff;
+    --ink: #1b1e24;
+    --ink-soft: #4a4f5a;
+    --ink-faint: #7b808c;
+    --accent: #2f5d8a;
+    --accent-soft: #e6edf3;
+    --consistent: #3f7d5c;
+    --consistent-bg: #e6f0ea;
+    --noise: #a8722a;
+    --noise-bg: #f4ead9;
+    --rule: rgba(27, 30, 36, 0.12);
+    --rule-strong: rgba(27, 30, 36, 0.22);
+    --shadow: 0 1px 2px rgba(27,30,36,0.06), 0 8px 24px rgba(27,30,36,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #15171b;
+      --paper-raise: #1b1e24;
+      --ink: #e9e7e0;
+      --ink-soft: #b7bac1;
+      --ink-faint: #82868f;
+      --accent: #7fa8d1;
+      --accent-soft: #212d38;
+      --consistent: #7ec49a;
+      --consistent-bg: #1c2b23;
+      --noise: #dba85e;
+      --noise-bg: #2e2519;
+      --rule: rgba(233, 231, 224, 0.14);
+      --rule-strong: rgba(233, 231, 224, 0.24);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #15171b; --paper-raise: #1b1e24; --ink: #e9e7e0; --ink-soft: #b7bac1;
+    --ink-faint: #82868f; --accent: #7fa8d1; --accent-soft: #212d38;
+    --consistent: #7ec49a; --consistent-bg: #1c2b23; --noise: #dba85e; --noise-bg: #2e2519;
+    --rule: rgba(233, 231, 224, 0.14); --rule-strong: rgba(233, 231, 224, 0.24);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f4ee; --paper-raise: #ffffff; --ink: #1b1e24; --ink-soft: #4a4f5a;
+    --ink-faint: #7b808c; --accent: #2f5d8a; --accent-soft: #e6edf3;
+    --consistent: #3f7d5c; --consistent-bg: #e6f0ea; --noise: #a8722a; --noise-bg: #f4ead9;
+    --rule: rgba(27, 30, 36, 0.12); --rule-strong: rgba(27, 30, 36, 0.22);
+    --shadow: 0 1px 2px rgba(27,30,36,0.06), 0 8px 24px rgba(27,30,36,0.05);
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); }
+
+  .serif {
+    font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  }
+  .mono, code, td.num, th.num, .tag-mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  header.masthead {
+    border-bottom: 1px solid var(--rule-strong);
+    padding: 3rem 1.5rem 2rem;
+  }
+  .masthead-inner { max-width: 760px; margin: 0 auto; }
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 0.9rem;
+  }
+  h1.title {
+    font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    font-weight: 500;
+    font-size: clamp(1.7rem, 3.4vw, 2.4rem);
+    line-height: 1.18;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  p.scope {
+    color: var(--ink-soft);
+    font-size: 0.98rem;
+    max-width: 62ch;
+    margin: 0 0 1.3rem;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.6rem;
+    font-size: 0.82rem;
+    color: var(--ink-faint);
+  }
+  .meta-row span b { color: var(--ink-soft); font-weight: 600; }
+
+  nav.jump {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule);
+    padding: 0.7rem 1.5rem;
+    display: flex;
+    justify-content: center;
+  }
+  nav.jump .inner {
+    max-width: 760px;
+    width: 100%;
+    display: flex;
+    gap: 1.3rem;
+    flex-wrap: wrap;
+    font-size: 0.82rem;
+  }
+  nav.jump a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    padding-bottom: 2px;
+  }
+  nav.jump a:hover { color: var(--accent); border-color: var(--accent); }
+
+  main { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.5rem 5rem; }
+  .wide { max-width: 960px; }
+
+  section.part { margin-bottom: 3.2rem; }
+  h2.part-title {
+    font-family: ui-serif, Georgia, "Iowan Old Style", serif;
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin: 0 0 0.3rem;
+    padding-top: 0.4rem;
+  }
+  .part-sub {
+    color: var(--ink-faint);
+    font-size: 0.85rem;
+    margin: 0 0 1.8rem;
+  }
+
+  .task-block { margin: 2.2rem 0; }
+  .task-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+  .task-num {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 1.9rem;
+    color: var(--accent);
+    font-weight: 500;
+    line-height: 1;
+    min-width: 1.6rem;
+  }
+  h3.task-title {
+    font-size: 1.12rem;
+    font-weight: 650;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .task-flag {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--noise);
+    background: var(--noise-bg);
+    border-radius: 3px;
+    padding: 0.18rem 0.5rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  p { margin: 0 0 1rem; }
+  h2, h3, h4 { color: var(--ink); }
+
+  .callout {
+    background: var(--paper-raise);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 1.1rem 1.3rem;
+    margin: 1.3rem 0;
+    box-shadow: var(--shadow);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.final { border-left-color: var(--ink-faint); }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.74rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    padding: 0.15rem 0.55rem;
+    border-radius: 99px;
+    white-space: nowrap;
+  }
+  .tag.consistent { color: var(--consistent); background: var(--consistent-bg); }
+  .tag.noise { color: var(--noise); background: var(--noise-bg); }
+  .tag::before { content: "●"; font-size: 0.55rem; }
+
+  .table-scroll { overflow-x: auto; margin: 1rem 0 1.6rem; border: 1px solid var(--rule); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+  caption { text-align: left; font-size: 0.78rem; color: var(--ink-faint); padding: 0.5rem 0.9rem 0; caption-side: top; }
+  th, td { padding: 0.55rem 0.9rem; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    background: var(--accent-soft);
+    font-weight: 650;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--accent-soft); }
+  td.num, th.num { text-align: right; }
+  strong.win { color: var(--consistent); }
+
+  ul.findings { margin: 0 0 1.2rem; padding-left: 1.2rem; }
+  ul.findings li { margin-bottom: 0.5rem; }
+
+  hr.div { border: none; border-top: 1px solid var(--rule-strong); margin: 2.6rem 0; }
+
+  footer {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 1.5rem 3.5rem;
+    color: var(--ink-faint);
+    font-size: 0.82rem;
+    font-style: italic;
+  }
+
+  a { color: var(--accent); }
+  code { background: var(--accent-soft); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85em; }
+
+  @media (max-width: 560px) {
+    .meta-row { flex-direction: column; gap: 0.3rem; }
+    nav.jump .inner { gap: 0.9rem; }
+  }
+</style>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">HADES · Post-v3 Follow-up Report</p>
+    <h1 class="title">Reach, Sparse-Relation, and Real Co-Parent Signal</h1>
+    <p class="scope">Three follow-up tasks to the v3 architecture round, run in priority order.
+    Tasks 1–2 test the existing v3 dataset directly; Task 3 is a separate, optional experiment
+    against a newly generated fourth dataset. This addendum adds evidence on top of
+    <code>step5_result_v3.md</code> — it does not revise any of that report's numbers or conclusions.</p>
+    <div class="meta-row">
+      <span><b>Branch</b> HADES-v1</span>
+      <span><b>Dataset</b> v3 baseline (Tasks 1–2) · v4 co-parent (Task 3)</span>
+      <span><b>Standard</b> 5-seed sign-consistency</span>
+      <span><b>Source</b> reports/step5_result_v3_followup.md</span>
+    </div>
+  </div>
+</header>
+
+<nav class="jump">
+  <div class="inner">
+    <a href="#bottom-line">Bottom line</a>
+    <a href="#task-1">Task 1 · Reach</a>
+    <a href="#task-2">Task 2 · Sparse HGT</a>
+    <a href="#task-3">Task 3 · Co-parent</a>
+    <a href="#part-two">Part II · Detail</a>
+    <a href="#governance">Governance</a>
+  </div>
+</nav>
+
+<main>
+
+  <section class="part" id="part-one">
+    <h2 class="part-title">Part I — Conclusions</h2>
+    <p class="part-sub">What each task actually showed, stated plainly.</p>
+
+    <div class="callout" id="bottom-line">
+      <p><strong>Bottom line.</strong> Every open question these three tasks could test came back
+      negative or non-committal — never &ldquo;HGT wins.&rdquo; Task 1 shows two of the three depth
+      priors' own theoretical derivations don't describe either the measured graph or the model
+      actually built. Task 2 shows HGT's consistent shortage loss to GraphSAGE can be made to
+      disappear (a tie, not a reversal) by merging its thinnest relations' parameters. Task 3 — a
+      genuinely different experiment giving the graph a real causal signal that provably didn't
+      exist before — lands on the <em>same</em> tie by a completely different mechanism. No result in
+      this round shows HGT winning under the 5-seed sign-consistency standard used throughout this
+      project.</p>
+    </div>
+
+    <div class="task-block" id="task-1">
+      <div class="task-head">
+        <span class="task-num serif">1</span>
+        <h3 class="task-title">Were h² / h³ ever the empirically-correct targets?</h3>
+      </div>
+      <p>Independent of the co-parent question. <code>docs/project_HADES.md</code> §4.2 derives each
+      task's depth from a &ldquo;path from a Supplier&rdquo;: delay = h² (children + co-parents),
+      shortage = h³ (Supplier→Component→Product + warehouse context), impact = h³
+      (→Product→rev_ORDERED→Order, an Order/Customer target).</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Task</th><th>Theoretical target (§4.2)</th><th>What Task 1 measured</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>delay</b></td>
+              <td>h², via children + co-parents</td>
+              <td>Shipment (its real target) reachable at <b>hop 1</b> via <code>SHIPS_FROM</code> — the co-parent mechanism isn't needed, and it's independently broken (0/800)</td>
+              <td>Justification matches neither the path nor the hop-count</td>
+            </tr>
+            <tr>
+              <td><b>shortage</b></td>
+              <td>h³, Product + warehouse context</td>
+              <td>Product coverage: sparse at hop 2 (mean 8.4/1,280) → majority at hop 3 (mean 795/1,280)</td>
+              <td><span class="tag consistent">Solid measured support</span></td>
+            </tr>
+            <tr>
+              <td><b>impact</b></td>
+              <td>h³, target = Order/Customer</td>
+              <td>Order first appears at hop 3 (mean 378/25,193, 75% of sources) — matches exactly</td>
+              <td>Measures out correctly for a task that was never built (real target is Supplier, hop 0)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <p>At most <strong>one of three</strong> tasks (shortage) has a depth prior that's
+        empirically correct on its own theoretical terms — and even that one didn't survive 5-seed
+        testing in the main v3 round (Claim 2). This independently reinforces Claim 2 from a
+        different angle: reach structure, not depth-sweep AUCs. The disconnect looks like it's
+        between <em>&ldquo;information becomes available at hop k&rdquo;</em> and
+        <em>&ldquo;reading from hop k specifically improves prediction,&rdquo;</em> not a matter of
+        picking the wrong hop-count.</p>
+      </div>
+
+      <p style="font-size:0.9rem; color:var(--ink-soft)">Co-parent reach, reconfirmed at 800-supplier
+      scale: <span class="mono">0 / 800</span> — unchanged from the original v3 round. This is what
+      Task 3 addresses directly, as a separate experiment.</p>
+    </div>
+
+    <div class="task-block" id="task-2">
+      <div class="task-head">
+        <span class="task-num serif">2</span>
+        <h3 class="task-title">Does merging HGT's thinnest relations close the shortage gap?</h3>
+      </div>
+      <p>The four thinnest meta-relations (<code>MANUFACTURED_AT</code> 1,933 edges,
+      <code>SUPPLIES</code> 2,400, <code>STOCKED_AT</code> 3,194, <code>USED_IN</code> 7,092 — a real
+      gap before the next-thinnest at 15,608) were merged onto one shared <code>SAGEConv</code>
+      parameter set, while the other 12 kept full per-relation HGT parameterization.</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Axis</th><th>Original hgt-vs-graphsage gap</th><th>hgt_sparse-vs-graphsage, this task</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>fixed-d</td>
+              <td><span class="tag noise">consistent loss</span> &minus;0.0123</td>
+              <td class="mono">[+.0090, +.0063, &minus;.0019, +.0042, &minus;.0023] → mean +0.0031 <span class="tag noise">FLIPS</span></td>
+            </tr>
+            <tr>
+              <td>matched-d</td>
+              <td><span class="tag noise">consistent loss</span> &minus;0.0137</td>
+              <td class="mono">[+.0058, +.0018, &minus;.0010, +.0015, .0000] → mean +0.0016 <span class="tag noise">FLIPS</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <p>The consistent loss disappeared — it became a statistical tie, <strong>not a win.</strong>
+        The delta itself isn't seed-consistent in either direction. Evidence in favor of the
+        thin-relation-overfitting hypothesis as <em>part</em> of the explanation, not a demonstration
+        that HGT is the better architecture once fixed.</p>
+      </div>
+    </div>
+
+    <div class="task-block" id="task-3">
+      <div class="task-head">
+        <span class="task-num serif">3</span>
+        <h3 class="task-title">Does a real co-parent signal let HGT win?</h3>
+        <span class="task-flag">Separate · optional experiment</span>
+      </div>
+      <p>A new <code>component_suppliers</code> junction table gives ~17.5% of components (420 /
+      2,400) a second qualified supplier, with a <strong>real causal coupling</strong> — a
+      co-parent's own latent stress bleeds into its partner's (coupling = 0.35), discoverable only
+      by traversing the edge, not from either supplier's own history. This required a new dataset
+      generation, DB reload, and a distinct run set — it does not exist in v1/v2/v3 at all.</p>
+      <p>Precondition re-verified first: co-parent 2-hop reach is now
+      <strong class="mono">449 / 800 (56%)</strong>, versus 0/800 on base v3 — the structural
+      condition docs/06 §6.1 always assumed is now genuinely true.</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Task</th><th>hgt-coparent &minus; graphsage-coparent, per-seed ΔAUC</th><th>Mean</th><th>Consistency</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>shortage</td>
+              <td class="mono">[+.0048, &minus;.0171, &minus;.0037, +.0089, &minus;.0095]</td>
+              <td class="mono num">&minus;0.0033</td>
+              <td><span class="tag noise">FLIPS</span></td>
+            </tr>
+            <tr>
+              <td>delay</td>
+              <td class="mono">[&minus;.0090, &minus;.0195, &minus;.0017, +.0016, +.0095]</td>
+              <td class="mono num">&minus;0.0038</td>
+              <td><span class="tag noise">FLIPS</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout final">
+        <p>Neither task shows a consistent HGT advantage, even with a real, reachable co-parent
+        signal newly present. <strong>Not reframed as &ldquo;HGT wins&rdquo;</strong> — the result is
+        inconclusive/noise on both tasks, the same qualitative category as Task 2's finding, reached
+        by a completely different mechanism. Two independent interventions — merging thin relations,
+        adding a real relational signal HGT alone should be positioned to exploit — both land on a
+        tie. This is the strongest evidence yet that HGT's shortage weakness is an
+        architecture-vs-task mismatch these interventions don't resolve, not a data-availability
+        problem.</p>
+      </div>
+
+      <p style="font-size:0.85rem; color:var(--ink-faint)">Reminder of scope: this dataset is a
+      separate, fourth generation, not &ldquo;v3 plus one table.&rdquo; Because the coupling feeds
+      shipment-delay branching (a control-flow-dependent draw), the whole generated world differs
+      from base v3 from that point forward. Still fully deterministic and passes every validation
+      check. v3's own findings and governance rows are unaffected.</p>
+    </div>
+  </section>
+
+  <hr class="div" />
+
+  <section class="part" id="part-two">
+    <h2 class="part-title">Part II — Findings by Task</h2>
+    <p class="part-sub">Full measurements behind Part I's conclusions.</p>
+
+    <h3>Task 1 — Restricted k-hop reach</h3>
+    <p>Restricted to the two sources the depth priors cite: Supplier-sourced (all 800) and
+    Order-sourced (sample of 200/25,193). Completed in 37.8s (the prior full all-node-type sweep died
+    on Shipment's 35,687-node BFS).</p>
+
+    <div class="table-scroll wide">
+      <table>
+        <caption>Supplier-sourced (all 800), mean nodes reached / % of sources reaching, by hop</caption>
+        <thead>
+          <tr><th>hop ≤</th><th class="num">Component</th><th class="num">Product</th><th class="num">Factory</th><th class="num">Warehouse</th><th class="num">Shipment</th><th class="num">Order</th><th class="num">Supplier</th><th class="num">Customer</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td class="num">3.00 · 80.5%</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">19.51 · 73.9%</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>2</td><td class="num">3.00 · 80.5%</td><td class="num">8.39 · 75.0%</td><td class="num">—</td><td class="num">3.69 · 73.9%</td><td class="num">19.51 · 73.9%</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>3</td><td class="num">37.53 · 80.5%</td><td class="num">794.93 · 75.0%</td><td class="num">2.81 · 75.0%</td><td class="num">4.54 · 75.0%</td><td class="num">16,457.03 · 73.9%</td><td class="num">378.21 · 75.0%</td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>4</td><td class="num">1,363.85 · 80.5%</td><td class="num">932.30 · 75.0%</td><td class="num">3.71 · 75.0%</td><td class="num">5.94 · 75.0%</td><td class="num">22,193.11 · 75.0%</td><td class="num">17,284.49 · 75.0%</td><td class="num">400.97 · 75.0%</td><td class="num">238.32 · 75.0%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Order-sourced (sample 200/25,193): Product/Customer reach 100% at hop 1; Component reaches
+    100% at hop 2 (mean 13.59); Supplier first appears at hop 3 (mean 11.96, 100%); Shipment climbs
+    from 0.72 (hop 1, 72%) to a near-complete sweep by hop 4.</p>
+
+    <p>Co-parent check: <span class="mono">0/800</span> suppliers reach a different supplier in 2
+    hops — unchanged from the original v3 round; <code>components.supplier_id</code> is a single
+    not-null FK.</p>
+
+    <h3>Task 2 — Sparse-relation-merged HGT encoder</h3>
+    <p><b>Thinnest meta-relations</b> (edge count at the largest snapshot): <code>MANUFACTURED_AT</code>
+    1,933, <code>SUPPLIES</code> 2,400, <code>STOCKED_AT</code> 3,194, <code>USED_IN</code> 7,092 — a
+    real gap before the next-thinnest, <code>SHIPS_FROM</code>→Supplier at 15,608.</p>
+    <p><b>Encoder design.</b> Merging required a custom encoder, not a metadata relabel —
+    <code>HGTConv</code>'s weights are keyed strictly by the full (src, rel, dst) triple, and the four
+    thin relations don't share a common source or destination type. The mechanism: one
+    <code>SAGEConv(hidden, hidden)</code> instance per layer, passed into <code>HeteroConv</code>
+    under all 8 thin-relation keys — the same Python object, so its parameters and every gradient
+    update are genuinely shared across all 8. The other 12 meta-relations keep full per-relation HGT
+    parameterization. Verified via parameter count: <b>668,448</b> (sparse) vs. <b>701,088</b> (plain
+    hgt) encoder parameters, plus a passing NaN/shape integration test.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Task</th><th class="num">hgt_sparse AUC (mean ± std, 5 seeds)</th></tr></thead>
+        <tbody>
+          <tr><td>delay</td><td class="num mono">0.7220 ± 0.0170</td></tr>
+          <tr><td>shortage</td><td class="num mono">0.7874 ± 0.0024 <span style="color:var(--ink-faint)">(tighter than plain hgt's 0.772 ± 0.009)</span></td></tr>
+          <tr><td>impact</td><td class="num mono">0.9148 ± 0.0083</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Task 3 — Real causal co-parent signal</h3>
+    <p><b>Schema.</b> New <code>component_suppliers</code> junction table, mirroring
+    <code>product_components</code>'s validity-window pattern — secondary qualified suppliers beyond
+    the mandatory <code>components.supplier_id</code> primary.</p>
+    <p><b>Generator.</b> 420/2,400 components (17.5%, within the requested 15–20%) get a second
+    qualified supplier via a dedicated, isolated RNG stream. <code>stress()</code> was split into
+    <code>own_stress()</code> (a supplier's own factors, unchanged from before) and a new
+    <code>stress()</code> that adds 0.35× each co-parent partner's <code>own_stress</code> — never the
+    partner's <em>coupled</em> stress, avoiding mutual recursion. Suppliers with no partner (~82.5%)
+    see identical behavior to base v3. Three new validation checks added (all pass): dual-source
+    fraction in range, FK integrity, mutual partnerships.</p>
+    <p><b>Builder.</b> The <code>SUPPLIES</code>/<code>rev_SUPPLIES</code> edge SQL now unions the
+    mandatory primary with any <code>component_suppliers</code> rows valid as of t0 — a no-op on a
+    graph with an empty junction table, edges added only here.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Arm</th><th class="num">delay</th><th class="num">shortage</th><th class="num">impact</th></tr></thead>
+        <tbody>
+          <tr><td>hgt-coparent</td><td class="num mono">0.8015 ± 0.0106</td><td class="num mono">0.7824 ± 0.0057</td><td class="num mono">0.9335 ± 0.0022</td></tr>
+          <tr><td>graphsage-coparent</td><td class="num mono">0.8053 ± 0.0040</td><td class="num mono">0.7857 ± 0.0047</td><td class="num mono">0.8912 ± 0.0046</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="governance">Governance record</h3>
+    <ul class="findings">
+      <li><b>Task 2:</b> governance tables backed up (pg_dump + in-DB copy) before any write. 5 new
+      <code>-sparserelation-v3-seed{n}</code> rows, no existing row touched — 71 total registry rows
+      (66 + 5).</li>
+      <li><b>Task 3:</b> backed up before the <code>--drop</code> reload this experiment required.
+      <code>--drop</code>'s <code>DROP SCHEMA public CASCADE</code> wiped the in-DB copies too (same
+      schema) — restored both tables from the pg_dump file, confirmed 71/933 rows intact, then
+      re-created fresh in-DB copies for the rest of the experiment. 10 new
+      <code>-coparent-v4-seed{n}</code> rows, no existing row touched — 81 total registry rows
+      (71 + 10).</li>
+    </ul>
+
+    <h3>Test suite</h3>
+    <p>38/38 <code>pytest</code> pass after both Task 2 and Task 3. <code>ruff check ml/</code> clean
+    throughout. <code>db/</code>'s pre-existing, unenforced lint style (21 <code>C408</code>-class
+    notes before this round) gained exactly one more instance from Task 3's new code, consistent with
+    the file's established pattern.</p>
+  </section>
+
+</main>
+
+<footer>
+  This addendum does not modify <code>reports/step5_result_v3.md</code>'s existing conclusions,
+  numbers, or governance rows. v3's Claim 1 and Claim 2 stand as reported there; Tasks 1–3 add
+  independent evidence on top, none of it reversing the direction of any v3 finding.
+</footer>
