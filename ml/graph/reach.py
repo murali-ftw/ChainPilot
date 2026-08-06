@@ -68,17 +68,26 @@ def bfs_reach(adjacency: dict, start_type: str, start_idx: int, max_hops: int = 
     return visited
 
 
-def measure_reach_for_type(data, adjacency: dict, target_type: str, max_hops: int = MAX_HOPS) -> dict:
+def measure_reach_for_type(data, adjacency: dict, target_type: str, max_hops: int = MAX_HOPS,
+                            sample_size: int | None = None, seed: int = 0) -> dict:
     """
-    Run BFS from every node of `target_type` and aggregate: for each hop
+    Run BFS from every node of `target_type` (or a random sample of
+    `sample_size` of them -- large node types like Shipment/Order at v3
+    scale, tens of thousands of nodes, make a full sweep impractically slow;
+    the v3 round killed exactly that run) and aggregate: for each hop
     1..max_hops, per reachable node type, the mean/median/min/max count of
     nodes reached *within* that many hops (cumulative, not "exactly at").
     """
     num_nodes = data[target_type].num_nodes
+    if sample_size is not None and sample_size < num_nodes:
+        rng = np.random.default_rng(seed)
+        indices = rng.choice(num_nodes, size=sample_size, replace=False)
+    else:
+        indices = range(num_nodes)
     per_hop_per_type = {hop: collections.defaultdict(list) for hop in range(1, max_hops + 1)}
 
-    for idx in range(num_nodes):
-        visited = bfs_reach(adjacency, target_type, idx, max_hops)
+    for idx in indices:
+        visited = bfs_reach(adjacency, target_type, int(idx), max_hops)
         for hop in range(1, max_hops + 1):
             counts = collections.Counter(
                 node_type for (node_type, _), reached_at in visited.items()
@@ -154,22 +163,40 @@ def _print_co_parent(co_parent: dict) -> None:
 
 
 def main() -> None:
+    """
+    v3 follow-up (`reports/step5_result_v3.md` Task 1): the full all-node-
+    type reach table died on Shipment's 35,687-node BFS last round. Restricted
+    here to exactly the two sources the depth priors actually cite
+    (`project_HADES.md` §4.2's "path from a Supplier" table):
+
+      Supplier -> ...   (delay's h^2: children + co-parents)
+      Order    -> ...   (shortage/impact's h^3: "...Product->rev_ORDERED->Order")
+
+    Supplier is small enough (800) to run in full; Order is not (tens of
+    thousands at later snapshots) so it's sampled.
+    """
     conn = get_connection()
     schedule = get_snapshot_schedule(conn)
-    # Report against the most fully-populated snapshot (Dec 1 -- the schedule's
-    # last t0, after all seasonal/BOM growth has accumulated) as the
-    # representative case; graph *topology* (which types are reachable at
-    # each hop) does not change across t0, only the magnitudes do.
+    # Report against the most fully-populated snapshot (the schedule's last
+    # t0, after all growth has accumulated) as the representative case;
+    # graph *topology* (which types are reachable at each hop) does not
+    # change across t0, only the magnitudes do.
     last = schedule.iloc[-1]
     data, _ = build_snapshot(conn, last.t0)
     adjacency = build_adjacency(data)
 
-    for target_type in ["Supplier", "Product", "Shipment"]:
-        summary = measure_reach_for_type(data, adjacency, target_type)
-        print(f"\n{'=' * 70}\nTarget node type: {target_type}\n{'=' * 70}")
-        _print_type_summary(summary)
+    print(f"Snapshot: t0={last.t0.date()}  " +
+          "  ".join(f"{nt}={data[nt].num_nodes}" for nt in data.node_types))
 
-    co_parent = verify_co_parent_reachability(data, adjacency)
+    summary = measure_reach_for_type(data, adjacency, "Supplier")
+    print(f"\n{'=' * 70}\nSource: Supplier (all {data['Supplier'].num_nodes})\n{'=' * 70}")
+    _print_type_summary(summary)
+
+    summary = measure_reach_for_type(data, adjacency, "Order", sample_size=200)
+    print(f"\n{'=' * 70}\nSource: Order (sample of 200 / {data['Order'].num_nodes})\n{'=' * 70}")
+    _print_type_summary(summary)
+
+    co_parent = verify_co_parent_reachability(data, adjacency, sample_size=800)
     print(f"\n{'=' * 70}\nCo-parent reachability check (docs/06_Graph_Database_Design.md §6.1)\n{'=' * 70}")
     _print_co_parent(co_parent)
 

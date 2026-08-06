@@ -214,3 +214,39 @@ def test_product_factory_edge_excluded_before_created_at(conn):
     t0_before = dt.datetime(2023, 6, 1, tzinfo=UTC)
     data, _ = build_snapshot(conn, t0_before)
     assert data["Product", "MANUFACTURED_AT", "Factory"].edge_index.numel() == 0
+
+
+# ---------------------------------------------------------------------------
+# Sparse-relation-merged HGT encoder (post-v3 follow-up, Task 2:
+# reports/step5_result_v3.md's shortage HGT-vs-GraphSAGE gap)
+# ---------------------------------------------------------------------------
+
+def test_sparse_hgt_encoder_forward_pass_and_param_reduction(last_snapshot):
+    """`hgt_sparse` must (a) run cleanly on the real 20-meta-relation graph
+    (its 8-thin/12-dense split assertions are schema-specific, unlike the
+    small fixture `test_model.py` uses for the other architectures), and
+    (b) actually have fewer parameters than plain `hgt` -- confirming the
+    8 thin relations really share one SAGEConv instance rather than each
+    keeping its own HGTConv relation-parameter set."""
+    from ml.models.encoder import build_encoder
+
+    data, _ = last_snapshot
+    metadata = data.metadata()
+    in_dims = {nt: data[nt].x.size(-1) for nt in data.node_types}
+
+    hgt = build_encoder("hgt", metadata, in_dims, hidden=64, num_layers=4)
+    sparse = build_encoder("hgt_sparse", metadata, in_dims, hidden=64, num_layers=4)
+
+    layers = sparse(data.x_dict, data.edge_index_dict)
+    assert len(layers) == 4
+    for node_type in data.node_types:
+        h = layers[-1][node_type]
+        assert h.shape == (data[node_type].num_nodes, 64)
+        assert not torch.isnan(h).any()
+
+    hgt_params = sum(p.numel() for p in hgt.parameters())
+    sparse_params = sum(p.numel() for p in sparse.parameters())
+    assert sparse_params < hgt_params, (
+        f"hgt_sparse ({sparse_params:,}) should have fewer params than hgt ({hgt_params:,}) "
+        "-- the 8 thin relations should be sharing one conv instance, not each keeping its own"
+    )

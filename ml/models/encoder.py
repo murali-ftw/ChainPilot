@@ -104,11 +104,16 @@ class HeteroGNNEncoder(nn.Module):
 
 def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: int = 64,
                    num_layers: int = 4, dropout: float = 0.2) -> nn.Module:
-    """Factory: `architecture` in {'hgt', 'graphsage', 'gat'} (or the doc's
-    full name 'heterogeneous_graph_transformer' for 'hgt')."""
+    """Factory: `architecture` in {'hgt', 'graphsage', 'gat', 'hgt_sparse'}
+    (or the doc's full name 'heterogeneous_graph_transformer' for 'hgt').
+    'hgt_sparse' -- Task 2's sparse-relation-merged variant, see
+    `ml/models/sparse_hgt_encoder.py`."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
+    if architecture == "hgt_sparse":
+        from ml.models.sparse_hgt_encoder import HGTSparseMergedEncoder
+        return HGTSparseMergedEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
     if architecture in ("graphsage", "gat"):
         conv_name = "gat" if architecture == "gat" else "sage"
         return HeteroGNNEncoder(metadata, in_dims, conv_name, hidden=hidden,
