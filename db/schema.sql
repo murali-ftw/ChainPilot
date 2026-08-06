@@ -101,6 +101,27 @@ CREATE TABLE product_components (
 CREATE INDEX idx_product_components_component_id ON product_components (component_id);
 CREATE INDEX idx_product_components_created_at   ON product_components (created_at);
 
+-- Task 3 follow-up experiment (`reports/step5_result_v3.md` addendum):
+-- SECONDARY/qualified suppliers for a component, beyond its mandatory
+-- `components.supplier_id` primary. Existing for exactly one reason: to give
+-- `docs/06_Graph_Database_Design.md` §6.1's co-parent path
+-- (Supplier->SUPPLIES->Component->rev_SUPPLIES->Supplier) a real second
+-- supplier to reach, which `components.supplier_id` alone (single not-null
+-- FK) can never provide. Only ~15-20% of components get a row here — this is
+-- a genuinely separate experimental graph, not a retrofit of the base v3
+-- dataset (which has zero rows in this table by construction).
+CREATE TABLE component_suppliers (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    component_id   UUID NOT NULL REFERENCES components(id),
+    supplier_id    UUID NOT NULL REFERENCES suppliers(id),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- qualification validity window start
+    deactivated_at TIMESTAMPTZ,                         -- NULL = still qualified
+    UNIQUE (component_id, supplier_id, created_at)
+);
+CREATE INDEX idx_component_suppliers_component_id ON component_suppliers (component_id);
+CREATE INDEX idx_component_suppliers_supplier_id  ON component_suppliers (supplier_id);
+CREATE INDEX idx_component_suppliers_created_at   ON component_suppliers (created_at);
+
 CREATE TABLE product_factories (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id             UUID NOT NULL REFERENCES products(id),

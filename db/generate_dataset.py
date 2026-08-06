@@ -137,6 +137,41 @@ for c in components:
     if len(H_POLYMER) == 4:
         break
 
+# ---------------------------------------------------------------- Task 3 follow-up experiment
+# (`reports/step5_result_v3.md` addendum): give ~15-20% of components a
+# SECOND qualified supplier -- a real co-parent, not just a structural edge.
+# `components.supplier_id` is a single not-null FK, so the base v3 graph's
+# Supplier->SUPPLIES->Component->rev_SUPPLIES->Supplier path
+# (docs/06_Graph_Database_Design.md §6.1) can never reach a co-parent; this
+# table (`component_suppliers`) finally makes that path real for the
+# suppliers it covers. To make it a genuinely CAUSAL signal (not merely
+# structural), a co-parent's own stress measurably bleeds into its partner's
+# stress below (`COPARENT_COUPLING`) -- discoverable only by actually
+# traversing the co-parent edge, since it isn't derivable from either
+# supplier's own history alone.
+#
+# Uses a DEDICATED local RNG (`_coparent_rng`), not the shared `random`
+# module, so this addition consumes zero draws from the main simulation's
+# stream -- every other random choice (products, BOMs, demand, orders,
+# unrelated shipments) stays byte-identical to the base v3 CSVs. Only
+# stress-driven outcomes (shipment delays -> shortage) for the ~15-20% of
+# suppliers with a co-parent partner differ, which is the entire point of
+# the experiment: report it as a separate labeled comparison, not a
+# retrofit of the base v3 result.
+_coparent_rng = random.Random(0xC09A2E47)          # arbitrary fixed seed, isolated stream
+DUAL_SOURCE_FRACTION = 0.175                        # midpoint of the requested 15-20%
+COPARENT_COUPLING = 0.35                            # fraction of partner's OWN stress that bleeds through
+dual_sourced = _coparent_rng.sample(components, round(len(components) * DUAL_SOURCE_FRACTION))
+component_suppliers = []                            # rows for component_suppliers.csv
+coparents = {}                                      # supplier_id -> set(supplier_id), real & non-empty now
+for c in dual_sourced:
+    primary = c["supplier_id"]
+    secondary = _coparent_rng.choice([s["id"] for s in suppliers if s["id"] != primary])
+    component_suppliers.append(dict(id=uid("compsup", c["id"], secondary),
+                                     component_id=c["id"], supplier_id=secondary))
+    coparents.setdefault(primary, set()).add(secondary)
+    coparents.setdefault(secondary, set()).add(primary)
+
 # Disruption timeline: (factor-members, start, peak, end, magnitude)   -- Chapter 10
 # Spread across the FULL Jul-2024 .. Sep-2025 snapshot window, same principle
 # Step C applied to the original Jul-Dec window: every monthly snapshot sees at
@@ -187,8 +222,13 @@ for s in suppliers:
     else:
         IDIO[s["id"]] = None
 
-def stress(sup_id, base_rel, t):
-    """Latent supplier stress in [0,1] at time t — the causal driver of everything."""
+def own_stress(sup_id, base_rel, t):
+    """Latent supplier stress in [0,1] at time t from THIS supplier's own
+    factors only (base reliability + shared-hidden-factor events it belongs
+    to + its own idiosyncratic outage) -- the pre-Task-3 `stress()` body,
+    renamed and kept as the base case so the co-parent coupling pass below
+    (which reads partners' OWN stress, never their coupled stress) can't
+    recurse into a mutual A-depends-on-B-depends-on-A loop."""
     x = (1 - base_rel) * 0.5
     for members, s0, pk, s1, mag in EVENTS:
         if sup_id in members and s0 <= t <= s1:
@@ -200,6 +240,21 @@ def stress(sup_id, base_rel, t):
         if s0 <= t <= s1:
             frac = (t-s0)/(pk-s0) if t <= pk else 1 - (t-pk)/(s1-pk)
             x += mag * max(0.0, min(1.0, frac))
+    return min(0.95, x)
+
+
+def stress(sup_id, base_rel, t):
+    """Latent supplier stress in [0,1] at time t — the causal driver of
+    everything. Task 3 follow-up: on top of `own_stress`, a real co-parent
+    coupling term adds `COPARENT_COUPLING` * each partner's OWN stress
+    (`coparents`, from the `component_suppliers` junction table above) --
+    a genuine causal bleed-through, reachable only via the co-parent graph
+    edge, not from either supplier's own history. Suppliers with no
+    co-parent partner (the ~82-85% majority) get exactly the base v3
+    behavior -- `coparents.get(sup_id, ())` is empty for them."""
+    x = own_stress(sup_id, base_rel, t)
+    for partner in coparents.get(sup_id, ()):
+        x += COPARENT_COUPLING * own_stress(partner, sup_by_id[partner]["base_rel"], t)
     return min(0.95, x)
 
 products, boms = [], []          # boms: (product_id, component_id, qty, created_at, deactivated_at)
@@ -551,6 +606,8 @@ write("suppliers.csv", ["id","name","country","capacity_score","lead_time_days",
       [[s["id"], s["name"], s["country"], s["capacity_score"], s["lead_time_days"], round(s["base_rel"],4), "true", g, g] for s, g in zip(suppliers, SUP_TS)])
 write("components.csv", ["id","supplier_id","name","component_type","unit_cost","created_at","updated_at"],
       [[c["id"], c["supplier_id"], c["name"], c["component_type"], c["unit_cost"], g, g] for c, g in zip(components, COMP_TS)])
+write("component_suppliers.csv", ["id","component_id","supplier_id","created_at","deactivated_at"],
+      [[r["id"], r["component_id"], r["supplier_id"], fmt(T_START), ""] for r in component_suppliers])
 write("products.csv", ["id","sku","name","category","is_active","created_at","updated_at"],
       [[p["id"], p["sku"], p["name"], p["category"], "true", g, g] for p, g in zip(products, PROD_TS)])
 write("product_components.csv", ["id","product_id","component_id","quantity_required","created_at","deactivated_at"],
@@ -600,6 +657,19 @@ sup_ids = {s["id"] for s in suppliers}; comp_ids = {c["id"] for c in components}
 prod_ids = {p["id"] for p in products}; wh_ids = {w["id"] for w in warehouses}
 fac_ids = {f["id"] for f in factories}; ord_ids = {o["id"] for o in orders}
 check("FK components→suppliers", all(c["supplier_id"] in sup_ids for c in components))
+# Task 3 follow-up experiment: component_suppliers integrity. The real
+# empirical validation (does the co-parent path actually reach >0 partners,
+# does the coupling change shortage/delay AUC) happens downstream in
+# ml/graph/reach.py and the retrain comparison -- these are just structural
+# sanity checks on the junction table and coupling wiring themselves.
+frac = len(component_suppliers) / len(components)
+check("component_suppliers: dual-sourced fraction in requested [0.15, 0.20] range",
+      0.15 <= frac <= 0.20, f"({len(component_suppliers)}/{len(components)} = {frac:.1%})")
+check("FK component_suppliers→components/suppliers, secondary != primary",
+      all(r["component_id"] in comp_ids and r["supplier_id"] in sup_ids
+          and r["supplier_id"] != comp_sup_by_id[r["component_id"]] for r in component_suppliers))
+check("component_suppliers: co-parent partnerships are real & mutual",
+      len(coparents) > 0 and all(a in coparents.get(b, ()) for b in coparents for a in coparents[b]))
 check("FK boms→products/components", all(b[0] in prod_ids and b[1] in comp_ids for b in boms))
 check("FK shipments", all((not s["supplier_id"] or s["supplier_id"] in sup_ids) and (not s["factory_id"] or s["factory_id"] in fac_ids)
                           and (not s["warehouse_id"] or s["warehouse_id"] in wh_ids) and (not s["order_id"] or s["order_id"] in ord_ids) for s in shipments))

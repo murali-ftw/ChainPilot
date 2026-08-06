@@ -34,7 +34,24 @@ FEATURE_SPEC_VERSION = "v1"
 FORWARD_RELATIONS = [
     {
         "src": "Supplier", "rel": "SUPPLIES", "dst": "Component",
-        "sql": "SELECT supplier_id AS src_id, id AS dst_id FROM components",
+        # Task 3 follow-up experiment (`reports/step5_result_v3.md` addendum):
+        # union the mandatory primary supplier (components.supplier_id, one
+        # per component, unconditional) with any SECONDARY suppliers from the
+        # `component_suppliers` junction table valid as of t0. On the base v3
+        # dataset (component_suppliers empty) this UNION ALL is a no-op --
+        # identical edge set to before. Only on the Task 3 dataset (~15-20%
+        # of components dual-sourced) does the second branch add rows, which
+        # is what finally makes docs/06_Graph_Database_Design.md §6.1's
+        # Supplier->SUPPLIES->Component->rev_SUPPLIES->Supplier co-parent
+        # path reach a real second supplier.
+        "sql": """
+            SELECT supplier_id AS src_id, id AS dst_id FROM components
+            UNION ALL
+            SELECT supplier_id AS src_id, component_id AS dst_id
+            FROM component_suppliers
+            WHERE created_at <= %(t0)s
+              AND (deactivated_at IS NULL OR deactivated_at > %(t0)s)
+        """,
         "attrs": [],
     },
     {

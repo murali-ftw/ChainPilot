@@ -28,6 +28,7 @@ SCHEMA = os.path.join(HERE, "schema.sql")
 LOAD_ORDER = [
     ("suppliers",                     "suppliers.csv"),
     ("components",                    "components.csv"),
+    ("component_suppliers",           "component_suppliers.csv"),  # Task 3 follow-up experiment; absent in base v3
     ("products",                      "products.csv"),
     ("factories",                     "factories.csv"),
     ("warehouses",                    "warehouses.csv"),
