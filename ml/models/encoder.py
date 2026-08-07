@@ -1,14 +1,14 @@
 """
-HGT / GraphSAGE / GAT / RGCN encoders — Steps 3 and 5
+HGT / GraphSAGE / GAT / RGCN / RGCN+attn / RGCN+relemb encoders — Steps 3 and 5
 (`docs/14_Model_Development_Roadmap.md` §6, §8; `docs/10_AI_ML_Documentation.md`
 §8.1; `project_HADES.md` Part 3).
 
-All four architectures share the same input projection (`W_in` per node
-type into a shared `d`-dim space, `project_HADES.md` §2.1/§7.1) and retain
-every intermediate layer's output `[h^1 ... h^L]` rather than only the
-last, so `ml/models/depth.py`'s structural depth-prior readout applies
-identically regardless of which encoder is in use -- the encoder is the
-only thing that differs between Step 5's four ablation arms.
+All architectures share the same input projection (`W_in` per node type into
+a shared `d`-dim space, `project_HADES.md` §2.1/§7.1) and retain every
+intermediate layer's output `[h^1 ... h^L]` rather than only the last, so
+`ml/models/depth.py`'s structural depth-prior readout applies identically
+regardless of which encoder is in use -- the encoder is the only thing that
+differs between Step 5's ablation arms.
 
 HGT uses `torch_geometric.nn.HGTConv` directly (it natively parameterizes
 per-node-type and per-relation-type projections/attention, matching
@@ -23,7 +23,16 @@ basis pool (Schlichtkrull et al. 2018) rather than a fully dedicated
 `hidden x hidden` matrix -- it needs a bespoke `nn.Module` over
 `edge_index_dict` for the same reason `hgt_sparse` does (`RGCNConv`'s public
 API expects a homogeneous single-feature-matrix graph, not this codebase's
-per-relation `HeteroData` convention).
+per-relation `HeteroData` convention). RGCN+attn (`ml/models/
+rgcn_attn_encoder.py`, "Option 1") is a fifth arm hybridizing RGCN's
+transform with a shared (relation-agnostic) attention-weighted aggregation
+in place of RGCN's per-relation-mean-then-sum scheme -- see that module's
+docstring for the full design rationale. RGCN+relemb (`ml/models/
+rgcn_relemb_encoder.py`, "Option 3") is a sixth arm, extending RGCN+attn's
+joint-softmax attention with one extra additive term -- a small per-relation
+embedding fed through one more shared scorer -- so the attention logit knows
+which relation an edge arrived through, not just its message content and
+destination; see that module's docstring for the full design rationale.
 """
 
 from __future__ import annotations
@@ -32,7 +41,7 @@ import torch
 from torch import nn
 from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
-ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn")
+ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn", "rgcn_attn", "rgcn_relemb")
 
 # docs/05_Database_Design.md §6.21's example `architecture` column values use
 # the full name; this module's factory keys stay short. Both are accepted.
@@ -110,13 +119,21 @@ class HeteroGNNEncoder(nn.Module):
 
 
 def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: int = 64,
-                   num_layers: int = 4, dropout: float = 0.2, num_bases: int = 8) -> nn.Module:
+                   num_layers: int = 4, dropout: float = 0.2, num_bases: int = 8,
+                   relation_embed_dim: int = 16) -> nn.Module:
     """Factory: `architecture` in {'hgt', 'graphsage', 'gat', 'hgt_sparse',
-    'rgcn'} (or the doc's full name 'heterogeneous_graph_transformer' for
-    'hgt'). 'hgt_sparse' -- Task 2's sparse-relation-merged variant, see
-    `ml/models/sparse_hgt_encoder.py`. `num_bases` only applies to 'rgcn'
-    (`ml/models/rgcn_encoder.py`'s basis-decomposition relation count); every
-    other architecture ignores it."""
+    'rgcn', 'rgcn_attn', 'rgcn_relemb'} (or the doc's full name
+    'heterogeneous_graph_transformer' for 'hgt'). 'hgt_sparse' -- Task 2's
+    sparse-relation-merged variant, see `ml/models/sparse_hgt_encoder.py`.
+    'rgcn_attn' -- "Option 1" hybrid, RGCN's basis-decomposition transform
+    plus a shared attention-weighted aggregation, see
+    `ml/models/rgcn_attn_encoder.py`. 'rgcn_relemb' -- "Option 3", Option 1
+    plus a per-relation embedding additive term in the attention logit, see
+    `ml/models/rgcn_relemb_encoder.py`. `num_bases` applies to 'rgcn',
+    'rgcn_attn', and 'rgcn_relemb' (all built on the same basis-decomposition
+    relation count, `ml/models/rgcn_encoder.py`); `relation_embed_dim` applies
+    only to 'rgcn_relemb'; every other architecture ignores whichever of
+    these doesn't apply to it."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
@@ -127,6 +144,15 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
         from ml.models.rgcn_encoder import RGCNEncoder
         return RGCNEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                             num_bases=num_bases, dropout=dropout)
+    if architecture == "rgcn_attn":
+        from ml.models.rgcn_attn_encoder import RGCNAttnEncoder
+        return RGCNAttnEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                num_bases=num_bases, dropout=dropout)
+    if architecture == "rgcn_relemb":
+        from ml.models.rgcn_relemb_encoder import RGCNRelEmbAttnEncoder
+        return RGCNRelEmbAttnEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                      num_bases=num_bases, relation_embed_dim=relation_embed_dim,
+                                      dropout=dropout)
     if architecture in ("graphsage", "gat"):
         conv_name = "gat" if architecture == "gat" else "sage"
         return HeteroGNNEncoder(metadata, in_dims, conv_name, hidden=hidden,

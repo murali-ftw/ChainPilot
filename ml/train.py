@@ -158,7 +158,7 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                  shared_depth: int | None = None, depth_prior: dict[str, int] | None = None,
                  hidden: int = 64, epochs: int = 100,
                  lr: float = 1e-3, weight_decay: float = 1e-4, seed: int = 0,
-                 num_bases: int = 8) -> dict:
+                 num_bases: int = 8, relation_embed_dim: int = 16) -> dict:
     """
     Train one model for `epochs` epochs (matching
     `docs/14_Model_Development_Roadmap.md` §6's "train for 100 epochs" --
@@ -179,15 +179,19 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     this call, so varying `seed` alone is a clean model-fit-variance probe
     (Step B).
 
-    `num_bases`: RGCN-only (`ml/models/rgcn_encoder.py`'s basis-decomposition
-    relation count); ignored by every other architecture.
+    `num_bases`: applies to 'rgcn', 'rgcn_attn', and 'rgcn_relemb'
+    (`ml/models/rgcn_encoder.py`'s basis-decomposition relation count);
+    ignored by every other architecture. `relation_embed_dim`: 'rgcn_relemb'
+    only (`ml/models/rgcn_relemb_encoder.py`'s per-relation embedding size);
+    ignored by every other architecture.
     """
     torch.manual_seed(seed)
     metadata = train_bundles[0].data.metadata()
     in_dims = {nt: train_bundles[0].data[nt].x.size(-1) for nt in train_bundles[0].data.node_types}
 
     model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
-                        shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases)
+                        shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
+                        relation_embed_dim=relation_embed_dim)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     alphas = compute_task_alphas(train_bundles)
     losses = {task: FocalLoss(gamma=2.0, alpha=alphas[task]) for task in TASKS}
@@ -231,7 +235,8 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "epochs": epochs, "lr": lr,
             "weight_decay": weight_decay, "focal_gamma": 2.0, "focal_alpha": alphas,
             "optimizer": "AdamW", "seed": seed,
-            "num_bases": num_bases if architecture == "rgcn" else None,
+            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb") else None,
+            "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
         },
     }
 
@@ -271,11 +276,12 @@ def run_training_job(conn, model_version: str, architecture: str, train_bundles,
                       num_layers: int = 4, shared_depth: int | None = None,
                       depth_prior: dict[str, int] | None = None, hidden: int = 64,
                       epochs: int = 100, seed: int = 0, purpose: str = "",
-                      num_bases: int = 8) -> dict:
+                      num_bases: int = 8, relation_embed_dim: int = 16) -> dict:
     """Register -> train -> activate, one call per model_registry row."""
     result = train_model(architecture, train_bundles, val_bundles, num_layers=num_layers,
                           shared_depth=shared_depth, depth_prior=depth_prior, hidden=hidden,
-                          epochs=epochs, seed=seed, num_bases=num_bases)
+                          epochs=epochs, seed=seed, num_bases=num_bases,
+                          relation_embed_dim=relation_embed_dim)
     register_model(conn, model_version, architecture, result["hyperparameters"],
                    result["model"].parameter_count(), purpose)
     activate_model(conn, model_version, "active")

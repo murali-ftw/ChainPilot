@@ -58,7 +58,7 @@ def in_dims(fixture_data):
 # Encoder forward pass
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat", "rgcn"])
+@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat", "rgcn", "rgcn_attn", "rgcn_relemb"])
 def test_encoder_forward_pass_shape_and_no_nan(fixture_data, in_dims, architecture):
     metadata = fixture_data.metadata()
     encoder = build_encoder(architecture, metadata, in_dims, hidden=16, num_layers=4)
@@ -122,6 +122,125 @@ def test_rgcn_parameter_count_reflects_basis_sharing(fixture_data, in_dims):
     shallow_total = sum(p.numel() for p in shallow.parameters())
     deep_total = sum(p.numel() for p in deep.parameters())
     assert deep_total > shallow_total  # self-loop params do grow with num_layers
+
+
+def test_rgcn_attn_parameter_count_close_to_rgcn(fixture_data, in_dims):
+    """Option 1's (`ml/models/rgcn_attn_encoder.py`) whole design bet: the
+    shared attention scorer is the ONLY new learnable parameter relative to
+    `RGCNEncoder` -- two `Linear(hidden, 1)` layers (`att_msg` + `att_dst`,
+    weight+bias each) PER LAYER, nothing else (not per relation, not per
+    node type). Locks in the exact size of that increase."""
+    hidden, num_layers, num_bases = 16, 4, 2
+    metadata = fixture_data.metadata()
+
+    rgcn = build_encoder("rgcn", metadata, in_dims, hidden=hidden,
+                          num_layers=num_layers, num_bases=num_bases)
+    rgcn_attn = build_encoder("rgcn_attn", metadata, in_dims, hidden=hidden,
+                               num_layers=num_layers, num_bases=num_bases)
+
+    expected_increase = 2 * (hidden + 1) * num_layers  # att_msg + att_dst, weight+bias, per layer
+    assert rgcn_attn.parameter_count() - rgcn.parameter_count() == expected_increase
+
+
+def test_rgcn_attn_attention_sums_to_one_per_destination(fixture_data, in_dims, monkeypatch):
+    """The property that distinguishes this design from `RGCNEncoder`'s
+    per-relation-mean-then-sum scheme: attention weights over a destination
+    node's incoming edges must sum to 1 across its ENTIRE incoming edge set,
+    regardless of which relation each edge arrived through -- a joint
+    softmax, not a per-relation one. `Supplier` in this fixture is fed by
+    two distinct relation types after `ToUndirected` -- `SHIPS_FROM` (from
+    Shipment, 6 edges) and `rev_SUPPLIES` (from Component, 5 edges) -- so
+    this directly exercises the cross-relation joint softmax, not a single
+    relation's own trivially-normalized weights."""
+    import ml.models.rgcn_attn_encoder as rgcn_attn_module
+
+    captured = []
+    real_softmax = rgcn_attn_module.softmax
+
+    def spy_softmax(logit_all, dst_all, num_nodes=None):
+        alpha = real_softmax(logit_all, dst_all, num_nodes=num_nodes)
+        captured.append((num_nodes, dst_all.clone(), alpha.clone()))
+        return alpha
+
+    monkeypatch.setattr(rgcn_attn_module, "softmax", spy_softmax)
+
+    metadata = fixture_data.metadata()
+    encoder = build_encoder("rgcn_attn", metadata, in_dims, hidden=16, num_layers=4, num_bases=2)
+    encoder(fixture_data.x_dict, fixture_data.edge_index_dict)
+
+    supplier_n = fixture_data["Supplier"].num_nodes  # 5, distinct from Component's 8 and Shipment's 6
+    supplier_calls = [c for c in captured if c[0] == supplier_n]
+    assert len(supplier_calls) == encoder.num_layers  # one joint softmax call per layer for Supplier
+
+    _num_nodes, dst_all, alpha = supplier_calls[0]
+    assert dst_all.numel() == 11  # SHIPS_FROM's 6 + rev_SUPPLIES's 5 -- genuinely cross-relation
+
+    for node_idx in dst_all.unique():
+        mask = dst_all == node_idx
+        assert alpha[mask].sum().item() == pytest.approx(1.0, abs=1e-5)
+
+
+def test_rgcn_relemb_parameter_count_formula(fixture_data, in_dims):
+    """Option 3's (`ml/models/rgcn_relemb_encoder.py`) whole design bet: a
+    relation-identity signal costs `num_relations * relation_embed_dim`
+    (the embedding table, rows not matrices) + `relation_embed_dim *
+    num_layers` (`att_rel`'s weights) + `num_layers` (`att_rel`'s biases) --
+    NOT a second basis-decomposed attention pool (Option 2, not built).
+    Locks in the exact parameter delta over `RGCNAttnEncoder` at matched
+    hidden/num_bases."""
+    hidden, num_layers, num_bases, relation_embed_dim = 16, 4, 2, 5
+    metadata = fixture_data.metadata()
+    _, edge_types = metadata
+    num_relations = len(edge_types)
+
+    rgcn_attn = build_encoder("rgcn_attn", metadata, in_dims, hidden=hidden,
+                               num_layers=num_layers, num_bases=num_bases)
+    rgcn_relemb = build_encoder("rgcn_relemb", metadata, in_dims, hidden=hidden,
+                                 num_layers=num_layers, num_bases=num_bases,
+                                 relation_embed_dim=relation_embed_dim)
+
+    expected_increase = (
+        num_relations * relation_embed_dim          # rel_embed table
+        + relation_embed_dim * num_layers            # att_rel weights, per layer
+        + num_layers                                  # att_rel biases, per layer
+    )
+    assert rgcn_relemb.parameter_count() - rgcn_attn.parameter_count() == expected_increase
+
+
+def test_rgcn_relemb_attention_sums_to_one_per_destination(fixture_data, in_dims, monkeypatch):
+    """Same cross-relation joint-softmax property as
+    `test_rgcn_attn_attention_sums_to_one_per_destination`, adapted for
+    `rgcn_relemb`: the extra `rel_term` additive offset in the logit must
+    not change the softmax's normalization scope -- weights over a
+    destination node's ENTIRE incoming edge set, across every relation
+    feeding it, must still sum to 1."""
+    import ml.models.rgcn_relemb_encoder as rgcn_relemb_module
+
+    captured = []
+    real_softmax = rgcn_relemb_module.softmax
+
+    def spy_softmax(logit_all, dst_all, num_nodes=None):
+        alpha = real_softmax(logit_all, dst_all, num_nodes=num_nodes)
+        captured.append((num_nodes, dst_all.clone(), alpha.clone()))
+        return alpha
+
+    monkeypatch.setattr(rgcn_relemb_module, "softmax", spy_softmax)
+
+    metadata = fixture_data.metadata()
+    encoder = build_encoder("rgcn_relemb", metadata, in_dims, hidden=16, num_layers=4,
+                             num_bases=2, relation_embed_dim=5)
+    encoder(fixture_data.x_dict, fixture_data.edge_index_dict)
+
+    supplier_n = fixture_data["Supplier"].num_nodes  # 5, distinct from Component's 8 and Shipment's 6
+    supplier_calls = [c for c in captured if c[0] == supplier_n]
+    assert len(supplier_calls) == encoder.num_layers  # one joint softmax call per layer for Supplier
+
+    _num_nodes, dst_all, alpha = supplier_calls[0]
+    assert dst_all.numel() == 11  # SHIPS_FROM's 6 + rev_SUPPLIES's 5 -- genuinely cross-relation
+
+    for node_idx in dst_all.unique():
+        mask = dst_all == node_idx
+        assert alpha[mask].sum().item() == pytest.approx(1.0, abs=1e-5)
 
 
 # ---------------------------------------------------------------------------
