@@ -58,7 +58,7 @@ def in_dims(fixture_data):
 # Encoder forward pass
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat"])
+@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat", "rgcn"])
 def test_encoder_forward_pass_shape_and_no_nan(fixture_data, in_dims, architecture):
     metadata = fixture_data.metadata()
     encoder = build_encoder(architecture, metadata, in_dims, hidden=16, num_layers=4)
@@ -83,6 +83,45 @@ def test_hgt_alias_accepts_full_architecture_name(fixture_data, in_dims):
 def test_unknown_architecture_raises(fixture_data, in_dims):
     with pytest.raises(ValueError, match="unknown architecture"):
         build_encoder("not-a-real-architecture", fixture_data.metadata(), in_dims)
+
+
+def test_rgcn_parameter_count_reflects_basis_sharing(fixture_data, in_dims):
+    """The whole RGCN architecture bet (`ml/models/rgcn_encoder.py`'s module
+    docstring) rests on relation parameters costing `num_bases * hidden^2 +
+    num_relations * num_bases` -- a SINGLE shared-basis pool reused at every
+    layer -- not `num_relations * hidden^2` (a full dedicated matrix per
+    relation, HGT's approach) and not scaled by `num_layers` (each layer
+    reuses the same basis pool). Locks that in directly against the
+    `rel_basis`/`rel_coeff` parameter tensors themselves, independent of
+    lin_in/self-loop sizing."""
+    hidden, num_bases = 16, 2
+    _, edge_types = fixture_data.metadata()
+    num_relations = len(edge_types)
+    assert num_bases < num_relations  # otherwise basis sharing buys nothing to measure
+
+    encoder = build_encoder("rgcn", fixture_data.metadata(), in_dims, hidden=hidden,
+                             num_layers=4, num_bases=num_bases)
+
+    # Exact formula: relation cost is basis pool + per-relation coefficients,
+    # not a dedicated hidden x hidden matrix per relation.
+    assert encoder.rel_basis.numel() == num_bases * hidden * hidden
+    assert encoder.rel_coeff.numel() == num_relations * num_bases
+    relational_params = encoder.rel_basis.numel() + encoder.rel_coeff.numel()
+    naive_dedicated_per_relation = num_relations * hidden * hidden
+    assert relational_params < naive_dedicated_per_relation
+
+    # Shared across every layer, not multiplied by num_layers: rel_basis/
+    # rel_coeff must be identical in size between a shallow and deep stack,
+    # even though total parameter count still grows (self-loop is per-layer).
+    shallow = build_encoder("rgcn", fixture_data.metadata(), in_dims, hidden=hidden,
+                             num_layers=1, num_bases=num_bases)
+    deep = build_encoder("rgcn", fixture_data.metadata(), in_dims, hidden=hidden,
+                          num_layers=8, num_bases=num_bases)
+    assert shallow.rel_basis.numel() == deep.rel_basis.numel() == num_bases * hidden * hidden
+    assert shallow.rel_coeff.numel() == deep.rel_coeff.numel() == num_relations * num_bases
+    shallow_total = sum(p.numel() for p in shallow.parameters())
+    deep_total = sum(p.numel() for p in deep.parameters())
+    assert deep_total > shallow_total  # self-loop params do grow with num_layers
 
 
 # ---------------------------------------------------------------------------

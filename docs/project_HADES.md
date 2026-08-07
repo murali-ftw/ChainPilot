@@ -1013,14 +1013,32 @@ R₁ ≪ R₂  →  the encoder already learned it
 | Purpose | Runs |
 |---|---|
 | L-sweep (L = 1,2,3,4) | 4 |
-| Architecture ablation (GraphSAGE, GAT, HGT at fixed `d`) | 3 |
-| **Matched-parameter arm** (SAGE `d=86`, GAT `d=116`, HGT `d=64`) | 3 |
+| Architecture ablation (GraphSAGE, GAT, HGT, RGCN at fixed `d`) | 4 |
+| **Matched-parameter arm** (SAGE `d=86`, GAT `d=116`, HGT `d=64`, RGCN `d`+`num_bases` per below) | 4 |
 | Gate on/off | 1 |
 | T2 on/off | 1 |
 | Claim B double-counting test | 1 |
-| **Total** | **13** |
+| **Total** | **15** |
 
 **The matched-parameter arm is not optional.** GAT has *fewer* parameters than GraphSAGE at equal `d` (`d²` vs `2d²` per relation), so a Stage-2 win is ambiguous between *"attention helped"* and *"less capacity regularised better on scarce labels."* Without the matched arm you cannot distinguish them, and your central ablation claim is confounded.
+
+**RGCN (`ml/models/rgcn_encoder.py`) — a fourth arm, added post-v3.** RGCN
+(Schlichtkrull et al. 2018 basis decomposition, hand-written over
+`edge_index_dict` since `torch_geometric.nn.RGCNConv`'s public API expects a
+homogeneous graph, not this project's `HeteroData` convention) gives every
+relation its own transform like HGT, but as a linear combination of a small
+shared pool of `num_bases` basis matrices rather than a fully dedicated
+`d x d` matrix per relation — its own hyperparameter, alongside `hidden`
+(shared with the other three arms) and GAT's `heads`: **`num_bases`**
+(default 8; the matched-parameter arm's value is found by grid search, same
+method as SAGE/GAT's matched-`d`). Against this round's live-recomputed
+feature dims, HGT's real fixed-`d=64` encoder anchors at 701,088 parameters;
+grid-searching `num_bases in {4, 8, 12, 16}` at `hidden=64` alone landed
+nowhere close (self-loop + input-projection dominate RGCN's count at that
+width, unlike HGT's per-relation attention), so the search widened `hidden`
+alongside `num_bases` — `hidden=138, num_bases=4` lands at 699,602 params,
+0.21% off HGT's anchor. See `ml/run_step_v4_4arch.py` for the full 4-arch,
+5-seed run matrix this round added.
 
 ## 8.4 Governance — write it, don't type it
 

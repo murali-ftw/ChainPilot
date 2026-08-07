@@ -89,12 +89,12 @@ As of this document, the following are already built and should not be redone:
 ## 8. Step 5 — Architecture Ablation (Claim 1)
 
 **Do:**
-- Train GraphSAGE and GAT baselines on the identical graph, split, loss, and regularization as HGT (`10_AI_ML_Documentation.md` §8.1).
-- **Train the matched-parameter control arm** — GraphSAGE and GAT with `d` raised so their parameter counts are comparable to HGT's. This is not optional: without it, a Stage 3 win is confounded between "attention helped" and "more capacity helped" (`10_AI_ML_Documentation.md` §8.1, `project_HADES.md` §8.3).
-- Evaluate all six runs (3 architectures × fixed-`d`/matched-`d`) on the identical held-out split, all with confidence intervals.
-- Report the comparison on both axes (fixed-`d` and matched-`d`), honestly, including a null result if the CIs overlap.
+- Train GraphSAGE, GAT, and RGCN baselines on the identical graph, split, loss, and regularization as HGT (`10_AI_ML_Documentation.md` §8.1). RGCN (`ml/models/rgcn_encoder.py`) is a fourth arm added post-v3: basis-decomposition relation weights (Schlichtkrull et al. 2018) hand-written over `edge_index_dict`, since `torch_geometric.nn.RGCNConv`'s public API expects a homogeneous graph rather than this project's `HeteroData` convention — same reason `hgt_sparse` (Task 2) is also a bespoke module.
+- **Train the matched-parameter control arm** — GraphSAGE and GAT with `d` raised, and RGCN with `hidden`/`num_bases` chosen by grid search, so all four architectures' parameter counts are comparable to HGT's. This is not optional: without it, a Stage 3 win is confounded between "attention/relation-structure helped" and "more capacity helped" (`10_AI_ML_Documentation.md` §8.1, `project_HADES.md` §8.3). RGCN's own matched-arm hyperparameter is `num_bases` (default 8), alongside `hidden` (shared with the other three arms) and GAT's `heads`.
+- Evaluate all eight runs (4 architectures × fixed-`d`/matched-`d`) on the identical held-out split, all with confidence intervals, across multiple seeds (`ml/run_step_v4_4arch.py` — 5 seeds × 4 architectures × 2 arms = 40 runs, multi-seed from the start).
+- Report the comparison on both axes (fixed-`d` and matched-`d`), honestly, including a null result if the CIs overlap, and check sign-consistency of the delta across seeds before calling anything significant.
 
-**Done when:** all six runs are in `model_evaluation_runs`, and Claim 1 has a stated, evidenced answer — "HGT wins," "not distinguishable at this label volume," or something in between.
+**Done when:** all forty runs (4 architectures × 2 param-arms × 5 seeds) are in `model_evaluation_runs`, and Claim 1 has a stated, evidenced answer per architecture pair — "HGT wins," "not distinguishable at this label volume," or something in between.
 
 **— The core prototype deliverable ends here. Steps 0–5 are what "a trained, evaluated HADES baseline with evidence for Claim 1" means. Everything below is pursued as time and evidence allow, each with its own honest stopping point. —**
 

@@ -1,14 +1,14 @@
 """
-HGT / GraphSAGE / GAT encoders — Steps 3 and 5
+HGT / GraphSAGE / GAT / RGCN encoders — Steps 3 and 5
 (`docs/14_Model_Development_Roadmap.md` §6, §8; `docs/10_AI_ML_Documentation.md`
 §8.1; `project_HADES.md` Part 3).
 
-All three architectures share the same input projection (`W_in` per node
+All four architectures share the same input projection (`W_in` per node
 type into a shared `d`-dim space, `project_HADES.md` §2.1/§7.1) and retain
 every intermediate layer's output `[h^1 ... h^L]` rather than only the
 last, so `ml/models/depth.py`'s structural depth-prior readout applies
 identically regardless of which encoder is in use -- the encoder is the
-only thing that differs between Step 5's three ablation arms.
+only thing that differs between Step 5's four ablation arms.
 
 HGT uses `torch_geometric.nn.HGTConv` directly (it natively parameterizes
 per-node-type and per-relation-type projections/attention, matching
@@ -16,7 +16,14 @@ per-node-type and per-relation-type projections/attention, matching
 construction, so they're wired up via `HeteroConv` wrapping one
 `SAGEConv`/`GATConv` per relation -- the standard PyG pattern for a
 heterogeneous baseline that still respects relation boundaries for message
-routing, without any type- or relation-specific weight matrices.
+routing, without any type- or relation-specific weight matrices. RGCN
+(`ml/models/rgcn_encoder.py`) sits between those two extremes: every
+relation gets its own parameters like HGT, but drawn from a small shared
+basis pool (Schlichtkrull et al. 2018) rather than a fully dedicated
+`hidden x hidden` matrix -- it needs a bespoke `nn.Module` over
+`edge_index_dict` for the same reason `hgt_sparse` does (`RGCNConv`'s public
+API expects a homogeneous single-feature-matrix graph, not this codebase's
+per-relation `HeteroData` convention).
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ import torch
 from torch import nn
 from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
-ARCHITECTURES = ("graphsage", "gat", "hgt")
+ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn")
 
 # docs/05_Database_Design.md §6.21's example `architecture` column values use
 # the full name; this module's factory keys stay short. Both are accepted.
@@ -103,17 +110,23 @@ class HeteroGNNEncoder(nn.Module):
 
 
 def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: int = 64,
-                   num_layers: int = 4, dropout: float = 0.2) -> nn.Module:
-    """Factory: `architecture` in {'hgt', 'graphsage', 'gat', 'hgt_sparse'}
-    (or the doc's full name 'heterogeneous_graph_transformer' for 'hgt').
-    'hgt_sparse' -- Task 2's sparse-relation-merged variant, see
-    `ml/models/sparse_hgt_encoder.py`."""
+                   num_layers: int = 4, dropout: float = 0.2, num_bases: int = 8) -> nn.Module:
+    """Factory: `architecture` in {'hgt', 'graphsage', 'gat', 'hgt_sparse',
+    'rgcn'} (or the doc's full name 'heterogeneous_graph_transformer' for
+    'hgt'). 'hgt_sparse' -- Task 2's sparse-relation-merged variant, see
+    `ml/models/sparse_hgt_encoder.py`. `num_bases` only applies to 'rgcn'
+    (`ml/models/rgcn_encoder.py`'s basis-decomposition relation count); every
+    other architecture ignores it."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
     if architecture == "hgt_sparse":
         from ml.models.sparse_hgt_encoder import HGTSparseMergedEncoder
         return HGTSparseMergedEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
+    if architecture == "rgcn":
+        from ml.models.rgcn_encoder import RGCNEncoder
+        return RGCNEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                            num_bases=num_bases, dropout=dropout)
     if architecture in ("graphsage", "gat"):
         conv_name = "gat" if architecture == "gat" else "sage"
         return HeteroGNNEncoder(metadata, in_dims, conv_name, hidden=hidden,
