@@ -58,7 +58,7 @@ def in_dims(fixture_data):
 # Encoder forward pass
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat", "rgcn", "rgcn_attn", "rgcn_relemb"])
+@pytest.mark.parametrize("architecture", ["hgt", "graphsage", "gat", "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn"])
 def test_encoder_forward_pass_shape_and_no_nan(fixture_data, in_dims, architecture):
     metadata = fixture_data.metadata()
     encoder = build_encoder(architecture, metadata, in_dims, hidden=16, num_layers=4)
@@ -229,6 +229,64 @@ def test_rgcn_relemb_attention_sums_to_one_per_destination(fixture_data, in_dims
     metadata = fixture_data.metadata()
     encoder = build_encoder("rgcn_relemb", metadata, in_dims, hidden=16, num_layers=4,
                              num_bases=2, relation_embed_dim=5)
+    encoder(fixture_data.x_dict, fixture_data.edge_index_dict)
+
+    supplier_n = fixture_data["Supplier"].num_nodes  # 5, distinct from Component's 8 and Shipment's 6
+    supplier_calls = [c for c in captured if c[0] == supplier_n]
+    assert len(supplier_calls) == encoder.num_layers  # one joint softmax call per layer for Supplier
+
+    _num_nodes, dst_all, alpha = supplier_calls[0]
+    assert dst_all.numel() == 11  # SHIPS_FROM's 6 + rev_SUPPLIES's 5 -- genuinely cross-relation
+
+    for node_idx in dst_all.unique():
+        mask = dst_all == node_idx
+        assert alpha[mask].sum().item() == pytest.approx(1.0, abs=1e-5)
+
+
+def test_rgcn_battn_parameter_count_formula(fixture_data, in_dims):
+    """Option 2's (`ml/models/rgcn_battn_encoder.py`) whole design bet: a
+    SECOND basis-decomposed pool dedicated to attention costs
+    `num_bases_attn * hidden^2 + num_relations * num_bases_attn` -- the same
+    formula shape as the transform's own `rel_basis`/`rel_coeff`, a single
+    shared pool for the whole encoder (no `num_layers` factor). Unlike
+    Options 1/3, this design adds no extra `Linear` scorer layers at all --
+    attention is entirely parameterized by the basis pool itself -- so the
+    exact delta over plain `RGCNEncoder` is this formula alone."""
+    hidden, num_layers, num_bases, num_bases_attn = 16, 4, 2, 3
+    metadata = fixture_data.metadata()
+    _, edge_types = metadata
+    num_relations = len(edge_types)
+
+    rgcn = build_encoder("rgcn", metadata, in_dims, hidden=hidden,
+                          num_layers=num_layers, num_bases=num_bases)
+    rgcn_battn = build_encoder("rgcn_battn", metadata, in_dims, hidden=hidden,
+                                num_layers=num_layers, num_bases=num_bases,
+                                num_bases_attn=num_bases_attn)
+
+    expected_increase = num_bases_attn * hidden * hidden + num_relations * num_bases_attn
+    assert rgcn_battn.parameter_count() - rgcn.parameter_count() == expected_increase
+
+
+def test_rgcn_battn_attention_sums_to_one_per_destination(fixture_data, in_dims, monkeypatch):
+    """Same cross-relation joint-softmax property as the Options 1/3 tests,
+    adapted for `rgcn_battn`: the bilinear-scored logit must still be
+    normalized jointly across a destination node's ENTIRE incoming edge set,
+    spanning every relation feeding it, not per relation."""
+    import ml.models.rgcn_battn_encoder as rgcn_battn_module
+
+    captured = []
+    real_softmax = rgcn_battn_module.softmax
+
+    def spy_softmax(logit_all, dst_all, num_nodes=None):
+        alpha = real_softmax(logit_all, dst_all, num_nodes=num_nodes)
+        captured.append((num_nodes, dst_all.clone(), alpha.clone()))
+        return alpha
+
+    monkeypatch.setattr(rgcn_battn_module, "softmax", spy_softmax)
+
+    metadata = fixture_data.metadata()
+    encoder = build_encoder("rgcn_battn", metadata, in_dims, hidden=16, num_layers=4,
+                             num_bases=2, num_bases_attn=3)
     encoder(fixture_data.x_dict, fixture_data.edge_index_dict)
 
     supplier_n = fixture_data["Supplier"].num_nodes  # 5, distinct from Component's 8 and Shipment's 6

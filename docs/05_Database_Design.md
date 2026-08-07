@@ -202,7 +202,7 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 
 - **Indexes:** index on `priority_tier`; index on `is_active`.
 - **Relationships:** parent of `orders.customer_id`.
-- **Note:** `priority_tier` is a graph node feature the HGT encoder can see directly via `PLACED_BY` — this is precisely why Claim B's double-counting test (`10_AI_ML_Documentation.md` §8.5) exists.
+- **Note:** `priority_tier` is a graph node feature the structural encoder (SHARE in production, `rgcn_attn` — HGT originally) can see directly via `PLACED_BY` — this is precisely why Claim B's double-counting test (`10_AI_ML_Documentation.md` §8.5) exists.
 
 ### 6.8 `product_factories` (junction — `MANUFACTURED_AT` edge)
 
@@ -469,7 +469,7 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | model_version | VARCHAR(50) | NOT NULL |
-| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer` |
+| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer`, `rgcn`, **`rgcn_attn`** (current production value — documentation name SHARE, `project_HADES.md` §3) |
 | metric_name | VARCHAR(50) | NOT NULL — `precision`, `recall`, `f1`, `roc_auc`, `mae`, `rmse`, `mape` |
 | metric_value | NUMERIC(10,6) | NOT NULL |
 | dataset_split | dataset_split ENUM(`train`,`validation`,`test`) | NOT NULL, default `test` |
@@ -495,7 +495,7 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | model_version | VARCHAR(50) | NOT NULL, UNIQUE |
-| architecture | VARCHAR(100) | NOT NULL |
+| architecture | VARCHAR(100) | NOT NULL — current production value `rgcn_attn` (documentation name SHARE, `project_HADES.md` §3); free text, no enum/CHECK constraint, so every historical value (`hgt`/`heterogeneous_graph_transformer`, `graphsage`, `gat`, `rgcn`, `rgcn_relemb`, `rgcn_battn`) stays queryable as-is |
 | training_dataset | VARCHAR(255) | NULL |
 | training_timestamp | TIMESTAMPTZ | NOT NULL |
 | experiment_id | VARCHAR(100) | NULL |
@@ -517,7 +517,7 @@ Everything in this group backs one of the three non-core HADES claims (`10_AI_ML
 
 ### 6.23 `suppliers` tier/frontier amendment, and `supplier_relationships` — *Claim 3 support, data-gated*
 
-Not built until `SUB_SUPPLIES`-equivalent upstream data exists — adding these columns today would just be two more silently-zero fields (Section 6.1).
+Not built until `SUB_SUPPLIES`-equivalent upstream data exists — adding these columns today would just be two more silently-zero fields (Section 6.1). **Still accurate as written** — no `supplier_relationships` table or `tier`/`is_frontier` columns exist in the live schema. **Do not confuse this with the co-parent mechanism** (`06_Graph_Database_Design.md` §6.1, `Supplier→SUPPLIES→Component→rev_SUPPLIES→Supplier`), a separate, already-built path that dual-sourcing (`component_suppliers`) has made active on the current dataset — `reports/entropy_test.md`. This section's `SUB_SUPPLIES`/`supplier_relationships` — a direct Supplier-to-Supplier edge for explicit tiering — remains genuinely unbuilt.
 
 **`suppliers` amendment:**
 

@@ -19,11 +19,11 @@ class HADESModel(nn.Module):
     def __init__(self, architecture: str, metadata, in_dims: dict[str, int], hidden: int = 64,
                  num_layers: int = 4, shared_depth: int | None = None,
                  depth_prior: dict[str, int] | None = None, dropout: float = 0.2,
-                 num_bases: int = 8, relation_embed_dim: int = 16):
+                 num_bases: int = 8, relation_embed_dim: int = 16, num_bases_attn: int = 8):
         super().__init__()
         self.encoder = build_encoder(architecture, metadata, in_dims, hidden=hidden,
                                       num_layers=num_layers, dropout=dropout, num_bases=num_bases,
-                                      relation_embed_dim=relation_embed_dim)
+                                      relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
         self.heads = nn.ModuleDict({task: PredictionHead(hidden) for task in TASKS})
         self.num_layers = num_layers
         self.shared_depth = shared_depth
@@ -32,6 +32,7 @@ class HADESModel(nn.Module):
         self.hidden = hidden
         self.num_bases = num_bases
         self.relation_embed_dim = relation_embed_dim
+        self.num_bases_attn = num_bases_attn
 
     def forward(self, x_dict: dict, edge_index_dict: dict) -> tuple[dict, list[dict]]:
         layers = self.encoder(x_dict, edge_index_dict)

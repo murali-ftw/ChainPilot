@@ -58,7 +58,7 @@ PyTorch Geometric message passing flows source → target only. A schema with on
 | `PLACED_BY` | `Order → Customer` | `orders.customer_id` | — | `rev_PLACED_BY` |
 | `SUB_SUPPLIES` | `Supplier → Supplier` | `supplier_relationships` — **data-gated, not built** (`05_Database_Design.md` §6.23) | `tier`, `source`, `confidence` | `rev_SUB_SUPPLIES` |
 
-**10 forward + 10 reverse = 20 meta-relations** (`project_HADES.md` §2.2, §3.2 — note `SHIPS_FROM` counts as two distinct meta-relations, one per target type, consistent with HGT's `⟨source type, edge type, target type⟩` parameterization). `SUB_SUPPLIES` is included in this count for completeness of the target schema but contributes no actual edges until upstream data exists — see Section 6.1.
+**10 forward + 10 reverse = 20 meta-relations** (`project_HADES.md` §2.2, §3.2 — note `SHIPS_FROM` counts as two distinct meta-relations, one per target type, consistent with the structural encoder's `⟨source type, edge type, target type⟩` parameterization, SHARE's and HGT's alike). `SUB_SUPPLIES` is included in this count for completeness of the target schema but contributes no actual edges until upstream data exists (`05_Database_Design.md` §6.23) — not to be confused with the separate, now-active co-parent mechanism, Section 6.1.
 
 ```mermaid
 flowchart LR
@@ -91,17 +91,28 @@ Supplier_A  ──SUPPLIES──►  Component  ◄──SUPPLIES──  Supplie
 
 Walking the second leg requires `rev_SUPPLIES`. Without reverse relations this path does not exist for message passing, and the depth-prior derivation in `10_AI_ML_Documentation.md` §8.2 would be unfounded, not merely conservative.
 
-**Measured finding (`ml/graph/reach.py`, Step 2, reconfirmed against v3's 800-supplier graph):
-this specific path does not actually reach a co-parent under the current schema.**
-`components.supplier_id` is a single not-null FK — every Component row belongs to exactly one
-Supplier — so a `Supplier -SUPPLIES-> Component -rev_SUPPLIES-> Supplier` round trip can only
-return to the *same* supplier it started from, never a different one. Checked directly across
-all 800 suppliers: 0 reached a different supplier in 2 hops, both at v2's 180-supplier scale and
-v3's 800-supplier scale. This is not a reason to abandon the `L=2` floor — Section 11's measured
-reach table shows Supplier nodes do gain real 2-hop context (Products, Warehouses, other
-Shipments) — but the *specific* co-parent mechanism described above is not what provides it, and
-the depth prior's justification should cite the measured reach table (Section 11), not this
-paragraph's claim as originally written.
+**Data status — corrected, active as of `reports/entropy_test.md`.** For most of
+this project's history this path existed structurally but returned nothing:
+`components.supplier_id` was a single not-null FK, so every Component belonged to
+exactly one Supplier and a `Supplier -SUPPLIES-> Component -rev_SUPPLIES->
+Supplier` round trip could only return to the *same* supplier — measured 0/800
+reaching a different supplier, both at v2's 180-supplier scale and v3's original
+800-supplier scale (`ml/graph/reach.py`, Step 2). **That changed once dual-sourcing
+shipped** (`component_suppliers`, a secondary-supplier junction table alongside the
+mandatory primary FK): the currently loaded database has it active — 420
+components (17.5%) carry a second qualified supplier, and **449/800 suppliers
+(56.1%) now measurably reach a different supplier in 2 hops**
+(`reports/entropy_test.md`'s dataset-version finding). The co-parent mechanism
+described above is a real, populated part of the graph on the current dataset, not
+merely a structural possibility — Section 11's measured reach table should be
+re-run to reflect this rather than cited from its pre-dual-sourcing values.
+
+**This is unrelated to `SUB_SUPPLIES`** (Section 6, `Supplier → Supplier`), which
+remains genuinely data-gated and not built — no `supplier_relationships` table or
+`SUB_SUPPLIES` edge type exists in the current schema. The co-parent path above
+reaches a different supplier *through a shared Component*, not through a direct
+Supplier-to-Supplier edge; the two are structurally and causally distinct
+mechanisms that happen to share the word "supplier" in their names.
 
 ## 7. Node and Edge Properties — Tensor Encoding
 

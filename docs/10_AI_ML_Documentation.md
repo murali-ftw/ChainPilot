@@ -139,19 +139,38 @@ The graph for a given `t0` is assembled from the as-of feature set (Section 6.3)
 
 The full mathematical specification, worked numerical examples, parameter/FLOP budgets, and the reasoning behind every design choice live in `project_HADES.md` Parts 3–7; this section is the implementation-facing summary, organized around the four claims (Section 1).
 
-### 8.1 HGT Encoder — Claim 1
+### 8.1 Structural Encoder — Claim 1
 
-Type-aware local structure via meta-relation-parameterized attention (`project_HADES.md` Part 3): every node type gets its own K/Q/M/A projection matrices, every relation gets its own attention/message matrices, and `μ` (one learnable scalar per meta-relation) is where tier decay would be imposed if/when `SUB_SUPPLIES` data exists (not currently — see Section 12). `L = 4` layers, all four intermediate outputs `h¹…h⁴` retained rather than only the last (Section 8.2 explains why).
+**Production architecture: SHARE** (Shared-basis Heterogeneous Attention Relational
+Encoder, `rgcn_attn` in code — the identifier is unchanged from the ablation runs
+below). Type-aware local structure via a basis-decomposed relation transform plus
+one shared attention scorer with a joint softmax across every relation feeding a
+destination node (`project_HADES.md` §3). `L = 4` layers, all four intermediate
+outputs `h¹…h⁴` retained rather than only the last (Section 8.2 explains why).
+HGT (below) was the originally-specified architecture and is retained in
+`project_HADES.md` §3A as the mathematical reference SHARE's transform builds on
+— it remains the strongest single-task performer, by raw mean, on the impact task.
 
-**Committed architecture ablation, Claim 1's actual test:**
+**Committed architecture ablation, Claim 1's actual test — six architectures, not
+three, run across four rounds of ablation** (full detail and all numbers:
+`reports/rgcn_types.md`; this section is the implementation-facing summary, not a
+restatement):
 
-| Stage | Architecture | Why this stage | Documented limitation |
+| Stage | Architecture | Why this stage | Outcome |
 |---|---|---|---|
-| 1 | GraphSAGE | Baseline — does neighborhood aggregation beat row-by-row models at all, with no attention | Every neighbor weighted equally |
-| 2 | GAT | Adds attention — *which* neighbors matter | Still type-blind; a `SUPPLIES` edge and a `SHIPS_TO` edge are not distinguished |
-| 3 | HGT — **final** | Graph is natively multi-typed (8 node types, 20 meta-relations); type-aware attention is the first stage to model that directly | Highest cost of the three |
+| 1 | GraphSAGE | Baseline — does neighborhood aggregation beat row-by-row models at all, with no attention | Beats HGT on shortage; type-blind everywhere else |
+| 2 | GAT | Adds attention — *which* neighbors matter | Still type-blind; weakest architecture overall on delay/shortage |
+| 3 | HGT | Graph is natively multi-typed (8 node types, 20 meta-relations); type-aware attention models that directly | Wins impact outright; loses shortage to GraphSAGE and (eventually) to every basis-sharing architecture |
+| 4 | RGCN | Basis-decomposition transform (Schlichtkrull et al. 2018) — relation cost shared, not fully dedicated per relation like HGT | Wins shortage consistently; HGT's worst-impact challenger |
+| 5 | **SHARE (`rgcn_attn`) — selected for production** | RGCN's transform + one shared attention scorer, joint softmax across relations | Wins delay and shortage consistently vs. HGT; ties impact — best net result of any architecture tried |
+| 6 | Two further RGCN+attention hybrids (`rgcn_relemb`, `rgcn_battn`) | Tested whether relation-identity signal or a second attention-dedicated basis pool improves on SHARE | Neither beats SHARE; `rgcn_battn` is markedly less seed-stable |
 
-All three trained/evaluated on the same held-out split, same loss and regularization, under a distinct `model_version` each (Section 11), **plus a matched-parameter control arm** (`d` raised for GraphSAGE/GAT so all three have comparable parameter counts) — without this arm, a Stage 3 win is confounded between "attention helped" and "more capacity helped" (`project_HADES.md` §8.3).
+All architectures trained/evaluated on the same held-out split, same loss and
+regularization, under a distinct `model_version` each (Section 11), **at both a
+fixed-`d` and a matched-parameter arm** (`d`/`num_bases` raised so every
+architecture has a comparable parameter count) — without the matched arm, a
+win is confounded between "the mechanism helped" and "more capacity helped"
+(`project_HADES.md` §8.3).
 
 ### 8.2 Depth Selection — Claim 2
 
@@ -172,7 +191,7 @@ All three trained/evaluated on the same held-out split, same loss and regulariza
 
 **The mechanism:** dense self-attention over Supplier embeddings only, no adjacency mask (`project_HADES.md` §5.2–5.3):
 
-- **Same-type constraint is mandatory, not a tuning choice** — attending across all node types would partially undo the type separation HGT spends 76% of its parameters building.
+- **Same-type constraint is mandatory, not a tuning choice** — attending across all node types would partially undo the type separation the structural encoder spends a substantial share of its parameters building (76% under HGT's own accounting, `project_HADES.md` §3A.5; SHARE's cost structure differs but the same type-separation principle holds).
 - **Bounded candidate pool** — top-k by embedding cosine similarity (`k = 64`), always including frontier nodes (suppliers with no recorded upstream). An earlier draft bounded the pool by shared `component_type`, which is wrong: same-`component_type` suppliers are already 2-hop reachable via the co-parent path, so that bounding would have excluded exactly the cross-type correlation (different countries, different component types) the synthetic scenario and Transformer 2 both exist to find.
 - **Output scope, Phase 1:** wired to the delay head only (supplier-level). Product/Order-level heads are not fed T2's output yet — extending that is a real interface decision, not a default, and is deferred until T2 has demonstrated it finds anything real (`project_HADES.md` §5.6).
 
@@ -186,13 +205,13 @@ shortage_v  = σ( MLP(z_shortage_v) )    Product × Warehouse
 impact_v    = σ( MLP(z_impact_v) )      Supplier (current label definition, Section 6.3)
 ```
 
-Loss: focal loss per head (`γ=2`, `α` from inverse class frequency — disruptions are a minority class), plus the depth-gate's KL-anchor term. Total budget (`d=64`, `L=4`, all components): **773,311 parameters, 1.445 GFLOP full-graph forward pass** — see `project_HADES.md` Part 7 for the full breakdown; recompute once the real graph exists (Section 7.2).
+Loss: focal loss per head (`γ=2`, `α` from inverse class frequency — disruptions are a minority class), plus the depth-gate's KL-anchor term. Total budget (`d=64`, `L=4`, all components, HGT-as-encoder design-time target): **773,311 parameters, 1.445 GFLOP full-graph forward pass** — see `project_HADES.md` Part 7 for the full breakdown and its production note (SHARE, the deployed encoder, is 752,211 real measured params at matched-`d` in place of that budget's HGT row; recompute once the gate and T2 are actually built).
 
 ### 8.5 Claim B — Dyadic Risk (Claim 4)
 
 **The problem:** "Supplier X: 80% failure probability" conflates X's own fragility with *this firm's* exposure to it. A fragile supplier for whom this firm is a top-priority customer will be served first; a moderate-risk sole-source supplier is worse than the number suggests.
 
-**Why it is deliberately not a model component:** the node is HGT's unit of prediction — there is no architectural slot for a `(supplier, buyer)` pair, and reweighting by order-volume share and contract priority is auditable business arithmetic that a network would only make opaque for no representational benefit (`project_HADES.md` §6.4):
+**Why it is deliberately not a model component:** the node is the structural encoder's unit of prediction (true of SHARE exactly as it was of HGT) — there is no architectural slot for a `(supplier, buyer)` pair, and reweighting by order-volume share and contract priority is auditable business arithmetic that a network would only make opaque for no representational benefit (`project_HADES.md` §6.4):
 
 ```
 dyadic_risk = global_risk × f(order_volume_share, contract_priority_weight, fulfilment_preference_weight)

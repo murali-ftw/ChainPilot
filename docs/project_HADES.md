@@ -4,6 +4,17 @@
 
 **Supersedes** the configuration in `architecture.md`, which predates the correctness audit. Where the two disagree, this document wins.
 
+> **Production architecture note (2026-08-07).** SHARE (Shared-basis Heterogeneous
+> Attention Relational Encoder, `rgcn_attn` in code) is ChainPilot's production
+> architecture as of this date, selected after a four-round ablation against HGT,
+> GraphSAGE, GAT, and three other RGCN-family hybrids. See `reports/rgcn_types.md`
+> and `reports/info.md` for the full evidence trail. **The code-level identifier is
+> unchanged** — every call site, the `model_registry.architecture` column, and every
+> already-logged historical row still read `rgcn_attn`; SHARE is a documentation name
+> only, introduced here and used throughout this document from Part 3 onward. HGT's
+> full derivation is retained in Part 3A as the original baseline architecture and as
+> the mathematical reference SHARE's own transform builds on.
+
 ---
 
 ## Table of contents
@@ -13,7 +24,8 @@
 | 0 | What HADES is — the name, the thesis, the pipeline |
 | 1 | Notation and dimensions |
 | 2 | The graph — types, reverse relations, features, the leakage contract |
-| 3 | **HGT** — the structural encoder |
+| 3 | **SHARE** — the structural encoder (production) |
+| 3A | **HGT** — the original baseline encoder (superseded; math reference) |
 | 4 | **Depth selection** — Markov prior + learned gate |
 | 5 | **Transformer 2** — global attention across the visibility frontier |
 | 6 | Prediction heads, Risk Intelligence, Claim B |
@@ -33,8 +45,8 @@
 | Letter | Stands for | Which component |
 |---|---|---|
 | **H**ierarchical | Depth is chosen per task and per node, not fixed globally | Markov prior + depth gate |
-| **A**ttention | Three distinct attention mechanisms, each with a different scope | HGT (typed local), gate (depth), T2 (global same-type) |
-| **D**ual **E**ncoders | Two encoding stages with different information sources | HGT encodes *structure*; T2 encodes *statistical similarity* |
+| **A**ttention | Three distinct attention mechanisms, each with a different scope | SHARE (typed local, production; HGT originally), gate (depth), T2 (global same-type) |
+| **D**ual **E**ncoders | Two encoding stages with different information sources | SHARE encodes *structure* (§3; HGT, §3A, is the original baseline it superseded); T2 encodes *statistical similarity* |
 | **S**tructure | Graph geometry supplies the prior, not just the data | Blanket-derived depth, relation-scoped tier decay |
 
 ## 0.2 The thesis, in one paragraph
@@ -57,9 +69,10 @@
               HeteroData: 8 node types, 20 meta-relations
                           │
         ┌─────────────────▼─────────────────┐
-        │  HGT ENCODER          §3          │   type-aware local structure
-        │  L = 4 layers, all retained       │   698,448 params · 1.311 GFLOP
-        └─────────────────┬─────────────────┘
+        │  SHARE ENCODER         §3          │   type-aware local structure
+        │  L = 4 layers, all retained        │   752,211 params (matched-d)
+        └─────────────────┬─────────────────┘   `rgcn_attn` in code — HGT's
+                                                  original §3A box: 698,448 params
                           │  h¹ h² h³ h⁴
         ┌─────────────────▼─────────────────┐
         │  DEPTH SELECTION      §4          │   how far should each
@@ -160,6 +173,18 @@ Supplier_A  ──SUPPLIES──►  Component  ◄──SUPPLIES──  Supplie
 
 — requires traversing the second edge **backwards**. Without a reverse relation, that path does not exist for message passing.
 
+> **Data status of this path — corrected, active as of `reports/entropy_test.md`.**
+> For most of this project's history, this path existed structurally but returned
+> nothing: `components.supplier_id` was a single not-null FK, so `Supplier_B` above
+> was always the same node as `Supplier_A` (0/800 suppliers measured reaching a
+> *different* supplier this way). That changed once dual-sourcing shipped
+> (`component_suppliers`, the co-parent mechanism) — the currently loaded database
+> has it **active**: 420 components (17.5%) carry a second qualified supplier, and
+> **449/800 suppliers (56.1%) now measurably reach a different supplier in 2 hops**
+> (`reports/entropy_test.md`'s dataset-version finding). This is NOT the same thing
+> as `SUB_SUPPLIES` below, which remains a separate, genuinely unbuilt relation —
+> see the note there.
+
 ```python
 from torch_geometric.transforms import ToUndirected
 data = ToUndirected()(data)      # adds rev_* for every relation
@@ -211,7 +236,7 @@ Now `μ` expresses tier decay and confidence weighting natively, at **~4,096 par
 
 and let training adjust from there. The model *learns* per-band reliability rather than being told it.
 
-**Status:** `SUB_SUPPLIES` is uncommitted and near-empty. This section is a design for when the data exists — it is not Phase-1 work.
+**Status:** `SUB_SUPPLIES` — a direct, tiered Supplier→Supplier edge — is still uncommitted and near-empty; no such table or edge type exists in the current schema. This section remains a design for when that data exists. **Do not confuse this with the co-parent path** (§2.2's `Supplier→SUPPLIES→Component→rev_SUPPLIES→Supplier`), which is a different, already-built mechanism now confirmed active — `reports/entropy_test.md`.
 
 ## 2.4 Multi-window temporal features
 
@@ -282,9 +307,154 @@ Before believing any result: **train on a single feature at a time.** If any sol
 
 ---
 
-# PART 3 — HGT: THE STRUCTURAL ENCODER
+# PART 3 — SHARE: THE STRUCTURAL ENCODER (PRODUCTION)
+
+*SHARE — Shared-basis Heterogeneous Attention Relational Encoder, `rgcn_attn` in
+code — is ChainPilot's production structural encoder, selected over HGT (§3A),
+GraphSAGE, GAT, and two other RGCN-family hybrids after a four-round ablation
+(`reports/rgcn_types.md`). Everything below is real, measured behaviour — not the
+theoretical derivation §3A uses — because SHARE's own numbers were never worked
+out on paper first; they came directly from `ml/models/rgcn_attn_encoder.py`
+trained against the live database.*
 
 ## 3.1 The idea in one picture
+
+HGT (§3A) gives every meta-relation its own **fully dedicated** pair of
+`16×16` weight matrices — one language lesson per conversation type, paid for
+in full every time. SHARE keeps the "different node types speak different
+languages" half of that idea (§3.2 below) but replaces the "every conversation
+gets its own bespoke etiquette" half with something cheaper and, on this data,
+better: every relation's transform is a **linear combination of a small shared
+phrasebook**, and instead of scoring attention separately within each
+conversation, everyone in the room competes for the same, single attention
+budget regardless of which language they're speaking.
+
+| Model | Behaviour in that room |
+|---|---|
+| GraphSAGE | Everyone talks at once; you average the noise |
+| GAT | You listen *harder* to some — but they're still speaking languages you don't know |
+| HGT (§3A) | Every profession gets a **dedicated translator and its own etiquette** |
+| **SHARE** | Every profession draws its translator from a **small shared phrasebook** (§3.3) — cheaper than a dedicated one — and **one attention rule, not per-profession rules**, decides who gets heard |
+
+## 3.2 The meta-relation — unchanged from HGT
+
+SHARE's message *transform* still parameterises by the triple
+`⟨τ(source), φ(edge), τ(target)⟩` — the same 20 meta-relations §3A.2 describes,
+`⟨Shipment, SHIPS_FROM, Supplier⟩` and `⟨Shipment, SHIPS_FROM, Factory⟩` still
+kept apart. What changes is *how* each relation's own parameters are built, not
+which relations exist.
+
+## 3.3 The mathematics
+
+### Step 1 — the transform: basis decomposition, not a dedicated matrix
+
+For relation `r`, instead of HGT's own dedicated `W_MSG_i[φ]` per relation:
+
+```
+W_r  =  Σ_b  a_r[b] · V_b                    V_b ∈ ℝ^{d × d},  b = 1..num_bases
+                                              a_r ∈ ℝ^{num_bases}  (one vector per relation)
+msg(s→t)  =  h_s · W_r
+```
+
+`V_b` (the basis pool, `rel_basis` in code) and `a_r` (`rel_coeff`) are **shared
+across every layer** — a single set for the whole encoder, so this part of the
+parameter cost never scales with depth `L`. Every relation still gets its own
+`W_r`, but it's built from `num_bases` shared components rather than paid for
+from scratch — this is the entire cost saving relative to HGT's dedicated
+`W_ATT`/`W_MSG` per relation (§3A.3).
+
+### Step 2 — attention: one shared scorer, one joint softmax
+
+Where HGT computes `K·W_ATT[φ]·Qᵀ` — a dedicated bilinear form per relation —
+SHARE scores every edge with the **same two vectors for every relation and
+every node type**:
+
+```
+logit(s→t)  =  LeakyReLU( att_msg · msg(s→t)  +  att_dst · h_t )
+
+α(s→t)  =  ─────────exp(logit(s→t))─────────
+            Σ_{s' → t, ANY relation} exp(logit(s'→t))
+```
+
+`att_msg`, `att_dst` ∈ ℝ^d, one pair **per layer**, shared across all 20
+relations — not per-relation like HGT's `μ`. The softmax's sum runs over
+**every** in-edge to `t`, mixed across relations, not per relation then
+recombined — the same "one softmax, type-awareness lives elsewhere" principle
+HGT's own §3A.3 Step 3 already established, just with the competition now
+spanning relations too, not only neighbours within one relation.
+
+### Step 3 — aggregate and update
+
+```
+h_t'  =  self_loop(h_t)  +  Σ_{s → t}  α(s→t) · msg(s→t)
+```
+
+`self_loop` is a full, NOT basis-shared, `d×d` matrix per node type **per
+layer** — this is what plays HGT's residual role (§3A.3 Step 5), carrying each
+node's own identity forward rather than overwriting it.
+
+## 3.4 Parameter counts — real, measured, not derived on paper
+
+| Arm | hidden | num_bases | Params (full model: encoder + 3 task heads) |
+|---|---:|---:|---:|
+| Fixed-`d` | 64 | 8 (default) | **170,984** |
+| **Matched-`d` (production)** | **128** | **10** | **752,211** |
+
+Matched-`d` was chosen by grid search to land near HGT's own real, measured
+`d=64` anchor (**713,763** full-model params — not the theoretical 704,016 §3A.5
+derives on paper; feature dimensions turned out to differ slightly from the
+doc's placeholder estimates once measured against the real database, same
+correction §3A itself flags at the end of §3A.7). At fixed-`d=64`, SHARE costs
+**170,984 — less than a quarter of HGT's** — because the basis-shared transform
+and the two-vector attention scorer are both far cheaper than a dedicated
+matrix per relation.
+
+## 3.5 Real results — the ablation verdict
+
+Five seeds, paired bootstrap significance, both fixed-`d` and matched-`d`
+(`reports/hades_model_development_report.md` Round 6, `reports/rgcn_matched_pilot.md`):
+
+| Task | vs. HGT, fixed-`d` | vs. HGT, matched-`d` |
+|---|---|---|
+| delay | **SHARE wins**, consistent across all 5 seeds (+0.0112) | **SHARE wins**, consistent (+0.0103) |
+| shortage | **SHARE wins**, consistent (+0.0162) | **SHARE wins**, consistent (+0.0147) |
+| impact | Statistical tie (sign flips across seeds, +0.0058 mean) | Statistical tie (sign flips, +0.0052 mean) |
+
+**SHARE wins two of three tasks outright, at both parameter budgets, and never
+loses to HGT on any task.** The fixed-`d` win survives matching parameters
+almost unchanged (`reports/rgcn_matched_pilot.md`'s before/after table: all
+three tasks move by under 0.0015) — not a smaller-model-regularises-better
+artifact. Impact remains HGT's own best task by raw mean
+(`reports/rgcn_types.md`'s closing comparison), which is why §3A is retained in
+full rather than deleted.
+
+## 3.6 Why SHARE, not HGT — the ablation in one line
+
+HGT pays for a **fully dedicated** per-relation parameter set on all 20
+meta-relations, including the four thinnest (`MANUFACTURED_AT`, `SUPPLIES`,
+`STOCKED_AT`, `USED_IN` — `reports/entropy_test.md`'s relation-frequency
+measurement). Shortage's own causal signal draws directly on two of those four
+— exactly where a fully-dedicated parameterisation is most exposed to
+overfitting on sparse data, and exactly the task where every basis-sharing
+architecture tried (plain RGCN, SHARE, and SHARE's own two further hybrids)
+beats HGT consistently. SHARE adds a shared attention step on top of that
+basis-sharing, closing HGT's other advantage (impact) to a tie without giving
+back the shortage or delay wins — the best net result of every architecture
+tried across four rounds of ablation (`reports/rgcn_types.md`'s closing table).
+
+---
+
+# PART 3A — HGT: THE ORIGINAL BASELINE ENCODER (SUPERSEDED)
+
+**This part is retained, unmodified, for two reasons:** SHARE's own transform (§3)
+is a direct simplification of the per-relation math derived below, so this is the
+reference those simplifications are measured against; and HGT remains the strongest
+single-task performer of any architecture tried, by raw mean, on the impact task
+(`reports/rgcn_types.md`). Every number and derivation below describes HGT
+specifically and is unchanged from before SHARE was selected — nothing here was
+retroactively edited to fit SHARE's numbers.
+
+## 3A.1 The idea in one picture
 
 Your graph is a meeting where people speak different professional languages. Suppliers speak logistics. Products speak engineering. Orders speak sales.
 
@@ -296,7 +466,7 @@ Your graph is a meeting where people speak different professional languages. Sup
 
 Everything below implements those two ideas.
 
-## 3.2 The meta-relation
+## 3A.2 The meta-relation
 
 HGT parameterises by the triple, not the edge:
 
@@ -306,7 +476,7 @@ HGT parameterises by the triple, not the edge:
 
 `⟨Shipment, SHIPS_FROM, Supplier⟩` and `⟨Shipment, SHIPS_FROM, Factory⟩` are **different meta-relations** — same edge type, different target. GAT would collapse them; HGT keeps them apart.
 
-## 3.3 The mathematics
+## 3A.3 The mathematics
 
 For target node `t`, source node `s`, edge `e = (s → t)`, at layer `ℓ`, for each head `i ∈ {1..h}`:
 
@@ -363,7 +533,7 @@ h^ℓ_t  =  A_Lin[τ(t)] · σ( h̃_t )  +  h^{ℓ-1}_t                        A
 
 The residual is why HGT tolerates depth better than plain GNNs: each node keeps its own identity, and layers **add refinements** rather than overwriting.
 
-## 3.4 Worked numerical example
+## 3A.4 Worked numerical example
 
 **Product P** updating at layer 1. In-neighbours (with reverse relations active):
 
@@ -402,7 +572,7 @@ h¹_P  =  A_Lin[Product] · σ(h̃_P)  +  h⁰_P
 
 **What GAT would do:** one shared `W` for all four neighbours. It could still learn those same α values — but it has **no way to express** that *"a component supplying me"* and *"an order demanding me"* are fundamentally different kinds of information. Listening harder without understanding the language.
 
-## 3.5 Parameter derivation
+## 3A.5 Parameter derivation
 
 Per layer:
 
@@ -423,7 +593,7 @@ Encoder subtotal          704,016
 
 **The 76 / 24 split.** Node-type parameters are 76% of each layer; relation parameters are 24%. Practical consequence: **adding a node type costs ~4× more than adding a relation.** Splitting `SUB_SUPPLIES` into four tier×confidence bands costs 4,096/layer. Adding a `Contract` node type would cost 16,640/layer plus its input projection.
 
-## 3.6 FLOP derivation
+## 3A.6 FLOP derivation
 
 Counting `FLOPs = 2 × MACs`, dominant terms only:
 
@@ -439,7 +609,7 @@ Edge ATT + MSG:     2 · E · 2 · h · (d/h)² = 2 · 40,000 · 2 · 1,024  = 1
 
 Note the near-perfect balance between node and edge terms at these dimensions. Doubling edges (reverse relations) doubled the edge term; the node term is unaffected.
 
-## 3.7 Depth and reach — measured, not assumed
+## 3A.7 Depth and reach — measured, not assumed
 
 With reverse relations, average undirected degree ≈ `2E/V` = **16**.
 
@@ -461,7 +631,7 @@ With reverse relations, average undirected degree ≈ `2E/V` = **16**.
 
 > These reach figures assume uniform branching. Real supply chain graphs are hub-heavy (one component supplied by one supplier, used in many products), so actual saturation arrives **faster**. Replace this table with measurements from your real graph before citing it.
 
-## 3.8 Pros
+## 3A.8 Pros
 
 | Advantage | Why it matters here |
 |---|---|
@@ -472,7 +642,7 @@ With reverse relations, average undirected degree ≈ `2E/V` = **16**.
 | Inspectable attention | Diagnostic hooks for free |
 | First-class PyG support | `HGTConv` exists |
 
-## 3.9 Cons
+## 3A.9 Cons
 
 | Limitation | Consequence |
 |---|---|
@@ -483,7 +653,7 @@ With reverse relations, average undirected degree ≈ `2E/V` = **16**.
 | Rare relations get badly-estimated parameters | `SUB_SUPPLIES` bands would train on very few examples |
 | No native `edge_attr` | Confidence must be encoded via relation splitting (§2.3) |
 
-## 3.10 Why HGT alone is not enough — the five gaps
+## 3A.10 Why HGT alone is not enough — the five gaps
 
 | # | Gap | Root cause | Filled by |
 |---|---|---|---|
@@ -501,7 +671,9 @@ With reverse relations, average undirected degree ≈ `2E/V` = **16**.
 
 ## 4.1 The problem
 
-HGT computes `h¹…h⁴` and, by default, discards three of them:
+The structural encoder (SHARE in production, §3; originally HGT, §3A — both share
+this property, since HADES's own convention is to retain every layer, §0.4)
+computes `h¹…h⁴` and, by default, discards three of them:
 
 ```
 h⁰ →[1]→ h¹ →[2]→ h² →[3]→ h³ →[4]→ h⁴
@@ -529,7 +701,7 @@ A node's **Markov blanket** is the smallest set such that, knowing it, nothing e
 | Parents | Upstream suppliers | 1 | `SUB_SUPPLIES` (sparse) |
 | Moralised co-parents | Suppliers sharing an *unobserved* upstream | ∞ | **no path — T2's job** |
 
-The co-parent term gives a **derived floor of L = 2** — counted, not guessed. Note it depends entirely on the reverse relation existing (§2.2).
+The co-parent term gives a **derived floor of L = 2** — counted, not guessed. Note it depends entirely on the reverse relation existing (§2.2) **and on dual-sourced data actually being present**, which is now the case (§2.2's data-status note; `reports/entropy_test.md` measures 449/800 suppliers, 56.1%, reaching a co-parent this way on the currently loaded database).
 
 ### The prior is per-target
 
@@ -669,7 +841,7 @@ L  =  (deepest prior)  +  1  =  3 + 1  =  4          capped at 4
 
 **Cost: +174,612 params (+32% over L=3), +0.33 GFLOP.**
 
-**The honest tension:** at L=4 the receptive field is ~100% saturated (§3.7), so `h⁴` is heavily over-smoothed. You are paying for a layer you expect the gate to mostly ignore.
+**The honest tension:** at L=4 the receptive field is ~100% saturated (§3A.7), so `h⁴` is heavily over-smoothed. You are paying for a layer you expect the gate to mostly ignore.
 
 **Why it's still correct:** the gate assigning `h⁴` near-zero weight almost everywhere **is a result**, and one you cannot obtain if you never compute `h⁴`. It's an empirical confirmation of the depth prior at a cost of 32% of the encoder. **If your budget is tight, L=3 is a defensible fallback — you simply lose the ability to detect upward deviation, and must report the residual as one-sided.**
 
@@ -895,7 +1067,7 @@ These five are **not model heads** — they are inputs to a deterministic aggreg
 
 **The insight:** *"Supplier X: 80% failure probability"* conflates X's **own fragility** with **your exposure** to it. A fragile supplier for whom you are a top-priority customer will serve you first. A moderate supplier who is sole-source for your strategic line is worse than the number suggests.
 
-**Why it isn't in the model:** the **node** is HGT's unit of prediction — one node, one embedding, one score. There is no architectural slot for a *(supplier, buyer)* pair. And reweighting by order-volume share and contract priority is deterministic arithmetic; burying it in a network would make an auditable business rule opaque for zero representational benefit.
+**Why it isn't in the model:** the **node** is the structural encoder's unit of prediction — one node, one embedding, one score, true of SHARE (§3) exactly as it was of HGT (§3A). There is no architectural slot for a *(supplier, buyer)* pair. And reweighting by order-volume share and contract priority is deterministic arithmetic; burying it in a network would make an auditable business rule opaque for zero representational benefit.
 
 ```
 dyadic_risk  =  global_risk  ×  f( order_volume_share,
@@ -947,6 +1119,15 @@ R₁ ≪ R₂  →  the encoder already learned it
 
 **The encoder is 90% of the model.** Every argument about T1's size, T2's cost, and gate capacity is an argument about the remaining 10%. If you need a large saving, the levers are `d` and `L` — nothing else moves the needle.
 
+> **Production note.** This table is the design-time target budget (T2 and the
+> depth gate remain unbuilt — §10.3) and its HGT row is the original theoretical
+> derivation (§3A.5), not a live measurement. The encoder actually deployed in
+> production is SHARE (§3), at 752,211 real measured params (matched-`d`,
+> `rgcn_attn` in code) — swap that in for the HGT row above if estimating today's
+> real total; FLOPs for SHARE haven't been derived on paper the way §3A.6 does
+> for HGT, only wall-clock training time has been measured
+> (`reports/rgcn_matched_pilot.md`).
+
 ## 7.2 FLOPs (full-graph forward pass)
 
 | Component | GFLOP | Share |
@@ -972,9 +1153,22 @@ R₁ ≪ R₂  →  the encoder already learned it
 
 **Every correctness fix combined costs less than the two efficiency choices save.**
 
-## 7.4 Why `d = 64`
+## 7.4 Why `d = 64` (HGT) — and why SHARE's production `d = 128` doesn't reopen this argument
 
-`d = 128` quadruples the dominant term. HGT at L=4 would go from 698K to ~2.8M parameters — against a few hundred positive labels. There is no documented justification for 128 anywhere in the project, and the parameters-per-positive ratio is already the binding risk (ML-09). **If the L-sweep shows the model underfitting, raise `d` before raising `L`** — width is cheaper than depth on graphs, because it doesn't compound over-smoothing.
+For HGT specifically, `d = 128` quadruples the dominant term — L=4 would go from
+698K to ~2.8M parameters against a few hundred positive labels, with no
+documented justification anywhere in the project. That reasoning is unchanged
+and still correct **for HGT's own fully-dedicated-per-relation parameterisation**,
+where every unit of `d` is spent `T+R` times over (§3A.5's 76/24 split).
+
+It does not transfer to SHARE. SHARE's basis-shared transform and two-vector
+attention scorer cost far less per unit of `d` — its own `d=128` matched-parameter
+arm (752,211 params, chosen specifically to land near HGT's `d=64` anchor, §3.4)
+lands at roughly the SAME total budget HGT's `d=64` does, not 4× it. The
+parameters-per-positive-label risk (ML-09) that made raising `d` unaffordable for
+HGT was always a property of HGT's parameterisation, not a universal ceiling on
+`d` itself — SHARE's own ablation (§3.5) is the direct empirical demonstration
+that a wider `d` is affordable once the per-relation cost structure changes.
 
 ---
 
@@ -999,7 +1193,7 @@ R₁ ≪ R₂  →  the encoder already learned it
 | Optimizer | AdamW | |
 | Learning rate | 1e-3, cosine decay | |
 | Weight decay | 1e-4 | |
-| Dropout | 0.2 (HGT layers), 0.1 (gate, T2) | |
+| Dropout | 0.2 (structural encoder layers — SHARE in production, HGT originally), 0.1 (gate, T2) | |
 | Edge dropout | 0.1 | Regularises against sparse-relation overfit |
 | Batch | Full-graph | 5,000 nodes fits comfortably |
 | Early stopping | Patience 20 on val AUC | |
@@ -1039,6 +1233,16 @@ width, unlike HGT's per-relation attention), so the search widened `hidden`
 alongside `num_bases` — `hidden=138, num_bases=4` lands at 699,602 params,
 0.21% off HGT's anchor. See `ml/run_step_v4_4arch.py` for the full 4-arch,
 5-seed run matrix this round added.
+
+**Where this ended up: SHARE, not RGCN or HGT.** Two more RGCN-family hybrids
+were added and ablated after the round documented above — RGCN+Attention
+(`rgcn_attn` in code, this is **SHARE**, §3) and two further variants
+(`rgcn_relemb`, `rgcn_battn`). Across all six architectures at matched
+parameters, SHARE won delay and shortage consistently against HGT and tied on
+impact, beating every other architecture tried on more than one task
+(`reports/rgcn_types.md`'s closing comparison table). **SHARE is the production
+architecture selected from this whole ablation line** — see the production note
+at the top of this document and §3.
 
 ## 8.4 Governance — write it, don't type it
 
@@ -1081,7 +1285,7 @@ Every run writes one `model_registry` row: `training_dataset`, `training_timesta
 
 ## 9.4 Over-smoothing test
 
-Compute mean pairwise cosine similarity between node embeddings at each layer. A sharp rise marks your empirical depth ceiling — this replaces the theoretical reach table in §3.7 with a measurement.
+Compute mean pairwise cosine similarity between node embeddings at each layer. A sharp rise marks your empirical depth ceiling — this replaces the theoretical reach table in §3A.7 with a measurement.
 
 ---
 
@@ -1204,7 +1408,18 @@ Compute mean pairwise cosine similarity between node embeddings at each layer. A
 h⁰_v = W_in[τ(v)] · x_v + b_in[τ(v)]
 ```
 
-**HGT layer** (per head `i`)
+**SHARE layer (production, §3)**
+```
+W_r        = Σ_b a_r[b] · V_b                          (basis-shared transform, §3.3 Step 1)
+msg(s→t)   = h_s · W_r
+
+logit(s→t) = LeakyReLU( att_msg · msg(s→t) + att_dst · h_t )
+α(s→t)     = softmax_{s' → t, ANY relation} logit(s'→t)   (§3.3 Step 2 — joint across relations)
+
+h_t'       = self_loop[τ(t)] · h_t  +  Σ_{s→t} α(s→t) · msg(s→t)
+```
+
+**HGT layer** (per head `i` — §3A, original baseline, superseded in production)
 ```
 K_i(s) = K_Lin_i[τ(s)] · h^{ℓ-1}_s
 Q_i(t) = Q_Lin_i[τ(t)] · h^{ℓ-1}_t
@@ -1270,7 +1485,8 @@ done and is a fair next step, not claimed here.
 ## A.3 Budget at a glance
 
 ```
-PARAMETERS                          FLOPs (full-graph forward)
+PARAMETERS (design-time target,       FLOPs (full-graph forward,
+  HGT encoder — §3A, superseded)        HGT encoder — not derived for SHARE)
   input projections      5,568        HGT encoder        1.311 GFLOP
   HGT encoder (L=4)    698,448        depth gates        0.065
   depth gates (×3)       6,636        Transformer 2      0.069
@@ -1280,9 +1496,16 @@ PARAMETERS                          FLOPs (full-graph forward)
   TOTAL                773,311
 ```
 
+**Production encoder swap:** the deployed encoder is SHARE (§3), 752,211 real
+measured params at matched-`d` (`rgcn_attn` in code) in place of the 698,448-param
+HGT row above — see §7.1's production note for the same caveat. SHARE's own FLOP
+cost hasn't been derived on paper the way HGT's was; only wall-clock training time
+is measured (`reports/rgcn_matched_pilot.md`).
+
 ## A.4 Citations
 
-- **HGT** — Hu, Dong, Wang & Sun (2020), *Heterogeneous Graph Transformer*
+- **HGT** — Hu, Dong, Wang & Sun (2020), *Heterogeneous Graph Transformer* (§3A, original baseline)
+- **RGCN / basis decomposition** — Schlichtkrull et al. (2018), *Modeling Relational Data with Graph Convolutional Networks* — SHARE's transform (§3.3) is built directly on this
 - **Jumping Knowledge** — Xu et al. (2018)
 - **GraphSAGE** — Hamilton, Ying & Leskovec (2017)
 - **GAT** — Veličković et al. (2018)
@@ -1313,6 +1536,11 @@ this — they were never claims about the absolute node/edge counts.
 
 The lineage claim to make, and to make precisely:
 
-> *A GraphTrans-style sequential hybrid with a heterogeneous (HGT) local stage, a structurally-primed depth gate between the stages, and a type-constrained, frontier-aware global stage — specialised for partially-observed heterogeneous networks with rare adverse events.*
+> *A GraphTrans-style sequential hybrid with a heterogeneous local stage (SHARE —
+> basis-shared relational transform + joint attention, `rgcn_attn` in code;
+> originally HGT, §3A, superseded after a four-round ablation,
+> `reports/rgcn_types.md`), a structurally-primed depth gate between the stages,
+> and a type-constrained, frontier-aware global stage — specialised for
+> partially-observed heterogeneous networks with rare adverse events.*
 
 That claim survives review. *"A new architecture"* would not.
