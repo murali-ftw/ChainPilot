@@ -469,7 +469,7 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | model_version | VARCHAR(50) | NOT NULL |
-| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer`, `rgcn`, **`rgcn_attn`** (current production value — documentation name SHARE, `project_HADES.md` §3) |
+| architecture | VARCHAR(100) | NOT NULL — e.g. `graphsage`, `gat`, `heterogeneous_graph_transformer`, `rgcn`, `rgcn_relemb` (SHARP), `rgcn_battn` (SHARK), **`rgcn_attn`** (current production value — documentation name SHARE, `project_HADES.md` §3) |
 | metric_name | VARCHAR(50) | NOT NULL — `precision`, `recall`, `f1`, `roc_auc`, `mae`, `rmse`, `mape` |
 | metric_value | NUMERIC(10,6) | NOT NULL |
 | dataset_split | dataset_split ENUM(`train`,`validation`,`test`) | NOT NULL, default `test` |
@@ -495,7 +495,7 @@ Tables are grouped by role, not by delivery phase — there is no product roadma
 |---|---|---|
 | id | UUID | PK, default `gen_random_uuid()` |
 | model_version | VARCHAR(50) | NOT NULL, UNIQUE |
-| architecture | VARCHAR(100) | NOT NULL — current production value `rgcn_attn` (documentation name SHARE, `project_HADES.md` §3); free text, no enum/CHECK constraint, so every historical value (`hgt`/`heterogeneous_graph_transformer`, `graphsage`, `gat`, `rgcn`, `rgcn_relemb`, `rgcn_battn`) stays queryable as-is |
+| architecture | VARCHAR(100) | NOT NULL — current production value `rgcn_attn` (documentation name SHARE, `project_HADES.md` §3); free text, no enum/CHECK constraint, so every historical value (`hgt`/`heterogeneous_graph_transformer`, `graphsage`, `gat`, `rgcn`, `rgcn_relemb` — documentation name SHARP, `rgcn_battn` — documentation name SHARK) stays queryable as-is |
 | training_dataset | VARCHAR(255) | NULL |
 | training_timestamp | TIMESTAMPTZ | NOT NULL |
 | experiment_id | VARCHAR(100) | NULL |

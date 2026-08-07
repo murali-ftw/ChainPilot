@@ -141,8 +141,8 @@ The full mathematical specification, worked numerical examples, parameter/FLOP b
 
 ### 8.1 Structural Encoder — Claim 1
 
-**Production architecture: SHARE** (Shared-basis Heterogeneous Attention Relational
-Encoder, `rgcn_attn` in code — the identifier is unchanged from the ablation runs
+**Production architecture: SHARE** (Shared Heterogeneous Attention over Relational
+Edges, `rgcn_attn` in code — the identifier is unchanged from the ablation runs
 below). Type-aware local structure via a basis-decomposed relation transform plus
 one shared attention scorer with a joint softmax across every relation feeding a
 destination node (`project_HADES.md` §3). `L = 4` layers, all four intermediate
@@ -163,7 +163,7 @@ restatement):
 | 3 | HGT | Graph is natively multi-typed (8 node types, 20 meta-relations); type-aware attention models that directly | Wins impact outright; loses shortage to GraphSAGE and (eventually) to every basis-sharing architecture |
 | 4 | RGCN | Basis-decomposition transform (Schlichtkrull et al. 2018) — relation cost shared, not fully dedicated per relation like HGT | Wins shortage consistently; HGT's worst-impact challenger |
 | 5 | **SHARE (`rgcn_attn`) — selected for production** | RGCN's transform + one shared attention scorer, joint softmax across relations | Wins delay and shortage consistently vs. HGT; ties impact — best net result of any architecture tried |
-| 6 | Two further RGCN+attention hybrids (`rgcn_relemb`, `rgcn_battn`) | Tested whether relation-identity signal or a second attention-dedicated basis pool improves on SHARE | Neither beats SHARE; `rgcn_battn` is markedly less seed-stable |
+| 6 | Two further RGCN+attention hybrids — **SHARP** (`rgcn_relemb`) and **SHARK** (`rgcn_battn`) | Tested whether relation-identity signal or a second attention-dedicated basis pool improves on SHARE | Neither beats SHARE; SHARK is markedly less seed-stable |
 
 All architectures trained/evaluated on the same held-out split, same loss and
 regularization, under a distinct `model_version` each (Section 11), **at both a

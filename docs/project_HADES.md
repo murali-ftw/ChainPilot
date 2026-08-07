@@ -4,8 +4,8 @@
 
 **Supersedes** the configuration in `architecture.md`, which predates the correctness audit. Where the two disagree, this document wins.
 
-> **Production architecture note (2026-08-07).** SHARE (Shared-basis Heterogeneous
-> Attention Relational Encoder, `rgcn_attn` in code) is ChainPilot's production
+> **Production architecture note (2026-08-07).** SHARE (Shared Heterogeneous
+> Attention over Relational Edges, `rgcn_attn` in code) is ChainPilot's production
 > architecture as of this date, selected after a four-round ablation against HGT,
 > GraphSAGE, GAT, and three other RGCN-family hybrids. See `reports/rgcn_types.md`
 > and `reports/info.md` for the full evidence trail. **The code-level identifier is
@@ -309,7 +309,7 @@ Before believing any result: **train on a single feature at a time.** If any sol
 
 # PART 3 — SHARE: THE STRUCTURAL ENCODER (PRODUCTION)
 
-*SHARE — Shared-basis Heterogeneous Attention Relational Encoder, `rgcn_attn` in
+*SHARE — Shared Heterogeneous Attention over Relational Edges, `rgcn_attn` in
 code — is ChainPilot's production structural encoder, selected over HGT (§3A),
 GraphSAGE, GAT, and two other RGCN-family hybrids after a four-round ablation
 (`reports/rgcn_types.md`). Everything below is real, measured behaviour — not the
@@ -436,8 +436,8 @@ meta-relations, including the four thinnest (`MANUFACTURED_AT`, `SUPPLIES`,
 measurement). Shortage's own causal signal draws directly on two of those four
 — exactly where a fully-dedicated parameterisation is most exposed to
 overfitting on sparse data, and exactly the task where every basis-sharing
-architecture tried (plain RGCN, SHARE, and SHARE's own two further hybrids)
-beats HGT consistently. SHARE adds a shared attention step on top of that
+architecture tried (plain RGCN, SHARE, and SHARE's own two further hybrids,
+SHARK and SHARP) beats HGT consistently. SHARE adds a shared attention step on top of that
 basis-sharing, closing HGT's other advantage (impact) to a tie without giving
 back the shortage or delay wins — the best net result of every architecture
 tried across four rounds of ablation (`reports/rgcn_types.md`'s closing table).
@@ -1234,10 +1234,10 @@ alongside `num_bases` — `hidden=138, num_bases=4` lands at 699,602 params,
 0.21% off HGT's anchor. See `ml/run_step_v4_4arch.py` for the full 4-arch,
 5-seed run matrix this round added.
 
-**Where this ended up: SHARE, not RGCN or HGT.** Two more RGCN-family hybrids
+**Where this ended up: SHARE, not RGCN or HGT.** Three more RGCN-family hybrids
 were added and ablated after the round documented above — RGCN+Attention
-(`rgcn_attn` in code, this is **SHARE**, §3) and two further variants
-(`rgcn_relemb`, `rgcn_battn`). Across all six architectures at matched
+(`rgcn_attn` in code, this is **SHARE**, §3) and two further variants,
+**SHARK** (`rgcn_battn`) and **SHARP** (`rgcn_relemb`). Across all six architectures at matched
 parameters, SHARE won delay and shortage consistently against HGT and tied on
 impact, beating every other architecture tried on more than one task
 (`reports/rgcn_types.md`'s closing comparison table). **SHARE is the production
