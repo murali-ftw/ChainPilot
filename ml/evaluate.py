@@ -40,8 +40,13 @@ def collect_predictions(model, bundles) -> dict[str, tuple[np.ndarray, np.ndarra
             idx, y = bundle.labels[task]
             if idx.numel() == 0:
                 continue
-            probs = torch.sigmoid(logits[task][idx]).numpy()
-            out[task][0].append(y.numpy())
+            # `.cpu()` before `.numpy()`: a no-op when `logits`/`y` are already
+            # CPU tensors (every architecture's default), but required when a
+            # model/bundle has been moved to a non-CPU device (Step 6 rung
+            # pilot's MPS device-check, `ml/run_rung5_variant_pilot.py`) --
+            # `.numpy()` alone raises on non-CPU tensors.
+            probs = torch.sigmoid(logits[task][idx]).cpu().numpy()
+            out[task][0].append(y.cpu().numpy())
             out[task][1].append(probs)
     return {
         task: (np.concatenate(ys) if ys else np.array([]), np.concatenate(ps) if ps else np.array([]))

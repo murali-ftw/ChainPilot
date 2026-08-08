@@ -114,6 +114,17 @@ def split_bundles(bundles: list[SnapshotBundle]) -> tuple[list, list, list]:
     return train, val, test
 
 
+def move_bundles_to_device(bundles: list[SnapshotBundle], device: str) -> None:
+    """In-place: moves each bundle's `.data` (HeteroData, native `.to()` support) and
+    `.labels` (task -> (idx, y) tensor pairs) to `device`. Call ONCE per device, before any
+    `train_model(..., device=...)` calls that use it -- `train_model` never moves bundle
+    tensors itself (see its docstring), so every run reusing these bundles gets the
+    transfer for free instead of paying it again per run."""
+    for bundle in bundles:
+        bundle.data = bundle.data.to(device)
+        bundle.labels = {task: (idx.to(device), y.to(device)) for task, (idx, y) in bundle.labels.items()}
+
+
 def compute_task_alphas(train_bundles: list[SnapshotBundle]) -> dict[str, float]:
     """Focal-loss alpha per task, from the TRAIN split's own positive rate
     (never from val/test -- alpha is a training hyperparameter, not something
@@ -158,8 +169,11 @@ def _mean_val_auc(model, val_bundles: list[SnapshotBundle]) -> float | None:
             idx, y = bundle.labels[task]
             if idx.numel() == 0 or y.unique().numel() < 2:
                 continue
-            probs = torch.sigmoid(logits[task][idx]).numpy()
-            aucs.append(roc_auc_score(y.numpy(), probs))
+            # `.cpu()` first: no-op on CPU tensors, required on MPS/other
+            # non-CPU devices -- see `ml/evaluate.py::collect_predictions`'s
+            # identical fix for the same reason.
+            probs = torch.sigmoid(logits[task][idx]).cpu().numpy()
+            aucs.append(roc_auc_score(y.cpu().numpy(), probs))
     return sum(aucs) / len(aucs) if aucs else None
 
 
@@ -168,7 +182,9 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                  hidden: int = 64, epochs: int = 100,
                  lr: float = 1e-3, weight_decay: float = 1e-4, seed: int = 0,
                  num_bases: int = 8, relation_embed_dim: int = 16, num_bases_attn: int = 8,
-                 lambda_kl: float = 0.1) -> dict:
+                 lambda_kl: float = 0.1, device: str = "cpu",
+                 rung5a_lambda_bound: float = 0.3,
+                 rung5c_freeze_epochs: int = 15, rung5c_lr_mult: float = 0.1) -> dict:
     """
     Train one model for `epochs` epochs (matching
     `docs/14_Model_Development_Roadmap.md` §6's "train for 100 epochs" --
@@ -202,8 +218,22 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     (Step 6 Phase 1) uses a FIXED, non-learned per-task depth instead, and
     'rgcn_attn_rung4'/'rgcn_attn_rung5' (Step 6 Phase 2, per-node depth-gate
     hybrids) use init-time prior-biasing instead of a training-time KL
-    penalty -- all three ignore `lambda_kl` entirely. All ignored by every
+    penalty -- all three ignore `lambda_kl` entirely. `rgcn_attn_rung5_a/b/c/d`
+    (Step 6 Phase 2, `reports/step6_rung_pilot.md`'s four isolated-variant
+    follow-ups to Rung 5) also ignore `lambda_kl`; `rung5a_lambda_bound`
+    applies only to 'rgcn_attn_rung5_a' (the tanh-bounded residual's scale,
+    `ml/models/rgcn_attn_rung5_variant_a.py`); `rung5c_freeze_epochs` /
+    `rung5c_lr_mult` apply only to 'rgcn_attn_rung5_c' (gate parameters are
+    frozen for the first `rung5c_freeze_epochs` epochs, then unfrozen at
+    `lr * rung5c_lr_mult` for the remainder -- a training-loop-only change,
+    same architecture class as 'rgcn_attn_rung5'). All ignored by every
     architecture they don't apply to.
+
+    `device`: every architecture supports it (`model.to(device)` below), but
+    the CALLER is responsible for having already moved `train_bundles` /
+    `val_bundles` (both `.data` and `.labels`) to the same device before
+    calling this function -- `train_model` itself never touches bundle
+    tensors' device placement, only the freshly-constructed model's.
     """
     torch.manual_seed(seed)
     metadata = train_bundles[0].data.metadata()
@@ -221,21 +251,68 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
         from ml.models.rgcn_attn_rung4_encoder import Rung4HADESModel
         model = Rung4HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                  num_bases=num_bases)
-    elif architecture == "rgcn_attn_rung5":
+    elif architecture in ("rgcn_attn_rung5", "rgcn_attn_rung5_c"):
+        # Variant C reuses Rung5HADESModel UNCHANGED (architecturally identical
+        # to the original) -- its only difference is the optimizer/freeze
+        # schedule set up below, not the model class. `model.architecture` is
+        # overridden so registry/eval logging reflects which id was actually
+        # requested.
         from ml.models.rgcn_attn_rung5_encoder import Rung5HADESModel
         model = Rung5HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                  num_bases=num_bases)
+        model.architecture = architecture
+    elif architecture == "rgcn_attn_rung5_a":
+        from ml.models.rgcn_attn_rung5_variant_a import Rung5VariantAHADESModel
+        model = Rung5VariantAHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases, lambda_bound=rung5a_lambda_bound)
+    elif architecture == "rgcn_attn_rung5_b":
+        from ml.models.rgcn_attn_rung5_variant_b import Rung5VariantBHADESModel
+        model = Rung5VariantBHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases)
+    elif architecture == "rgcn_attn_rung5_d":
+        from ml.models.rgcn_attn_rung5_variant_d import Rung5VariantDHADESModel
+        model = Rung5VariantDHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases)
     else:
         model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
                             shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
                             relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    model = model.to(device)
+
+    if architecture == "rgcn_attn_rung5_c":
+        # Freeze the gate for the first `rung5c_freeze_epochs` epochs (encoder
+        # + heads train normally on the Markov-prior-initialized readout,
+        # exactly like the `rgcn_attn_markov` arm would), then unfreeze the
+        # gate at a reduced LR for the rest of training -- testing whether
+        # letting the ENCODER settle first, before the gate is allowed to
+        # move the readout away from the validated prior, produces more
+        # stable per-node behaviour than training everything jointly from
+        # epoch 1 (the original Rung 5's approach,
+        # `reports/step6_rung_pilot.md`). A single optimizer with two param
+        # groups is used throughout (not rebuilt at the unfreeze point):
+        # `requires_grad=False` params produce no gradient at all, so AdamW's
+        # `step()` skips them for free -- no separate freeze-phase optimizer
+        # needed.
+        gate_params = list(model.gates.parameters())
+        gate_param_ids = {id(p) for p in gate_params}
+        other_params = [p for p in model.parameters() if id(p) not in gate_param_ids]
+        for p in gate_params:
+            p.requires_grad_(False)
+        optimizer = torch.optim.AdamW(
+            [{"params": other_params, "lr": lr}, {"params": gate_params, "lr": lr * rung5c_lr_mult}],
+            weight_decay=weight_decay,
+        )
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     alphas = compute_task_alphas(train_bundles)
     losses = {task: FocalLoss(gamma=2.0, alpha=alphas[task]) for task in TASKS}
 
     best_state, best_auc, best_epoch = None, -1.0, -1
     history = []
     for epoch in range(1, epochs + 1):
+        if architecture == "rgcn_attn_rung5_c" and epoch == rung5c_freeze_epochs + 1:
+            for p in gate_params:
+                p.requires_grad_(True)
         model.train()
         epoch_loss = 0.0
         for bundle in train_bundles:
@@ -279,9 +356,16 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "optimizer": "AdamW", "seed": seed,
             "lambda_kl": lambda_kl if architecture == "rgcn_attn_depthgate" else None,
             "gate_weights": gate_weights,
-            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate", "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5") else None,
+            "num_bases": num_bases if architecture in (
+                "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate",
+                "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5", "rgcn_attn_rung5_a",
+                "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_d") else None,
             "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
             "num_bases_attn": num_bases_attn if architecture == "rgcn_battn" else None,
+            "device": device,
+            "rung5a_lambda_bound": rung5a_lambda_bound if architecture == "rgcn_attn_rung5_a" else None,
+            "rung5c_freeze_epochs": rung5c_freeze_epochs if architecture == "rgcn_attn_rung5_c" else None,
+            "rung5c_lr_mult": rung5c_lr_mult if architecture == "rgcn_attn_rung5_c" else None,
         },
     }
 
@@ -322,13 +406,19 @@ def run_training_job(conn, model_version: str, architecture: str, train_bundles,
                       depth_prior: dict[str, int] | None = None, hidden: int = 64,
                       epochs: int = 100, seed: int = 0, purpose: str = "",
                       num_bases: int = 8, relation_embed_dim: int = 16,
-                      num_bases_attn: int = 8, lambda_kl: float = 0.1) -> dict:
-    """Register -> train -> activate, one call per model_registry row."""
+                      num_bases_attn: int = 8, lambda_kl: float = 0.1, device: str = "cpu",
+                      rung5a_lambda_bound: float = 0.3, rung5c_freeze_epochs: int = 15,
+                      rung5c_lr_mult: float = 0.1) -> dict:
+    """Register -> train -> activate, one call per model_registry row. `device`: see
+    `train_model`'s docstring -- `train_bundles`/`val_bundles` must already be on `device`
+    if it isn't `"cpu"`."""
     result = train_model(architecture, train_bundles, val_bundles, num_layers=num_layers,
                           shared_depth=shared_depth, depth_prior=depth_prior, hidden=hidden,
                           epochs=epochs, seed=seed, num_bases=num_bases,
                           relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn,
-                          lambda_kl=lambda_kl)
+                          lambda_kl=lambda_kl, device=device,
+                          rung5a_lambda_bound=rung5a_lambda_bound,
+                          rung5c_freeze_epochs=rung5c_freeze_epochs, rung5c_lr_mult=rung5c_lr_mult)
     register_model(conn, model_version, architecture, result["hyperparameters"],
                    result["model"].parameter_count(), purpose)
     activate_model(conn, model_version, "active")

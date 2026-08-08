@@ -1,17 +1,18 @@
 # ChainPilot / HADES — Architecture Reference
 
-Graph structure, the six architectures tested to date, why each was tried, why each
-was or wasn't kept, the layer-by-layer mechanics of each, and the one remaining
-design still on the table. All numbers below are real, measured results from
-`reports/step5_result_v4_4arch.md`, `reports/rgcn_attn_pilot.md`, and
-`reports/rgcn_matched_pilot.md` — nothing here is estimated or assumed.
+Graph structure, encoder architecture selection (**Layer 1**), and per-task depth selection on
+top of the winning encoder (**Layer 2**) — why each design was tried, why it was or wasn't kept,
+the layer-by-layer mechanics of each, and what's still on the table. All numbers below are real,
+measured results from `reports/layer1.md`, `reports/layer2.md`, `reports/rgcn_types.md`, and
+`reports/entropy_test.md` — nothing here is estimated or assumed.
 
 ---
 
-## 1. Naming legend
+# LAYER 1 — Core Encoder Architecture
 
-Terminology drifted over the course of this project's architecture line of work, so
-here's the mapping used consistently in this document:
+Which encoder computes the shared node representations every prediction task reads from.
+
+## 1. Naming legend
 
 | Name used here | What it is | Status |
 |---|---|---|
@@ -19,9 +20,9 @@ here's the mapping used consistently in this document:
 | GAT | Type-blind, attention within each relation only | Tested |
 | HGT | Full per-relation-type transform + attention, HGT's native design | Tested |
 | RGCN | Basis-decomposition transform (shared pool), no attention | Tested |
-| **RGCN + Attention** ("opt1") | RGCN's transform + one shared, relation-agnostic attention scorer | Tested |
-| **RGCN + Relation Embedding** ("opt2") | RGCN + Attention's scorer, plus a small per-relation embedding fed into it | Tested |
-| RGCN + Basis-Decomposed Attention ("opt3" / next step) | A *second*, separate basis pool dedicated purely to attention scoring | **Not yet built or tested** |
+| **SHARE** (RGCN + Attention, code: `rgcn_attn`) | RGCN's transform + one shared, relation-agnostic attention scorer | Tested — **production default** |
+| **SHARP** (RGCN + Relation Embedding, code: `rgcn_relemb`) | SHARE's scorer + a small per-relation embedding fed into it | Tested |
+| **SHARK** (RGCN + Basis-Decomposed Attention, code: `rgcn_battn`) | A *second*, separate basis pool dedicated purely to attention scoring | **Tested** |
 
 ---
 
@@ -46,7 +47,7 @@ graph LR
     Order((Order))
     Customer((Customer))
 
-    Supplier -->|"SUPPLIES *(thin, 2,400 edges)*"| Component
+    Supplier -->|"SUPPLIES *(thin, 2,820 edges)*"| Component
     Component -->|"USED_IN *(thin, 7,092 edges)*"| Product
     Product -->|"STOCKED_AT *(thin, 3,194 edges)*"| Warehouse
     Product -->|"MANUFACTURED_AT *(thin, 1,933 edges)*"| Factory
@@ -61,26 +62,13 @@ graph LR
 Every arrow above is mirrored by `ToUndirected()` into an identical reverse edge
 (e.g. `SUPPLIES: Supplier→Component` also produces `rev_SUPPLIES: Component→Supplier`)
 — 10 forward + 10 reverse = the full 20 meta-relations every encoder actually sees.
+`SUPPLIES`'s real count (2,820, not the earlier-assumed 2,400) reflects dual-sourcing
+being actively loaded in the live dataset — 2,400 mandatory + 420 secondary-supplier
+edges (`reports/entropy_test.md`).
 
-**All 20, explicitly:**
-
-| # | Forward relation | # | Reverse relation |
-|---|---|---|---|
-| 1 | Supplier —SUPPLIES→ Component *(thin)* | 11 | Component —rev_SUPPLIES→ Supplier |
-| 2 | Component —USED_IN→ Product *(thin)* | 12 | Product —rev_USED_IN→ Component |
-| 3 | Product —STOCKED_AT→ Warehouse *(thin)* | 13 | Warehouse —rev_STOCKED_AT→ Product |
-| 4 | Product —MANUFACTURED_AT→ Factory *(thin)* | 14 | Factory —rev_MANUFACTURED_AT→ Product |
-| 5 | Shipment —SHIPS_FROM→ Supplier | 15 | Supplier —rev_SHIPS_FROM→ Shipment |
-| 6 | Shipment —SHIPS_FROM→ Factory | 16 | Factory —rev_SHIPS_FROM→ Shipment |
-| 7 | Shipment —SHIPS_TO→ Warehouse | 17 | Warehouse —rev_SHIPS_TO→ Shipment |
-| 8 | Shipment —FULFILLS→ Order | 18 | Order —rev_FULFILLS→ Shipment |
-| 9 | Order —ORDERED→ Product | 19 | Product —rev_ORDERED→ Order |
-| 10 | Order —PLACED_BY→ Customer | 20 | Customer —rev_PLACED_BY→ Order |
-
-Real per-node-type feature dimensions (recomputed live, unchanged since v3):
-Supplier=14, Component=6, Product=13, Factory=6, Warehouse=7, Shipment=7, Order=5,
-Customer=3 — every architecture projects these into the same shared hidden
-dimension before anything else happens.
+Real per-node-type feature dimensions: Supplier=14, Component=6, Product=13, Factory=6,
+Warehouse=7, Shipment=7, Order=5, Customer=3 — every architecture projects these into
+the same shared hidden dimension before anything else happens.
 
 **Three prediction tasks:** delay (targets Shipment), shortage (targets Product),
 impact (targets Supplier).
@@ -92,210 +80,174 @@ impact (targets Supplier).
 ### GraphSAGE
 
 **Why we tried it.** The cheapest possible baseline — one shared transform for every
-relation, no exceptions. Establishes the floor: what accuracy is achievable with zero
-relation-awareness at all.
+relation, no exceptions. Establishes the floor.
 
-**Positives — theory.** Extremely low parameter count relative to its capacity;
-maximal sharing means every relation's data contributes to the same one estimate, so
-nothing gets starved.
+**Positives — numbers.** Delay AUC 0.8053 ± 0.0040 at fixed-d=64 — highest raw mean of
+any architecture on delay (statistically tied with HGT and RGCN, not a confirmed win).
 
-**Positives — numbers.** Delay AUC 0.8053 ± 0.0040 at fixed-d=64 — the highest raw
-mean of any architecture on delay (though statistically tied with HGT and RGCN, not
-a confirmed win). Reasonably competitive on shortage (0.7857 ± 0.0047).
+**Negatives — numbers.** Impact AUC only 0.8912 ± 0.0046 — clearly behind HGT (0.9335)
+and SHARE (0.9393).
 
-**Negatives — theory.** No way to distinguish a SUPPLIES edge from a STOCKED_AT edge;
-no attention, so every neighbor within a relation is averaged in identically
-regardless of relevance.
-
-**Negatives — numbers.** Impact AUC only 0.8912 ± 0.0046 — clearly behind HGT
-(0.9335) and RGCN+Attention (0.9387–0.9393).
-
-**Why not chosen.** Never wins outright on any task (best case is a statistical tie
-on delay); loses clearly on impact; superseded on every task by RGCN+Attention, which
-matches or beats it while adding genuine relation-awareness.
+**Why not chosen.** Never wins outright on any task; superseded on every task by SHARE.
 
 ---
 
 ### GAT
 
-**Why we tried it.** Isolates whether attention *alone* — with no relation-type
-awareness and no basis-sharing — explains any of HGT's advantage. Deliberately kept
-single-head to preserve this project's documented matched-parameter capacity
-ordering (GAT < GraphSAGE < HGT at equal parameter budgets).
+**Why we tried it.** Isolates whether attention *alone* — no relation-type awareness,
+no basis-sharing — explains any of HGT's advantage.
 
-**Positives — theory.** Can single out one dominant neighbor within a given
-relation's own edges (though never across relations — see negatives).
+**Positives — numbers.** The only baseline that beats GraphSAGE on impact (0.9138 vs
+0.8912) — evidence attention itself helps there.
 
-**Positives — numbers.** The only baseline architecture that beats GraphSAGE on
-impact (0.9138 ± 0.0050 vs GraphSAGE's 0.8912) — direct evidence that attention
-itself helps there, even without relation-awareness.
+**Negatives — numbers.** Clear worst performer on delay (0.7467) and shortage (0.6728
+— both the lowest mean and highest variance measured for any architecture on any task).
 
-**Negatives — theory.** Completely relation- and type-blind — cannot represent any
-relation-specific reasoning at all. Attention is a per-relation-then-summed
-mechanism here (via `HeteroConv` wrapping one `GATConv` per relation), so it can't
-even compare importance *across* relations, only within one relation's own edges at
-a time.
-
-**Negatives — numbers.** Clear worst performer on delay (0.7467 ± 0.0080) and by far
-the worst on shortage (0.6728 ± 0.0248 — both the lowest mean *and* the highest
-seed-to-seed variance measured for any architecture on any task). Never beats HGT on
-anything.
-
-**Why not chosen.** Consistently the weakest architecture across every round tested;
-retained only as a diagnostic that isolates "attention with zero relation-awareness."
+**Why not chosen.** Consistently the weakest architecture across every round.
 
 ---
 
 ### HGT
 
-**Why we tried it.** The project's original, documented architecture — the most
-expressive design tested: every one of the 20 meta-relations gets its own fully
-independent attention/message matrices, plus a single joint softmax across all of a
-node's neighbors regardless of relation.
-
-**Positives — theory.** Maximum expressiveness — nothing forces any two relations to
-behave similarly; can single out one standout neighbor from anywhere in a node's
-full incoming edge set.
+**Why we tried it.** The project's original architecture — every one of the 20
+meta-relations gets its own fully independent attention/message matrices.
 
 **Positives — numbers.** Decisively, consistently the best on impact in every round
-tested: 0.9335 ± 0.0022, never confirmed beaten by a properly paired test (RGCN+Attn
-ties it, doesn't clearly exceed it, at either parameter scale).
+tested: 0.9335 ± 0.0022 — undefeated by any architecture across the project's whole
+history, including all three RGCN-attention hybrids.
 
-**Negatives — theory.** Every one of the four thin relations (1,933–7,092 edges) has
-to independently estimate a full `hidden × hidden` matrix from a fraction of the
-data the denser relations get — a textbook high-variance/overfitting setup.
+**Negatives — numbers.** Loses consistently to the RGCN family on shortage in every
+round (RGCN: +0.0118–0.0152; SHARE: +0.0147–0.0162 in their favor).
 
-**Negatives — numbers.** Loses consistently to RGCN-family architectures on shortage
-in *every* round tested (RGCN: +0.0118 to +0.0152; RGCN+Attn: +0.0147 to +0.0162 in
-its favor), and never confirmed ahead of RGCN+Attention on delay either (statistical
-tie in every round, despite HGT's extra machinery).
-
-**Why not chosen as the sole model.** Its entire advantage is concentrated on one
-task; the exact mechanism that wins it impact (full per-relation independence) is
-the same mechanism that loses it shortage. RGCN+Attention now matches or exceeds it
-on all three tasks simultaneously, at comparable parameter cost once matched.
+**Why not chosen as the sole model.** Its entire advantage is concentrated on impact;
+SHARE now matches or exceeds it on all three tasks simultaneously.
 
 ---
 
 ### RGCN (plain)
 
-**Why we tried it.** The direct test of the thin-relation-overfitting hypothesis:
-replace HGT's full independence with cheap, structured basis-decomposition sharing
-(`W_r = Σ_b a_rb · V_b`) and see if shortage recovers.
+**Why we tried it.** Direct test of the thin-relation-overfitting hypothesis: replace
+HGT's full independence with basis-decomposition sharing.
 
-**Positives — theory.** Thin relations only need to learn a handful of blending
-coefficients (a `num_bases`-length recipe) rather than an entire matrix, sharply
-reducing what has to be estimated from scarce data.
+**Positives — numbers.** Consistent win over HGT on shortage in every round: +0.0118 to
++0.0152, the cleanest confirmation of the thin-relation hypothesis.
 
-**Positives — numbers.** Consistent, reproducible win over HGT on shortage in every
-round: +0.0118 to +0.0152 depending on the round, always holding sign across all 5
-seeds — the first clean confirmation of the thin-relation hypothesis in this
-project.
+**Negatives — numbers.** Worst performer on impact of every architecture tried,
+including every hybrid: 0.8509–0.8699.
 
-**Negatives — theory.** No attention at all — every neighbor within a relation
-averaged flatly, every relation's average summed in with equal weight regardless of
-how informative it actually is for this specific node.
-
-**Negatives — numbers.** Worst performer on impact of the four original
-architectures: 0.8676–0.8699, clearly behind even GraphSAGE (0.8912), let alone HGT
-(0.9335) — basis-sharing trades away exactly the specialization impact needs.
-
-**Why not chosen as final.** Loses badly and consistently on impact; directly
-superseded once attention was added on top.
+**Why not chosen as final.** Loses badly on impact; directly superseded once attention
+was added.
 
 ---
 
-### RGCN + Attention ("opt1")
+### SHARE — RGCN + Attention (`rgcn_attn`)
 
 **Why we tried it.** Tests whether attention alone — kept fully relation-blind, added
-cheaply on top of RGCN's already-working transform — recovers what plain RGCN was
-missing on impact, without giving up shortage's advantage.
+cheaply on top of RGCN's transform — recovers impact without giving up shortage.
 
-**Positives — theory.** Keeps RGCN's exact thin-relation protection intact, while
-adding the one capability RGCN structurally lacked: a joint, cross-relation softmax
-that can single out one standout neighbor regardless of which relation it arrived
-through.
+**Positives — theory.** Keeps RGCN's thin-relation protection intact, adds a joint,
+cross-relation softmax that can single out one standout neighbor regardless of relation.
 
-**Positives — numbers.** The strongest single result in the whole project. At
-fixed-d=64 (170,984 params): delay 0.8127 ± 0.0035, shortage 0.7985 ± 0.0023, impact
-0.9393 ± 0.0098 — beats HGT consistently on delay (+0.0112) and shortage (+0.0162),
-ties on impact (raw mean *above* HGT's). At matched-d (hidden=128, num_bases=10,
-752,211 params — 0.17% off HGT's own anchor): delay 0.8118 ± 0.0035, shortage 0.7971
-± 0.0024, impact 0.9387 ± 0.0051 — **every task moved by less than 0.0015 from the
-fixed-d numbers**, confirming this is a real mechanism advantage, not a
-smaller-model-regularizes-better artifact. Still beats HGT consistently on delay
-(+0.0103) and shortage (+0.0147) at matched scale.
+**Positives — numbers.** The strongest single result in the project. Matched-d
+(hidden=128, num_bases=10, 752,211 params — 0.17% off HGT's own anchor): delay 0.8105–
+0.8118, shortage 0.7971–0.7982, impact 0.9365–0.9393. Beats HGT consistently on delay
+(+0.0103–0.0112) and shortage (+0.0147–0.0167), ties on impact. Moved by less than
+0.0015 per task between fixed-d and matched-d — a real mechanism advantage, not a
+smaller-model-regularizes-better artifact.
 
 **Negatives — theory.** The attention scorer is fully shared and relation-blind — it
-cannot learn that "important" looks structurally different for a SUPPLIES edge than
-a STOCKED_AT edge, even if a task genuinely needed that distinction.
+cannot learn that "important" looks different for a SUPPLIES edge than a STOCKED_AT
+edge.
 
-**Negatives — numbers.** Impact remains only a statistical tie with HGT, not a
-confirmed win — and the current matched-d comparison against HGT specifically uses a
-weaker *unpaired* test, since HGT was never retrained with a checkpoint persisted for
-a true paired comparison. That's a methodology gap, not a performance one, but it
-means impact's real status is still slightly open.
-
-**Current status.** The leading candidate architecture in the project, pending one
-fairer paired retest on impact, and pending its own over-smoothing/depth profile
-being measured before it can be trusted inside a future depth-gate (Transformer 1).
+**Current status.** **Production default.** Best-supported candidate across four rounds
+of hybrid experimentation (plain RGCN, and SHARE/SHARP/SHARK) — no other variant beats
+it on more than one task, and it is the cheapest of the three hybrids to build and train.
 
 ---
 
-### RGCN + Relation Embedding ("opt2")
+### SHARP — RGCN + Relation Embedding (`rgcn_relemb`)
 
-**Why we tried it.** Tests whether giving the shared attention scorer a small amount
-of relation-identity context — a per-relation embedding vector fed in alongside the
-message — recovers any further benefit beyond what fully relation-blind attention
-already captured.
+**Why we tried it.** Tests whether giving the shared attention scorer a small amount of
+relation-identity context recovers any further benefit beyond fully relation-blind
+attention.
 
-**Positives — theory.** Cheap way to make attention at least partially
-relation-aware, without the cost or overfitting exposure of giving every relation its
-own full attention matrix.
+**Positives — theory.** Cheap way to make attention partially relation-aware, without
+giving every relation its own full attention matrix.
 
-**Positives — numbers.** Beats HGT consistently on shortage (+0.0167 across all 5
-seeds at matched-d) — the third independent mechanism (after plain RGCN and
-RGCN+Attention) to reproduce that specific win.
+**Positives — numbers.** Beats HGT consistently on shortage (+0.0167 at matched-d) —
+the third independent mechanism to reproduce that specific win.
 
-**Negatives — theory.** The message a relation-specific transform produces (`W_r ·
-h_j`) already implicitly carries that relation's "fingerprint," since `W_r` was built
-from that relation's own basis-blended recipe. Handing the attention step an
-*explicit* relation tag on top is, in large part, redundant with information the
-scorer can already infer from the message's own content.
+**Negatives — theory.** The message a relation-specific transform produces already
+implicitly carries that relation's fingerprint — an explicit relation tag on top is
+largely redundant with information the scorer can already infer.
 
-**Negatives — numbers.** Statistically tied with RGCN+Attention on all three tasks —
-every paired delta flips sign across seeds (delay +0.0013, shortage −0.0020, impact
-+0.0018, none significant) — despite costing more parameters (388 more at matched
-hidden, plus needing its own capacity re-search) and beating HGT on only one task
-(shortage) versus RGCN+Attention's two (delay and shortage).
+**Negatives — numbers.** Statistically tied with SHARE on all three tasks (every paired
+delta flips sign across seeds), despite costing more parameters, and beats HGT on only
+one task (shortage) versus SHARE's two.
 
-**Why not chosen over RGCN + Attention.** Adds real cost and complexity for no
-measurable accuracy benefit. The simpler design remains the better default.
+**Why not chosen over SHARE.** Adds real cost and complexity for no measurable accuracy
+benefit.
+
+---
+
+### SHARK — RGCN + Basis-Decomposed Attention (`rgcn_battn`)
+
+**Why we tried it.** The last untested point on the "how relation-aware should
+attention be" dial — instead of a shared scorer (SHARE) or a shared scorer plus a small
+tag (SHARP), give every relation its own dedicated attention-scoring *matrix*, built the
+same cheap way the transform matrices already are: a second, separate basis pool
+(`att_basis`, `att_coeff`), distinct from the pool used for message content —
+`A_r = Σ_b(c_rb·Q_b)`, bilinear score `e_ij = (h_i^T·A_r·h_j)/√hidden`.
+
+**Positives — theory.** The most expressive of the three attention designs — relations
+could genuinely disagree about what "important" means, not just about what the message
+content says.
+
+**Positives — numbers.** Delay and shortage land in the same range as SHARE/SHARP
+(matched: hidden=110, num_bases=9, num_bases_attn=16, 701,310 params — delay 0.8113 ±
+0.0052, shortage 0.7956 ± 0.0013).
+
+**Negatives — theory.** Reopens real per-relation parameter estimation inside
+attention — even basis-shared, it's relation-specific, exposing it to the same
+overfitting pattern that hurt HGT on the four thin relations.
+
+**Negatives — numbers.** Impact's std (0.0559) is an order of magnitude wider than
+either other hybrid's (SHARE: 0.0058, SHARP: 0.0071) — driven by a single outlier seed
+(seed1: impact=0.8016 vs 0.9433/0.9468/0.9464/0.9189 for the other four). The most
+expressive, most expensive design also shows the most fragile training dynamics, at
+roughly double the relational parameter cost of the vector-scorer hybrids, for no
+accuracy gain.
+
+**Why not chosen.** Neither better on average nor more stable than SHARE or SHARP on
+any task — the extra expressiveness buys measurable training fragility without a
+measurable return.
 
 ---
 
 ## 4. Overall comparison
 
-| Architecture | Arm | Encoder params | Delay AUC | Shortage AUC | Impact AUC |
+| Architecture | Arm | Params (matched-d) | Delay AUC | Shortage AUC | Impact AUC |
 |---|---|---:|---|---|---|
-| GraphSAGE | fixed-d=64 | 664,896 | 0.8053 ± 0.0040 | 0.7857 ± 0.0047 | 0.8912 ± 0.0046 |
-| GAT | fixed-d=64 | 347,456 | 0.7467 ± 0.0080 | 0.6728 ± 0.0248 | 0.9138 ± 0.0050 |
-| HGT | fixed-d=64 (= matched-d) | 701,088 | 0.8015 ± 0.0106 | 0.7824 ± 0.0057 | **0.9335 ± 0.0022** |
-| RGCN | fixed-d=64 | 170,464 | 0.8018 ± 0.0016 | 0.7942 ± 0.0037 | 0.8676 ± 0.0122 |
-| **RGCN + Attention** | fixed-d=64 | 170,984 | **0.8127 ± 0.0035** | 0.7985 ± 0.0023 | 0.9393 ± 0.0098 |
-| **RGCN + Attention** | matched-d | 752,211 | 0.8118 ± 0.0035 | 0.7971 ± 0.0024 | 0.9387 ± 0.0051 |
-| RGCN + RelEmbedding | matched-d *(no fixed-d run exists)* | 752,599 | 0.8105 ± 0.0031 | **0.7991 ± 0.0010** | 0.9369 ± 0.0047 |
+| GraphSAGE | matched-d=66 | 720,261 | 0.8032 | 0.7898 | 0.8889 |
+| GAT | matched-d=92 | 731,495 | 0.7400 | 0.6560 | 0.9182 |
+| HGT | d=64 (fixed = matched) | 713,763 | 0.8015 | 0.7824 | **0.9335** |
+| RGCN | matched-d=138, num_bases=4 | 757,565 | 0.8044 | 0.7976 | 0.8509 |
+| **SHARE** | matched-d=128, num_bases=10 | 752,211 | **0.8105–0.8118** | 0.7971–0.7982 | 0.9365–0.9393 |
+| SHARP | matched-d=128, num_bases=10, relemb=16 | 752,599 | 0.8100–0.8105 | **0.7988–0.7991** | 0.9366–0.9369 |
+| SHARK | hidden=110, num_bases=9, num_bases_attn=16 | 738,273 | 0.8113 | 0.7956 | 0.9114 (unstable, std 0.056) |
 
-Bold = best mean per column. RGCN+Attention is the only architecture with the best
-or statistically-tied-for-best result on all three tasks simultaneously.
+Bold = best mean per column, among directly comparable matched-parameter results. SHARE
+is the only architecture with the best or statistically-tied-for-best result on all
+three tasks simultaneously, and the only one that never shows elevated seed-to-seed
+instability.
 
 ---
 
 ## 5. How each one actually works, layer by layer
 
 Every encoder shares the same entry point (`Linear_in` per node type into a common
-hidden dimension) and the same exit contract (every layer's output saved, `h¹…h⁴`,
-not just the last) — what differs is entirely inside the box below.
+hidden dimension) and the same exit contract (every layer's output saved, `h¹…h⁴`) —
+what differs is entirely inside the box below.
 
 ### GraphSAGE
 
@@ -348,7 +300,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["Raw features x_v, per node type"] --> B["Linear_in per node type -> shared hidden dim h"]
-    B --> C["Shared basis pool V_b (b=1..8), ONE pool for the whole encoder"]
+    B --> C["Shared basis pool V_b, ONE pool for the whole encoder"]
     C --> D["Per relation r: W_r = sum_b(a_rb * V_b) - a short recipe, not a full matrix"]
     D --> E["Message m_ij = W_r * h_j, mean-aggregated WITHIN each relation"]
     E --> F["Sum every relation's aggregate into the destination node"]
@@ -359,10 +311,10 @@ flowchart TD
     I -->|no| J["Output: h1...h4 saved per layer"]
 ```
 
-### The crack — what changes going from RGCN to RGCN + Attention
+### The crack — plain RGCN's aggregation, replaced three different ways
 
-This is the exact step that gets cracked open and replaced. Everything upstream of
-it (input projection, basis pool, per-relation transform) stays identical.
+Everything upstream of this step (input projection, basis pool, per-relation
+transform) stays identical across SHARE/SHARP/SHARK — only this one step changes.
 
 ```mermaid
 flowchart LR
@@ -370,14 +322,24 @@ flowchart LR
         direction TB
         B1["Per relation: mean-aggregate its own edges"] --> B2["Sum every relation's average - equal weight, no exceptions"]
     end
-    subgraph AFTER["RGCN + Attention - same step, cracked open and replaced"]
+    subgraph SHARE_C["SHARE - shared scorer"]
         direction TB
-        A1["Pool every relation's edges into ONE list"] --> A2["Shared scorer + ONE joint softmax across all of them"] --> A3["Weighted sum - one dominant edge can now dominate"]
+        S1["Pool every relation's edges into ONE list"] --> S2["Shared scorer + ONE joint softmax"] --> S3["Weighted sum"]
     end
-    BEFORE -. "THE CRACK" .-> AFTER
+    subgraph SHARP_C["SHARP - shared scorer + relation tag"]
+        direction TB
+        P1["Pool every relation's edges"] --> P2["Shared scorer + small per-relation embedding added"] --> P3["ONE joint softmax + weighted sum"]
+    end
+    subgraph SHARK_C["SHARK - per-relation attention matrix"]
+        direction TB
+        K1["Second basis pool, dedicated to attention"] --> K2["Per-relation bilinear matrix A_r"] --> K3["ONE joint softmax + weighted sum"]
+    end
+    BEFORE -. "THE CRACK, three ways" .-> SHARE_C
+    BEFORE -. " " .-> SHARP_C
+    BEFORE -. " " .-> SHARK_C
 ```
 
-### RGCN + Attention ("opt1") — full layer flow
+### SHARE — full layer flow
 
 ```mermaid
 flowchart TD
@@ -385,10 +347,9 @@ flowchart TD
     B --> C["Shared basis pool V_b - UNCHANGED from plain RGCN"]
     C --> D["Per relation r: W_r = sum_b(a_rb * V_b) - UNCHANGED"]
     D --> E["Message m_ij = W_r * h_j - UNCHANGED"]
-    E --> Z["CRACK: relation-by-relation mean+sum REPLACED below"]
-    Z --> F["Pool msg / logit / destination-index from EVERY relation feeding this node"]
+    E --> F["Pool msg / logit / destination-index from EVERY relation feeding this node"]
     F --> G["Shared scorer, same for every relation: e_ij = LeakyReLU(a_msg.m_ij + a_dst.h_i)"]
-    G --> H["ONE joint softmax across the pooled edge set - cross-relation, like HGT's scope"]
+    G --> H["ONE joint softmax across the pooled edge set"]
     H --> I["Weighted sum: alpha_ij * m_ij"]
     I --> J["Add self-loop: h_i_new = SelfLoop(h_i) + weighted sum"]
     J --> K["ReLU + Dropout"]
@@ -397,7 +358,7 @@ flowchart TD
     L -->|no| M["Output: h1...h4 saved per layer"]
 ```
 
-### RGCN + Relation Embedding ("opt2") — full layer flow
+### SHARP — full layer flow
 
 ```mermaid
 flowchart TD
@@ -406,8 +367,28 @@ flowchart TD
     C --> D["Per relation r: W_r = sum_b(a_rb * V_b) - UNCHANGED"]
     D --> E["Message m_ij = W_r * h_j - UNCHANGED"]
     E --> F["Pool msg / logit / destination-index from EVERY relation feeding this node"]
-    F --> N["NEW: small learned relation embedding e_r, ~16 numbers per relation"]
+    F --> N["NEW: small learned relation embedding e_r, 16 numbers per relation"]
     N --> G["Shared scorer + relation tag: e_ij = LeakyReLU(a_msg.m_ij + a_dst.h_i + a_rel.e_r)"]
+    G --> H["ONE joint softmax across the pooled edge set"]
+    H --> I["Weighted sum: alpha_ij * m_ij"]
+    I --> J["Add self-loop"]
+    J --> K["ReLU + Dropout"]
+    K --> L{"l < 4 ?"}
+    L -->|yes| D
+    L -->|no| M["Output: h1...h4 saved per layer"]
+```
+
+### SHARK — full layer flow
+
+```mermaid
+flowchart TD
+    A["Raw features x_v, per node type"] --> B["Linear_in per node type -> shared hidden dim h"]
+    B --> C["Shared basis pool V_b - UNCHANGED, for message content only"]
+    C --> D["Per relation r: W_r = sum_b(a_rb * V_b) - UNCHANGED"]
+    D --> E["Message m_ij = W_r * h_j - UNCHANGED"]
+    E --> Q["NEW: SECOND basis pool Q_b, dedicated purely to attention"]
+    Q --> R["Per relation r: A_r = sum_b(c_rb * Q_b) - a full matrix, not a vector"]
+    R --> G["Bilinear score: e_ij = (h_i^T . A_r . h_j) / sqrt(hidden)"]
     G --> H["ONE joint softmax across the pooled edge set"]
     H --> I["Weighted sum: alpha_ij * m_ij"]
     I --> J["Add self-loop"]
@@ -419,52 +400,322 @@ flowchart TD
 
 ---
 
-## 6. Next step — RGCN + Basis-Decomposed Attention ("opt3")
+## 6. Open items
 
-**Status: not yet built, not yet tested. Theoretical design only — no numbers exist
-for this one.**
+- SHARK's impact instability (std 0.0559, one outlier seed) is unexplained beyond "more
+  expressive, more overfitting exposure" — not root-caused to a specific relation or
+  mechanism.
+- SHARE's win over HGT on impact remains a statistical tie, not a confirmed win, under
+  every test run so far — the current comparisons against HGT are unpaired since no HGT
+  checkpoint has ever been persisted.
+- All three hybrids independently reproduce the same anti-smoothing pattern on Shipment
+  embeddings (similarity *falling* with depth, the opposite of every other node type) —
+  an architecture-independent property of the graph, not a model artifact. This directly
+  motivated Layer 2's depth-selection work, below.
 
-Both attention variants tested so far kept the scorer either fully shared (opt1) or
-shared-plus-a-small-tag (opt2). The one remaining point on that dial is the most
-expensive: give every relation its **own dedicated attention-scoring matrix**,
-built the same cheap way the transformation matrices already are — a second,
-*separate* small shared basis pool, dedicated purely to attention, distinct from the
-pool used for message content:
+---
 
+# LAYER 2 — Per-Task Depth Selection on SHARE
+
+SHARE's encoder computes `h⁰…h⁴` — the node's representation at every depth from the raw
+input projection through the full 4-layer trunk. Every architecture in Layer 1 read only
+`h⁴` (the final layer) for every task. Layer 2 is the investigation into whether a
+shallower or task-specific read does better, and what the cheapest reliable way to
+exploit that is.
+
+## 1. Naming legend
+
+| Name used here | What it is | Status |
+|---|---|---|
+| Learned Task Gate | One learned depth-weight vector per task, KL-anchored to a prior | Tested |
+| **Markov Floor** (code: `rgcn_attn_markov`) | Zero-parameter, per-task fixed depth derived from graph structure | Tested — **production default** |
+| Rung 4 | Per-node attention-based gate over the 5 depth tokens | Tested |
+| Rung 5 | Per-node MLP gate over a pooled depth representation | Tested |
+| **Variant A** (bounded residual on Rung 5) | Fixed Markov prior + a small, capped learned correction | Tested — **recommended upgrade over Markov alone** |
+| Variant B (structural features) | Rung 5 + explicit degree/type/relation-count inputs | Tested |
+| Variant C (freeze + slow LR) | Rung 5, gate frozen early then unfrozen slowly | Tested |
+| Variant D (depth-preserving projection) | Rung 5 with per-depth projection instead of mean-pooling | Tested |
+| Variant E (weight-averaging) | Post-hoc averaging of 5 independently-trained Rung 5 seeds | Tested — **failed, do not use** |
+| Minimal Explanatory Subgraph / New-Information Convergence / Diffusion-Based Convergence | Numerical, non-learned depth signals | **Not yet built** — see `v2/layer2_contingency_plans.md` |
+
+## 2. What depth means here
+
+A node's representation at depth `l` reflects everything reachable within `l` hops.
+`h⁰` is the node's own raw features, no graph information at all. Each additional layer
+lets one more round of neighbor information blend in. A task whose signal is genuinely
+local (e.g. delay, one hop from its Shipment target to Supplier/Factory) is well-served
+by a shallow read; a task whose signal is spread across the whole bill-of-materials
+chain (impact, ultimately touching Order/Customer) needs a deep one.
+
+| Task | Empirically confirmed depth | Why |
+|---|---|---|
+| delay | `h¹` | Shipment's delay risk is a 1-hop relationship to its Supplier/Factory — deeper reads add noise, not signal |
+| shortage | `h³` | Product shortage depends on a longer chain (Component→Product plus Warehouse context) — but shown depth-indifferent in every sweep to date |
+| impact | `h⁴` | Impact's causal reach spans the full BOM chain to Order/Customer |
+
+## 3. Mechanism-by-mechanism
+
+### Learned Task Gate
+
+**Why we tried it.** Let each task learn its own depth preference from data instead of
+guessing it, via `h_task = Σ softmax(w_task)_l · h_l` — one 5-length weight vector per
+task, KL-anchored to a theory-derived prior to stop it drifting somewhere untested.
+
+**Positives — numbers.** Correctly recovers each task's known depth preference exactly
+(delay→h¹, shortage→broad/h³, impact→h⁴), stable across seeds, near-total
+lambda-insensitivity.
+
+**Negatives — numbers.** Only 1 of 9 (lambda × task) cells clears 5-seed significance
+(shortage at λ=0.01, +0.0064). Delay and impact show no reliable AUC change despite the
+gate learning the "correct" depth.
+
+**Why not chosen as final.** Mechanistically correct, practically inert — knowing the
+right depth didn't translate into an accuracy gain, because the gate still rides on the
+full 4-layer trunk's capacity rather than an actually smaller model.
+
+---
+
+### Markov Floor
+
+**Why we tried it.** Derive each task's depth directly from the graph's causal structure
+(Markov blanket reasoning) instead of learning it — zero parameters, zero training
+signal on depth at all.
+
+**Positives — theory.** A node's Markov blanket (parents, children, co-parents) is the
+minimal set that screens off everything else — free, structural, testable via a direct
+L-sweep rather than asserted.
+
+**Positives — numbers.** Delay: +0.0072 mean AUC over baseline, CONSISTENT across all 5
+seeds, at zero added cost. Beats every more expensive mechanism tried on this specific
+task, including the learned gate.
+
+**Negatives — numbers.** Shortage and impact show no reliable change in either
+direction — informative (confirms depth-indifference) rather than a shortcoming.
+
+**Current status.** **Production default entering Round 5's variant work**, and the
+baseline every subsequent mechanism is measured against.
+
+---
+
+### Rung 4 / Rung 5 — per-node gates
+
+**Why we tried it.** Markov gives one depth per *task*; a per-node gate could let
+individual suppliers deviate if the data supports it — the one thing a structural
+blanket can never do. Both initialized to reproduce Markov's answer exactly, so neither
+could plausibly start worse than it.
+
+**Positives — numbers.** Neither beat Markov on AUC, but Rung 5's deviations (when they
+happened) showed a real, sign-consistent structural pattern: deviating nodes were
+reliably *lower*-degree, on shortage and impact.
+
+**Negatives — numbers.** Both showed wild, seed-dependent, **bimodal** instability —
+some training runs stayed pinned at Markov's answer for nearly every node, others let
+75–98% of nodes drift to a different depth, with no accuracy difference distinguishing
+the two outcomes. Rung 4's extra attention machinery (15× Rung 5's parameter count)
+bought nothing measurable over Rung 5's plain MLP.
+
+**Why not chosen as final.** Instability, not accuracy, was the blocker — motivating
+Round 5's five isolated fixes, below.
+
+---
+
+### Variant A — bounded residual ★
+
+**Why we tried it.** Attack the instability's actual root cause: nothing was stopping
+the gate from drifting arbitrarily far from Markov's answer. Make the Markov term a
+fixed, non-trainable constant, and only allow a small, `tanh`-capped correction on top.
+
+**Positives — theory.** A structural guarantee, not a hope — the maximum possible
+deviation from Markov is bounded by construction, at every lambda tested.
+
+**Positives — numbers.** **100% match rate — every seed, every task, every cap size
+(λ=0.1/0.3/0.5) tested.** Zero deviating nodes, completely eliminating the bimodal
+failure mode. AUC nominally *higher* than Markov on all three tasks at every lambda,
+though not statistically significant.
+
+**Negatives — numbers.** None measured — no accuracy cost at any cap size tested.
+
+**Why chosen.** The clearest, most decisive result in the whole depth-selection line: a
+strict upgrade over Markov (same accuracy, genuine per-node flexibility if ever needed)
+at zero measured cost.
+
+---
+
+### Variant B — structural features
+
+**Why we tried it.** Give the gate the already-known evidence (degree, node type,
+relation histogram) directly, instead of making it re-infer that from noisy embeddings.
+
+**Positives — numbers.** Meaningfully stabilized shortage (match rate 0.981 vs the
+unfixed original's 0.712), with a consistent degree correlation.
+
+**Negatives — numbers.** Delay remained just as unstable as the unfixed original (0.516
+match rate, same wide seed-to-seed spread).
+
+**Why not chosen alone.** Partial fix — helps one task, doesn't touch the mechanism
+causing delay's instability.
+
+---
+
+### Variant C — freeze + slow learning rate
+
+**Why we tried it.** Let the shared encoder settle before the gate is allowed to move,
+on the theory that early-training noise was driving the instability.
+
+**Positives — numbers.** Large, consistent improvement: delay reached perfect stability
+(1.000), shortage/impact nearly so (0.995/0.973 vs the original's 0.712/0.917).
+
+**Negatives — numbers.** Not a complete fix — some residual seed-dependence remained,
+unlike Variant A's total elimination.
+
+**Why kept as a follow-up candidate.** Mechanistically complementary to Variant A (one
+bounds the ceiling, the other slows the approach to it) — the recommended next
+combination to test.
+
+---
+
+### Variant D — depth-preserving projection
+
+**Why we tried it.** Stop blurring all five depths into one mean-pooled average; keep a
+small, compressed identity for each before the gate decides.
+
+**Positives — theory.** Directly reverses a documented information loss from the
+original Rung 5 design.
+
+**Negatives — numbers.** No improvement — delay's instability was statistically
+indistinguishable from the unfixed original (0.113 vs 0.124 match rate), and shortage
+got slightly *worse* (0.545 vs 0.712).
+
+**Why not chosen.** The instability was never caused by the information loss this
+variant fixes — it was caused by the lack of any drift limit, which this variant never
+addressed.
+
+---
+
+### Variant E — post-hoc weight averaging
+
+**Why we tried it.** If different seeds land in different lucky/unlucky spots, average
+their final parameters together to cancel out the randomness — zero extra inference
+cost if it worked.
+
+**Negatives — numbers.** **Catastrophic failure.** Shortage (0.3223) and impact (0.4548)
+scored *worse than random guessing* — every comparison against every baseline
+significant in the negative direction, on every task.
+
+**Why not chosen — at all.** Naive parameter-space averaging across independently
+initialized, independently trained neural nets is a well-documented failure mode absent
+shared-trajectory checkpoints or a common pretrained initialization — not a bug in this
+implementation, the expected outcome of the technique misapplied.
+
+---
+
+## 4. Overall comparison
+
+| Mechanism | Delay AUC | Shortage AUC | Impact AUC | Stability (match rate) | Params |
+|---|---|---|---|---|---|
+| Baseline (h⁴ for every task) | 0.8083–0.8172 | 0.7970–0.7991 | 0.9357–0.9445 | n/a (fixed) | 0 |
+| Learned Task Gate (best λ) | 0.8080–0.8113 | **0.8041** | 0.9370–0.9383 | n/a (task-level, not per-node) | 15 |
+| **Markov Floor** | **0.8163–0.8188** | 0.7963–0.7994 | 0.9424–0.9445 | 1.00 (by construction) | **0** |
+| Rung 4 | 0.8150 | 0.7896 ± 0.0142 | 0.9394 | 0.44–1.00 (bimodal) | 198,546 |
+| Rung 5 (original) | 0.8150–0.8170 | 0.7904–0.7976 | 0.9443–0.9450 | 0.12–1.00 (bimodal) | 12,894 |
+| **Variant A** | **0.8176–0.8188** | 0.7980–0.7994 | 0.9418–0.9447 | **1.00 (all seeds, all λ)** | ~same as Rung 5 |
+| Variant B | 0.8144 | 0.7987 | 0.9382 | delay 0.52, shortage **0.98** | +1,200 |
+| Variant C | 0.8166 | **0.8005** | 0.9408 | **1.00 / 0.995 / 0.973** | same as Rung 5 |
+| Variant D | 0.8160 | 0.7962 | 0.9430 | 0.11 / 0.55 / 0.96 (no improvement) | −5,400 |
+| Variant E | 0.7285 | 0.3223 | 0.4548 | 1.00 (but catastrophically wrong) | 0 (post-hoc) |
+
+Bold = best mean or best outcome per column among directly comparable arms. No mechanism
+tested has beaten Markov/Variant A on AUC at a statistically defensible standard — the
+work in this layer is a stability story, not yet an accuracy one.
+
+---
+
+## 5. How the key mechanisms actually work
+
+### Markov Floor — depth readout
+
+```mermaid
+flowchart TD
+    A["Node's h0...h4, from SHARE's encoder - UNCHANGED"] --> B["Look up this task's fixed depth: delay=1, shortage=3, impact=4"]
+    B --> C["Read h_l at that fixed depth only - a Python index-select, no weights"]
+    C --> D["Feed into this task's PredictionHead"]
 ```
-A_r = sum_b(c_rb * Q_b)          # a second basis pool, Q_b, just for scoring
-e_ij = (h_i^T . A_r . h_j) / sqrt(hidden)     # bilinear score, per relation
+
+### Learned Task Gate — one distribution per task
+
+```mermaid
+flowchart TD
+    A["Node's h0...h4"] --> B["One learned weight vector w_task, length 5, shared by EVERY node of this task"]
+    B --> C["softmax(w_task) -> 5 blend weights"]
+    C --> D["h_task = sum_l( softmax(w_task)_l * h_l )"]
+    D --> E["KL penalty pulls softmax(w_task) toward a fixed theory-derived prior"]
+    E --> F["Feed into this task's PredictionHead"]
 ```
 
-**Expected upside (theory).** The most expressive of the three attention designs —
-relations could genuinely disagree about what "important" means, not just about what
-the message content says.
+### Rung 5 (original) — per-node gate, the design that became unstable
 
-**Expected risk (theory).** Reopens real per-relation parameter estimation inside
-attention — even basis-shared, it's still relation-specific, making it the most
-exposed of the three designs to the same overfitting pattern that hurt HGT on the
-four thin relations. Given both opt1 and opt2 already showed that relation-blind or
-lightly-relation-aware attention captured most of the available benefit, the
-marginal value here is genuinely uncertain — it could be small.
+```mermaid
+flowchart TD
+    A["Node's h0...h4"] --> B["Mean-pool into ONE blurred vector - depth identity lost"]
+    B --> C["Small MLP: hidden -> 32 -> 5"]
+    C --> D["Zero-initialized final layer + position bias -> starts as near-one-hot at Markov's depth"]
+    D --> E["softmax -> per-NODE blend weights, free to move during training"]
+    E --> F["h_node = sum_l( alpha_l * h_l ) - genuinely different per node"]
+    F --> G["Nothing bounds how far alpha can drift from its starting point"]
+```
 
-**Cost.** Roughly doubles RGCN's relational parameter budget (two full basis pools
-instead of one).
+### The crack — Rung 5 (unbounded) vs. Variant A (bounded), the fix that worked
 
-**Why still worth testing.** It's the last untested point on the "how relation-aware
-should attention be" dial, and completes the systematic sweep rather than leaving a
-gap based on a prediction instead of a measurement.
+```mermaid
+flowchart LR
+    subgraph BEFORE["Rung 5 - unbounded"]
+        direction TB
+        B1["position_bias is a LEARNED parameter"] --> B2["MLP output added directly to logits"] --> B3["Nothing caps total drift - bimodal instability"]
+    end
+    subgraph AFTER["Variant A - bounded residual"]
+        direction TB
+        A1["position_bias becomes a FIXED, non-trainable constant"] --> A2["MLP output passed through tanh, scaled by small lambda"] --> A3["Drift is capped by construction - 100% stability, every seed"]
+    end
+    BEFORE -. "THE FIX" .-> AFTER
+```
+
+---
+
+## 6. Next step — numerical, non-learned depth signals
+
+**Status: not yet built or tested.** A separate reference document,
+`v2/layer2_contingency_plans.md`, catalogs 24 originally-proposed ideas (merged down to
+11 distinct mechanisms after deduplication) for deciding depth without training a gate
+at all — using graph structure, message-convergence, or diffusion mathematics instead of
+labels. The three most promising, in priority order:
+
+1. **Minimal Explanatory Subgraph** — find which upstream nodes actually explain a
+   prediction; depth becomes a byproduct, not a decision. Connects to Graph Information
+   Bottleneck / GSAT (cited prior art).
+2. **New-Information Convergence** — stop a node's propagation once the messages
+   arriving stop changing meaningfully. Fully label-free.
+3. **Diffusion-Based Convergence** — treat propagation as a diffusion process with a
+   known closed-form decay (ties to APPNP/PPRGo), avoiding empirical threshold tuning
+   entirely.
+
+All three would be anchored to the Markov Floor as a mandatory minimum, per the lesson
+learned from Rung 4/5's unconstrained drift — see `v2/layer2_contingency_plans.md` for
+the full catalog and reasoning.
 
 ---
 
 ## 7. Open items
 
-- RGCN+Attention's win over HGT on impact is a raw-mean lead but only a statistical
-  tie — the current test is unpaired because no HGT checkpoint has ever been
-  persisted. A real paired retest (retrain HGT once, with checkpointing turned on)
-  would settle whether it's a genuine third win.
-- RGCN+Attention's over-smoothing/depth behavior across layers has never been
-  measured (only HGT's has, from an earlier depth sweep) — needed before any future
-  depth-gate work trusts it.
-- Dual-sourcing (`component_suppliers`) exists in the schema but is dormant in the
-  live dataset — every component still has exactly one supplier — so co-parent
-  structural signal isn't actually present in anything trained so far.
+- No depth-selection mechanism tested so far has produced a statistically defensible
+  AUC improvement on shortage or impact — five independent designs, five different
+  mechanisms, the same negative result on those two tasks. Only delay (via Markov/
+  Variant A) and Variant A's stability result are unambiguous positives.
+- Variant A + Variant C combined is the most defensible next experiment — mechanistically
+  complementary (one bounds the ceiling, the other slows the approach to it), neither
+  showed any accuracy cost alone, not yet tested together.
+- The three numerical, label-free depth signals (§6 above) remain unbuilt — their
+  primary value proposition is robustness on noisier real-world data, not raw AUC on the
+  current synthetic dataset, and that specific claim is untested.
+- A "Global Context Halting" mechanism, dependent on a future Global Transformer
+  (Transformer 2) component, is speculative until that component exists — it does not
+  exist in this codebase as of this document.

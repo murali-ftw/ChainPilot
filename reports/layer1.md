@@ -1,36 +1,47 @@
-# HADES Model-Development Prototype — Combined Report (v1 → v5)
+# HADES Model-Development Report — Layer 1 (v1 → SHARE vs SHARP Matched-Parameter Pilot)
 
-**This is a merge of six prior reports into one chronological document, replacing all of
+**This is a merge of seven prior reports into one chronological document, replacing all of
 them:** `steps_0-5_findings.md` ("v1"), `step5_result_v2.md`, `step5_result_v3.md`,
-`step5_result_v3_followup.md` (Tasks 1–3), `step5_result_v4_4arch.md` (RGCN 4-arch), and
-`rgcn_attn_pilot.md` (RGCN+attn pilot, "v5"). Nothing in this merge changes any number,
-verdict, or conclusion from any original report — it reorganizes six separately-written
-documents into one continuous narrative, trims duplicated process boilerplate (the same
-"how to read this report" scaffolding, repeated code-inventory blocks, etc.), and adds a
-short synthesis at the top connecting the rounds. Where a later round revised or overturned
-an earlier round's finding, both are shown side by side, exactly as the original follow-up
-reports did — this document does not retroactively "correct" v1's or v2's own numbers.
+`step5_result_v3_followup.md` (Tasks 1–3), `step5_result_v4_4arch.md` (RGCN 4-arch),
+`rgcn_attn_pilot.md` (RGCN+attn pilot, "v5"/Round 6), and `rgcn_matched_pilot.md` (SHARE vs
+SHARP matched-parameter pilot, Round 7) — the first six of which were already consolidated
+once into `hades_model_development_report.md`; this merge folds the seventh (Round 7) in and
+retires that intermediate file too. Nothing in this merge changes any number, verdict, or
+conclusion from any original report — it reorganizes the documents into one continuous
+narrative, trims duplicated process boilerplate (the same "how to read this report"
+scaffolding, repeated code-inventory blocks, etc.), and keeps a single synthesis at the top
+connecting every round. Where a later round revised or overturned an earlier round's finding,
+both are shown side by side, exactly as the original follow-up reports did — this document
+does not retroactively "correct" any earlier round's own numbers.
 
-**Reading order:** an Executive Summary (the final state of every claim as of the most
-recent round), a Master Timeline (which dataset/codebase state each round ran against), then
-one section per round in the order they actually happened, then a single consolidated
+**Display names.** `rgcn_attn` ("Option 1") is **SHARE**; `rgcn_relemb` ("Option 3") is
+**SHARP** — names added retroactively (Round 7) for consistency with later documentation.
+Every code-level identifier (`rgcn_attn`, `rgcn_relemb`, `model_registry.architecture` values,
+file/class names) is unchanged; only the display names are new. Rounds written before Round 7
+refer to these architectures by their code names or "Option 1"/"Option 3" — left as originally
+written, per this document's own no-retroactive-correction rule.
+
+**Reading order:** an Executive Summary (the final state of every claim as of the most recent
+round), a Master Timeline (which dataset/codebase state each round ran against), then one
+section per round in the order they actually happened, then a single consolidated
 governance/test-suite record and open-items list at the end.
 
 ---
 
-# Executive Summary — Final State as of the Most Recent Round (RGCN+attn Pilot)
+# Executive Summary — Final State as of the Most Recent Round (SHARE vs SHARP Matched-Parameter Pilot)
 
 ## Claim 1 — Does type-aware attention beat type-blind baselines?
 
 **Task-dependent, and the answer changed materially across rounds as label volume, seed
 count, and the architecture roster all grew.** As of the latest evidence (5-seed, v3 dataset,
-now with RGCN and RGCN+attn added as 4th/5th arms):
+RGCN+attn/SHARE now validated at BOTH fixed-d and matched-d, RGCN+relemb/SHARP added at
+matched-d):
 
 | Task | Verdict (latest evidence) |
 |---|---|
-| delay | Historically undecided (v1–v3: not distinguishable, or HGT-vs-GAT only). **RGCN+attn's pilot is the first architecture to win delay consistently against both HGT and plain RGCN** — a new result, fixed-d only, not yet matched-d validated. |
-| shortage | v1: HGT won cleanly. v2 (matched-d): reversed — GraphSAGE beat HGT. v3 (5-seed): confirmed HGT loses to GraphSAGE consistently, both axes. v3-followup: merging HGT's thinnest relations closes the loss to a tie (not a win). **v4: RGCN beats both HGT and GraphSAGE consistently, on both axes — the first architecture-level win to survive every check.** v5: RGCN+attn keeps that shortage win over HGT. |
-| impact | v1: confounded by capacity, resolved to a tie once matched. v2/v3: HGT reliably beats GraphSAGE, ties GAT. **v4: HGT beats all three other architectures (including RGCN, RGCN's worst task) by the largest margins in the whole matrix. v5: RGCN+attn closes RGCN's impact deficit against HGT entirely** (from a consistent large loss to a statistical tie). |
+| delay | Historically undecided (v1–v3: not distinguishable, or HGT-vs-GAT only). SHARE's fixed-d pilot (Round 6) was the first architecture to win delay consistently against both HGT and plain RGCN. **Round 7: confirmed at matched parameters (752,211, ~4.4× more than fixed-d) — the win holds essentially unchanged (+0.0103 vs HGT, consistent across all 5 seeds), not a smaller-model-regularizes-better artifact.** |
+| shortage | v1: HGT won cleanly. v2 (matched-d): reversed — GraphSAGE beat HGT. v3 (5-seed): confirmed HGT loses to GraphSAGE consistently, both axes. v3-followup: merging HGT's thinnest relations closes the loss to a tie (not a win). v4: RGCN beats both HGT and GraphSAGE consistently, on both axes. Round 6: SHARE keeps that shortage win over HGT at fixed-d. **Round 7: SHARE's shortage win over HGT holds at matched-d (+0.0147, consistent); SHARP (new this round) also beats HGT on shortage (+0.0167, consistent) — this specific advantage has now been replicated by three independent mechanisms (plain RGCN, SHARE, SHARP).** |
+| impact | v1: confounded by capacity, resolved to a tie once matched. v2/v3: HGT reliably beats GraphSAGE, ties GAT. v4: HGT beats all three other architectures (including RGCN, RGCN's worst task) by the largest margins in the whole matrix. Round 6: SHARE closes RGCN's impact deficit against HGT entirely (from a consistent large loss to a statistical tie), at fixed-d. **Round 7: the tie holds at matched-d for both SHARE and SHARP — impact remains the one task HGT has never lost on, at any parameter count, against any architecture tried across seven rounds.** |
 
 **Net effect of the whole architecture line of work:** HGT's early "wins everywhere" story
 (v1) narrowed under better statistics (v2/v3) to "wins impact, loses shortage to GraphSAGE."
@@ -39,10 +50,16 @@ parameters (v3-followup Task 2) and giving the graph a real causal co-parent sig
 (v3-followup Task 3) — both turned that loss into a tie, never a win, suggesting the
 weakness is a genuine architecture-vs-task mismatch, not a fixable data or parameterization
 gap. RGCN (v4) then won shortage outright via a structurally different form of sharing
-(basis decomposition), and RGCN+attn (v5) — a shared-attention hybrid on top of RGCN — is
-the first architecture in this entire project to have the best mean AUC on all three tasks
-simultaneously, at roughly a quarter of HGT's parameter count. That result is fixed-d only
-and needs a matched-parameter follow-up before it can be called a resolved win.
+(basis decomposition), and SHARE (RGCN+attn, v5/Round 6) — a shared-attention hybrid on top of
+RGCN — became the first architecture in this project to have the best mean AUC on all three
+tasks simultaneously, at roughly a quarter of HGT's parameter count. **Round 7 closed that
+round's own open item: SHARE's win is not a capacity artifact — at a parameter count 0.17% off
+HGT's own anchor, it still beats HGT on delay and shortage and ties on impact, the strongest,
+most parameter-fair result this project's architecture-ablation line has produced.** SHARP
+(RGCN+relemb, Round 7's new sixth architecture) adds a per-relation embedding term to SHARE's
+attention logit and, on this dataset, does not earn its extra parameter cost — a clean
+statistical tie against SHARE on every task, and it beats HGT on shortage only (not delay).
+The simpler, cheaper SHARE remains the best default architecture as of this document.
 
 ## Claim 2 — Does the structural depth prior (h²/h³) beat a single shared depth?
 
@@ -54,19 +71,22 @@ survivor is a shared-depth-vs-shared-depth comparison, not a finding about the p
 v3-followup Task 1 independently reinforced the negative finding from a completely different
 angle (measured k-hop reach vs. the prior's own theoretical derivation): the theory's own
 justification doesn't hold for two of the three tasks' targets as actually built. **Claim 2
-remains open, now on its strongest evidence yet that the prior does not earn its place over a
-shared depth.** Step 6 (the learned depth gate) has been on hold since the v3-followup for
+remains open, on its strongest evidence yet that the prior does not earn its place over a
+shared depth.** No round since v3-followup (including Round 7) has produced new evidence on
+this claim — it was out of scope for both the architecture-ablation rounds and the
+matched-parameter pilot. Step 6 (the learned depth gate) remained on hold through Round 7 for
 exactly this reason — there is no validated prior to anchor a small learned correction to.
 
 ## Architecture roster and parameter-count landscape (current)
 
-| Architecture | Encoder params (hidden=64) | Introduced | Status |
-|---|---:|---|---|
-| HGT | 701,088 | v1 | Baseline throughout; wins impact consistently from v2 onward |
-| GraphSAGE | 664,896 (677,571 matched@66) | v1 | Beats HGT on shortage from v2 onward |
-| GAT | 347,456 (705,548 matched@92) | v1 | Consistently weakest architecture on delay/shortage across every round |
-| RGCN (basis decomposition) | 170,464 | v4 | Wins shortage consistently vs. both HGT and GraphSAGE; worst on impact |
-| **RGCN+attn ("Option 1")** | 170,984 | v5 (pilot) | Best mean AUC on all 3 tasks simultaneously, fixed-d only; matched-d not yet run |
+| Architecture | Encoder params (fixed-d=64) | Matched-d params (full model) | Introduced | Status |
+|---|---:|---:|---|---|
+| HGT | 701,088 | 713,763 (fixed-d IS its own anchor) | v1 | Baseline throughout; wins impact consistently from v2 onward; undefeated on impact through Round 7 |
+| GraphSAGE | 664,896 | 677,571 (matched-d=66) | v1 | Beats HGT on shortage from v2 onward |
+| GAT | 347,456 | 731,495 (matched-d=92) | v1 | Consistently weakest architecture on delay/shortage across every round |
+| RGCN (basis decomposition) | 170,464 | 757,565 (matched-d=138, num_bases=4) | v4 | Wins shortage consistently vs. both HGT and GraphSAGE; worst on impact |
+| **SHARE** (RGCN+attn, "Option 1") | 170,984 | **752,211** (matched-d=128, num_bases=10, Round 7) | v5 (Round 6) | Best mean AUC on all 3 tasks at fixed-d; **matched-d (Round 7) confirms delay/shortage wins over HGT hold, impact tied — the strongest, most parameter-fair result in this project's architecture line** |
+| **SHARP** (RGCN+relemb, "Option 3") | — (matched-d only; no fixed-d test was run) | **752,599** (matched-d=128, num_bases=10, relation_embed_dim=16, Round 7) | Round 7 | Beats HGT on shortage only; statistical tie with SHARE on every task — the extra relation-identity signal doesn't earn its cost on this dataset |
 
 ---
 
@@ -79,7 +99,8 @@ exactly this reason — there is no validated prior to anchor a small learned co
 | v3 | Round 3 | Regenerated again: much larger scale, longer horizon | 800 | 15 (Jul 2024–Sep 2025) | Multi-seed built into **both** Step 4 and Step 5 from the start |
 | v3-followup | Round 4 | Same v3 dataset (Tasks 1–2); a **separate, fourth dataset generation** for Task 3 only (co-parent signal) | 800 (Tasks 1–2); 800 w/ dual-sourcing (Task 3 only) | 15 | Task 1: restricted k-hop reach measurement. Task 2: sparse-relation-merged HGT encoder. Task 3: real causal co-parent signal via new `component_suppliers` table |
 | v4 (4-arch) | Round 5 | Same v3 dataset, `component_suppliers` table present but dormant (no dual-sourcing) | 800 | 15 | RGCN added as 4th architecture arm; full 40-run multi-seed matrix (4 arch × 2 param-arms × 5 seeds) |
-| v5 (RGCN+attn pilot) | Round 6 | Same v3 dataset, confirmed unchanged | 800 | 15 | RGCN+attn ("Option 1") added as 5th architecture; 15-run fixed-d-only pilot (3 arch × 5 seeds) |
+| v5 (SHARE pilot) | Round 6 | Same v3 dataset, confirmed unchanged | 800 | 15 | SHARE (RGCN+attn, "Option 1") added as 5th architecture; 15-run fixed-d-only pilot (3 arch × 5 seeds) |
+| v6 (matched pilot) | Round 7 | Same v3 dataset, confirmed unchanged | 800 | 15 | SHARE trained at matched parameters for the first time; SHARP (RGCN+relemb, "Option 3") added as 6th architecture, also matched-d only; HGT reused from Round 6, not retrained |
 
 Every round from v3 onward ran against the same underlying dataset generation (v3: 800
 suppliers / 15 snapshots) — only the encoder architecture roster and analysis methodology
@@ -523,13 +544,14 @@ win it shortage appear to cost it here.
 
 ---
 
-# Round 6 — v5: RGCN+Attn ("Option 1") Pilot
+# Round 6 — v5: SHARE (RGCN+Attn, "Option 1") Pilot
 
 **Dataset:** re-confirmed live, unchanged v3. **Scope:** implement, wire, and
 unit/shape-verify a fifth architecture — RGCN + shared (relation-agnostic) attention — then
 run a narrow pilot: fixed-d=64 only, 5 seeds × 3 architectures (HGT, RGCN, RGCN+attn) = 15
 training runs. No matched-d arm, no doc updates, no GraphSAGE/GAT re-run — explicitly scoped
-narrow.
+narrow. (This architecture was later named **SHARE**, Round 7 — referred to here by its
+code/pilot-era name, RGCN+attn, matching what this round actually wrote.)
 
 ## Bottom line
 
@@ -589,7 +611,8 @@ count (170,984) is far below HGT's anchor (701,088), so the result could partly 
 regularization from a much smaller model on a label-scarce dataset rather than the attention
 mechanism itself. A matched-d follow-up (widening `hidden`/`num_bases` toward HGT's budget,
 same method as Round 5's search) is the natural next step, flagged here as the clearest open
-item this project's architecture line of experiments has produced.
+item this project's architecture line of experiments has produced. **Resolved in Round 7,
+below.**
 
 ## Governance record
 
@@ -599,23 +622,231 @@ runs.
 
 ---
 
+# Round 7 — v6: SHARE vs SHARP, Matched-Parameter Pilot
+
+**Dataset:** re-confirmed live, unchanged v3. **Scope:** train SHARE (RGCN+attn, "Option 1",
+Round 6's architecture) at a matched parameter budget for the first time, and build + train a
+new sixth architecture — SHARP (RGCN+relation-embedding-attn, "Option 3") — also at a matched
+budget, both compared against HGT. **HGT was not retrained**; its existing fixed-d=64 rows
+from Round 6 were reused directly (fixed-d and matched-d are identical for HGT by
+construction — hidden=64 is the anchor for both arms). 5 seeds × 2 architectures = 10 new
+training runs. This round is an addendum to Round 6, not a replacement — that round's
+fixed-d=64 numbers are unchanged and reused here for the before/after comparison.
+
+## Bottom line
+
+**SHARE's fixed-d win survives matching parameters almost unchanged — this was not a
+smaller-model-regularizes-better artifact.** At 702,288 encoder params (0.17% off HGT's
+701,088 anchor, vs. 170,464 at fixed-d — a >4× increase), SHARE's per-task AUC moved by less
+than 0.0015 in either direction on every task relative to its fixed-d pilot numbers. It still
+beats HGT consistently on delay and shortage (both new comparisons hold sign across all 5
+seeds) and ties on impact — the same qualitative pattern the fixed-d pilot reported, now
+confirmed at a parameter count no longer confoundable with HGT's own. **SHARP, tested here
+for the first time, does not clearly improve on SHARE** — the paired head-to-head comparison
+is a clean statistical tie on all three tasks (every delta flips sign across seeds) — and it
+beats HGT consistently on only one task (shortage) rather than two. The extra
+relation-identity signal SHARP adds costs more parameters (388 more at matched hidden,
+requiring `hidden`/`num_bases` to be re-tuned to stay near HGT's anchor) without a measurable
+return on this dataset.
+
+## Matched-parameter search, both architectures
+
+HGT's real encoder-only anchor, recomputed live: **701,088** (unchanged from every prior
+round — feature dims haven't shifted). Per this round's own instruction, three candidates
+were found for each architecture and only candidate (b) — `num_bases ≥ 8` preserved — was
+trained, specifically to avoid repeating Round 5's finding that `num_bases` shrinkage hurts
+RGCN-family impact scores.
+
+| Architecture | Candidate | hidden | num_bases | Encoder params | Diff from anchor |
+|---|---|---:|---:|---:|---:|
+| rgcn_attn (SHARE) | (a) tightest raw fit | 142 | 2 | 701,102 | 14 (0.00%) |
+| rgcn_attn (SHARE) | **(b) num_bases≥8 — TRAINED** | **128** | **10** | **702,288** | **1,200 (0.17%)** |
+| rgcn_attn (SHARE) | (c) intermediate | 140 | 3 | 701,328 | 240 (0.03%) |
+| rgcn_relemb (SHARP) | (a) tightest raw fit | 138 | 4 | 701,102 | 14 (0.00%) |
+| rgcn_relemb (SHARP) | **(b) num_bases≥8 — TRAINED** | **128** | **10** | **702,676** | **1,588 (0.23%)** |
+| rgcn_relemb (SHARP) | (c) intermediate | 136 | 5 | 699,672 | 1,416 (0.20%) |
+
+Both architectures land on the identical (hidden=128, num_bases=10) under the num_bases≥8
+constraint — unsurprising, since SHARP's extra relation-embedding parameters
+(`relation_embed_dim=16`, unchanged/not searched) are a small, roughly hidden-independent
+addition on top of SHARE's own parameter curve.
+
+## Parameter counts (full model, incl. 3 task heads)
+
+| Architecture | Params | vs HGT |
+|---|---:|---:|
+| hgt (fixed-d=64, reused) | 713,763 | — |
+| rgcn_attn-matched (SHARE, hidden=128, num_bases=10) | 752,211 | +5.4% |
+| rgcn_relemb-matched (SHARP, hidden=128, num_bases=10, relation_embed_dim=16) | 752,599 | +5.5% |
+
+## AUC — mean/std/min/max across 5 seeds
+
+| Arm | delay | shortage | impact |
+|---|---|---|---|
+| hgt (fixed-d, reused) | 0.8015 ± 0.0106 [0.7834, 0.8132] | 0.7824 ± 0.0057 [0.7745, 0.7920] | 0.9335 ± 0.0022 [0.9307, 0.9372] |
+| rgcn_attn-matched (SHARE) | **0.8118** ± 0.0035 [0.8064, 0.8163] | **0.7971** ± 0.0024 [0.7954, 0.8018] | **0.9387** ± 0.0051 [0.9304, 0.9445] |
+| rgcn_relemb-matched (SHARP) | 0.8105 ± 0.0031 [0.8070, 0.8156] | 0.7991 ± 0.0010 [0.7978, 0.8003] | 0.9369 ± 0.0047 [0.9301, 0.9414] |
+
+SHARE has the highest mean AUC on delay and impact; SHARP edges it very slightly on shortage
+(0.7991 vs 0.7971 — well within both architectures' own seed-to-seed spread, and the paired
+test below shows this specific gap flips sign across seeds).
+
+## Before/after: SHARE (RGCN+attn), fixed-d=64 pilot (Round 6) vs this round's matched-d
+
+| Task | fixed-d=64 (170,984 params) | matched-d (752,211 params) | Δ (matched − fixed) |
+|---|---|---|---:|
+| delay | 0.8127 ± 0.0035 [0.8084, 0.8161] | 0.8118 ± 0.0035 [0.8064, 0.8163] | −0.0009 |
+| shortage | 0.7985 ± 0.0023 [0.7953, 0.8017] | 0.7971 ± 0.0024 [0.7954, 0.8018] | −0.0014 |
+| impact | 0.9393 ± 0.0098 [0.9261, 0.9496] | 0.9387 ± 0.0051 [0.9304, 0.9445] | −0.0006 |
+
+**This is the direct answer to "did the fixed-d win survive matching parameters."** All three
+deltas are under 0.0015 in magnitude — indistinguishable from seed noise, and if anything
+impact's seed-to-seed std *tightened* at matched-d (0.0098 → 0.0051). SHARE's fixed-d result
+was not an artifact of having a quarter of HGT's parameter count regularizing better on a
+label-scarce dataset; the same architecture, at ~4.4× more parameters, performs essentially
+identically.
+
+## Sign-consistency — SHARE-matched vs SHARP-matched (PAIRED bootstrap)
+
+Both trained in-process this round, so a genuine paired bootstrap (`ml/evaluate.py::
+paired_delta_auc_ci`) applies, same method as every other multi-architecture round.
+
+| Task | mean ΔAUC (SHARE − SHARP) | Verdict |
+|---|---:|---|
+| delay | +0.0013 | FLIPS (noise) |
+| shortage | −0.0020 | FLIPS (noise) |
+| impact | +0.0018 | FLIPS (noise) |
+
+**Statistically tied on all three tasks.** Neither hybrid design beats the other at matched
+parameters on this dataset.
+
+## Sign-consistency vs HGT (UNPAIRED — methodology caveat)
+
+HGT was not retrained, so its raw per-sample test-set predictions from the original pilot run
+aren't available to this script (no model checkpoint is persisted anywhere in this codebase).
+This comparison instead uses each side's own independently-computed single-model CI (new
+arch's CI from this run; HGT's stored CI, both `ci_method='row_bootstrap'`) and reports
+per-seed point-delta sign-consistency — a real but strictly weaker test than the paired method
+above, since it can't cancel shared test-sample noise the way pairing does. Every individual
+seed's two independent CIs overlap (unsurprising given how much wider two-independent-CI
+comparisons are than a paired one), so no single seed reaches significance on its own — the
+signal here is entirely in the **sign-consistency across all 5 independent training runs**,
+which is still meaningful evidence on its own terms.
+
+| Comparison | delay | shortage | impact |
+|---|---|---|---|
+| rgcn_attn-matched (SHARE) vs hgt | +0.0103 **CONSISTENT** (SHARE wins) | +0.0147 **CONSISTENT** (SHARE wins) | +0.0052 FLIPS (tied) |
+| rgcn_relemb-matched (SHARP) vs hgt | +0.0090 FLIPS (tied) | +0.0167 **CONSISTENT** (SHARP wins) | +0.0033 FLIPS (tied) |
+
+## Verdict — did each option's advantage hold, shrink, or reverse at matched parameters?
+
+**SHARE (Option 1, RGCN+attn): held, essentially unchanged.** Its fixed-d pilot win over HGT
+on delay and shortage (both consistent across 5 seeds) reproduces at matched-d with the same
+sign and comparable magnitude (delay +0.0103 vs. fixed-d's own +0.0112 vs. HGT; shortage
++0.0147 vs. fixed-d's +0.0162) — a small narrowing in both cases, well within what 5-seed
+noise would produce, not a meaningful shrink. Impact remains a tie, as it was at fixed-d.
+**SHARE beats HGT outright on 2 of 3 tasks at a parameter count no longer confoundable with
+HGT's own** — the strongest, most parameter-fair result in this project's whole
+architecture-ablation line of work.
+
+**SHARP (Option 3, RGCN+relemb): a real but smaller win than SHARE, not an improvement over
+it.** With no fixed-d baseline of its own (this is its first test), SHARP beats HGT
+consistently only on shortage — the one task where architecture-level advantage over HGT has
+now been replicated by *three* different mechanisms in this project (plain RGCN, SHARE,
+SHARP). It does not clearly beat SHARE on any task (paired comparison flips on all three),
+meaning the added relation-identity signal — at a real parameter cost — is not earning its
+keep on this dataset. The simpler, cheaper SHARE remains the better default.
+
+**Does either beat HGT outright once parameter count is no longer a confound?** Yes, on
+specific tasks, not universally: SHARE beats HGT on delay and shortage (impact tied); SHARP
+beats HGT on shortage only (delay and impact tied). Neither loses to HGT on any task at
+matched parameters. HGT's own strongest result — impact — remains undefeated by every
+architecture tried across every round of this project to date.
+
+## Design/implementation notes
+
+`ml/models/rgcn_relemb_encoder.py` (new) extends `RGCNAttnEncoder` verbatim (`lin_in`,
+`rel_basis`/`rel_coeff`, the `W_r` computation, `self_loops`, `att_msg`/`att_dst`, the
+`by_dst` grouping, and the same single joint softmax per destination node) and adds one more
+additive term to the attention logit: a per-relation embedding (`rel_embed`,
+`[num_relations, relation_embed_dim]`) fed through one more shared scorer (`att_rel`,
+`Linear(relation_embed_dim, 1)` per layer), computed once per relation per layer (not per
+edge, since it depends on neither the message nor the destination state) and broadcast across
+that relation's edges before the same joint softmax runs. Cost:
+`O(num_relations × relation_embed_dim)` for the embedding table plus
+`O(relation_embed_dim)` per layer for `att_rel` — a lookup table, not a second
+basis-decomposed weight pool (Option 2, not built this round).
+
+`"rgcn_relemb"` added to `ARCHITECTURES` and dispatched in `build_encoder`
+(`ml/models/encoder.py`), threading both `num_bases` and the new `relation_embed_dim` (default
+16) through, same import-inside-branch pattern as every prior addition. `relation_embed_dim`
+also threaded through `HADESModel` and `train.py`'s `train_model`/`run_training_job` so it can
+be set per run; recorded in `hyperparameters` JSON (`null` for every non-`rgcn_relemb`
+architecture). Fixed a latent gap while touching this code: `num_bases` logging in
+`hyperparameters` previously only fired for `architecture == "rgcn"`, silently omitting it for
+`rgcn_attn` even though that architecture uses it too — now logged for all three
+basis-decomposition architectures (`rgcn`, `rgcn_attn`, `rgcn_relemb`).
+
+`"rgcn_relemb"` added to the parametrized forward-pass test. Two new tests:
+`test_rgcn_relemb_parameter_count_formula` locks in the exact parameter delta over
+`RGCNAttnEncoder` (`num_relations × relation_embed_dim + relation_embed_dim × num_layers +
+num_layers`); `test_rgcn_relemb_attention_sums_to_one_per_destination` (adapted from the
+`rgcn_attn` version) confirms the extra additive `rel_term` doesn't change the joint softmax's
+normalization scope — weights still sum to 1 across a destination node's entire incoming edge
+set, spanning every relation. Full suite: **46/46 passing** (43 pre-existing + 3 new).
+
+Live DB check confirmed v3 before running. Built one real snapshot, ran a single forward pass
+through `RGCNRelEmbAttnEncoder` at default hyperparameters: shapes matched every other
+encoder, no NaNs/Infs, and the real encoder parameter count (171,372) exactly matched
+`rgcn_attn`'s (170,984) plus the expected 388-parameter increase (`20 × 16 + 16 × 4 + 4`) —
+confirmed against real data, not just the small unit-test fixture.
+
+Pre-flight: live dataset check (v3, unchanged) and unconditional `pg_dump` backup
+(`reports/backups/model_registry_and_evals_backup_20260807_164812.sql`, 136 + 1,908 rows
+before this round). New file `ml/run_rgcn_matched_pilot.py` (touches no existing run script)
+trained 5 seeds × 2 architectures (rgcn_attn-matched, rgcn_relemb-matched) = 10 runs; HGT's
+existing 5 fixed-d rows were queried directly from `model_evaluation_runs`/`model_registry` and
+never retrained. Completed in **0.73h (2,632s)** wall-clock, zero errors, logged in full to
+`reports/logs/run_rgcn_matched_pilot_20260807_170239.log`. Verified post-run: 10 new
+`model_registry` rows (5 per architecture, all `status='active'`, suffixed
+`-rgcnmatched-pilot-seed{n}`) and 150 new evaluation-run rows, with the pre-run counts (136
+registry / 1,908 evaluation) intact underneath (146 / 2,058 after). No prior round's row was
+touched.
+
+## Governance record
+
+Backed up before any write
+(`reports/backups/model_registry_and_evals_backup_20260807_164812.sql`). 10 new
+`-rgcnmatched-pilot-seed{n}` registry rows (5 rgcn_attn / 5 rgcn_relemb), all `status='active'`
+— 146 total registry rows (136 + 10). 150 new evaluation rows — 2,058 total (1,908 + 150). No
+existing row from any prior round modified. `ml/tests/` — **46/46 pytest pass** after all
+changes.
+
+## Out of scope (per this round's own framing, not attempted)
+
+No GraphSAGE/GAT re-runs. No documentation updates. Option 2 (basis-decomposed attention, the
+third and most expensive of the RGCN-attention hybrid designs — later built and named
+**SHARK**, not part of this document) not implemented.
+
+---
+
 # Consolidated Governance and Test-Suite Record (current, live state)
 
 As of this report:
 
 | Metric | Value |
 |---|---|
-| `model_registry` rows | 136 (125 active, 11 archived — the reconstructed v2 rows from Round 3) |
-| `model_evaluation_runs` rows | 1,908 |
-| Architectures represented | hgt (62 rows incl. `heterogeneous_graph_transformer` label), graphsage (27), gat (22), rgcn (15), rgcn_attn (5), hgt_sparse (5) |
-| `ml/tests/` suite | 43/43 passing |
+| `model_registry` rows | 146 (135 active, 11 archived — the reconstructed v2 rows from Round 3) |
+| `model_evaluation_runs` rows | 2,058 |
+| Architectures represented | hgt (62 rows incl. `heterogeneous_graph_transformer` label), graphsage (27), gat (22), rgcn (15), rgcn_attn/SHARE (10: 5 fixed-d Round 6 + 5 matched-d Round 7), hgt_sparse (5), rgcn_relemb/SHARP (5, Round 7) |
+| `ml/tests/` suite | 46/46 passing |
 
 Every round's runs are queryable by their distinct `model_version` suffix — `-lsweep-`,
 `-fixed-d`/`-matched-d`, `-v3-seed{n}`, `-sparserelation-v3-seed{n}`, `-coparent-v4-seed{n}`,
-`-4arch-seed{n}`, `-rgcnattn-pilot-seed{n}` — no round has ever upserted over a prior round's
-rows (the one exception, Round 3's `--drop`-triggered loss of Round 2's/Step A's/Step B's
-rows, was disclosed and partially repaired in Round 3 itself, and is the reason every round
-since backs up governance tables unconditionally before any write).
+`-4arch-seed{n}`, `-rgcnattn-pilot-seed{n}`, `-rgcnmatched-pilot-seed{n}` — no round has ever
+upserted over a prior round's rows (the one exception, Round 3's `--drop`-triggered loss of
+Round 2's/Step A's/Step B's rows, was disclosed and partially repaired in Round 3 itself, and
+is the reason every round since backs up governance tables unconditionally before any write).
 
 ## Code inventory (current state)
 
@@ -633,10 +864,11 @@ ml/
 ├── models/
 │   ├── depth.py                 structural depth prior + shared-depth override (L-sweep)
 │   ├── heads.py                 prediction heads + focal loss
-│   ├── encoder.py               HGT / GraphSAGE / GAT / RGCN / RGCN+attn factory (build_encoder)
+│   ├── encoder.py               HGT / GraphSAGE / GAT / RGCN / SHARE / SHARP factory (build_encoder)
 │   ├── sparse_hgt_encoder.py    Task 2's sparse-relation-merged HGT variant
 │   ├── rgcn_encoder.py          RGCN (basis decomposition)
-│   ├── rgcn_attn_encoder.py     RGCN + shared attention ("Option 1")
+│   ├── rgcn_attn_encoder.py     RGCN + shared attention ("Option 1", SHARE)
+│   ├── rgcn_relemb_encoder.py   RGCN + shared attention + per-relation embedding ("Option 3", SHARP)
 │   └── model.py                 HADESModel (encoder + depth readout + heads composed)
 ├── train.py                     time split, training loop, model_registry logging
 ├── evaluate.py                  metrics, bootstrap CIs, over-smoothing, significance tests
@@ -644,12 +876,13 @@ ml/
 ├── run_step_v3.py               v3 multi-seed Steps 3-5 matrix
 ├── run_task2_sparse_relation.py / run_task3_coparent.py
 ├── run_step_v4_4arch.py         4-architecture (incl. RGCN) matrix
-├── run_rgcn_attn_pilot.py       RGCN+attn pilot
+├── run_rgcn_attn_pilot.py       SHARE fixed-d pilot (Round 6)
+├── run_rgcn_matched_pilot.py    SHARE vs SHARP matched-parameter pilot (Round 7)
 └── tests/
     ├── test_leakage.py          Step 1 gate
     ├── test_graph.py            Step 2 gate
     ├── test_dyadic.py
-    └── test_model.py            encoder/heads/depth-prior unit tests (43 tests total across suite)
+    └── test_model.py            encoder/heads/depth-prior unit tests (46 tests total across suite)
 ```
 
 ---
@@ -668,14 +901,18 @@ Carried forward from earlier rounds, with resolution status as of the latest rou
 | Transformer 2 scenario confounded with `component_type` | Round 1 | **Resolved** by Round 2's decoupling fix (T2 itself remains unbuilt — Steps 7-8 not yet reached) |
 | CI method is row-level, not time-blocked bootstrap | Round 1 | **Still a documented compromise** — test splits remain too short for block resampling to be non-degenerate |
 | Single-seed significance findings | Round 1 | **Resolved as a practice** from Round 3 onward — multi-seed built into every round's methodology since |
-| Claim 2 (structural depth prior) | Rounds 1-4 | **Still unresolved**, on progressively stronger negative evidence — v3's 5-seed result and Round 4's independent reach-based reinforcement both point toward "no," not settled either way |
-| Step 6 (learned depth gate) | Roadmap | **On hold**, pending Claim 2 resolution — there is no validated prior to anchor a small learned correction to |
-| RGCN+attn matched-parameter arm | Round 6 | **Not yet run** — the clearest immediate next step; needed to separate "attention helped" from "smaller model regularized better" |
-| Whether RGCN+attn's delay/impact gains hold beyond this pilot's 5 seeds at full arm scope | Round 6 | **Open** — this was a fixed-d-only pilot, not a full ablation arm |
+| Claim 2 (structural depth prior) | Rounds 1-4 | **Still unresolved**, on progressively stronger negative evidence — v3's 5-seed result and Round 4's independent reach-based reinforcement both point toward "no," not settled either way; no round since has produced new evidence |
+| Step 6 (learned depth gate) | Roadmap | **On hold** through Round 7, pending Claim 2 resolution — there is no validated prior to anchor a small learned correction to |
+| SHARE matched-parameter arm | Round 6 | **Resolved by Round 7** — matched-d (752,211 params) confirms the fixed-d win survives essentially unchanged (all three task deltas under 0.0015) — not a smaller-model-regularizes-better artifact |
+| Whether SHARE's delay/impact gains hold beyond the pilot's 5 seeds at full arm scope | Round 6 | **Partially resolved by Round 7** — delay's gain holds at matched-d (still 5-seed consistent vs HGT); impact remained a statistical tie at both fixed-d and matched-d, so there was never a significant impact "gain" to re-confirm, only a tie to reconfirm (which it did) |
+| Does SHARP's extra relation-identity signal earn its cost on any other task or dataset regime? | Round 7 | **Open** — tied with SHARE on this dataset at this label volume; not tested elsewhere |
+| Option 2 (basis-decomposed attention hybrid, the third and most expensive RGCN-attention design, later named SHARK) | Round 7 | **Not yet built** as of this document — out of scope for Round 7 by its own framing |
 
 ---
 
 *This document supersedes `steps_0-5_findings.md`, `step5_result_v2.md`, `step5_result_v3.md`,
-`step5_result_v3_followup.md`, `step5_result_v4_4arch.md`, and `rgcn_attn_pilot.md`, which
-have been removed from `reports/` as part of this merge. Raw per-seed run logs referenced
-above remain in `reports/logs/`; governance-table backups remain in `reports/backups/`.*
+`step5_result_v3_followup.md`, `step5_result_v4_4arch.md`, `rgcn_attn_pilot.md`, and
+`rgcn_matched_pilot.md` (and the intermediate `hades_model_development_report.md` that first
+merged the first six of those), all of which have been removed from `reports/` as part of this
+merge. Raw per-seed run logs referenced above remain in `reports/logs/`; governance-table
+backups remain in `reports/backups/`.*
