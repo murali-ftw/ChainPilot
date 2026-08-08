@@ -134,6 +134,15 @@ def _epoch_forward(model, bundle: SnapshotBundle, losses: dict[str, FocalLoss]):
             continue
         term = losses[task](logits[task][idx], y)
         total = term if total is None else total + term
+
+    # Step 6 depth-gate side-channel: models that set `_last_kl_total` (only
+    # `DepthGateHADESModel`, `ml/models/rgcn_attn_depthgate_encoder.py`) get
+    # `lambda_kl * KL` added to the loss here -- a no-op for every other
+    # architecture, which never sets this attribute.
+    kl = getattr(model, "_last_kl_total", None)
+    lambda_kl = getattr(model, "lambda_kl", None)
+    if kl is not None and lambda_kl:
+        total = (lambda_kl * kl) if total is None else total + lambda_kl * kl
     return total
 
 
@@ -158,7 +167,8 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                  shared_depth: int | None = None, depth_prior: dict[str, int] | None = None,
                  hidden: int = 64, epochs: int = 100,
                  lr: float = 1e-3, weight_decay: float = 1e-4, seed: int = 0,
-                 num_bases: int = 8, relation_embed_dim: int = 16, num_bases_attn: int = 8) -> dict:
+                 num_bases: int = 8, relation_embed_dim: int = 16, num_bases_attn: int = 8,
+                 lambda_kl: float = 0.1) -> dict:
     """
     Train one model for `epochs` epochs (matching
     `docs/14_Model_Development_Roadmap.md` §6's "train for 100 epochs" --
@@ -179,22 +189,36 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     this call, so varying `seed` alone is a clean model-fit-variance probe
     (Step B).
 
-    `num_bases`: applies to 'rgcn', 'rgcn_attn', 'rgcn_relemb', and
-    'rgcn_battn' (`ml/models/rgcn_encoder.py`'s basis-decomposition relation
-    count, used for the message transform in all four); ignored by every
-    other architecture. `relation_embed_dim`: 'rgcn_relemb' only
-    (`ml/models/rgcn_relemb_encoder.py`'s per-relation embedding size).
-    `num_bases_attn`: 'rgcn_battn' only (`ml/models/rgcn_battn_encoder.py`'s
-    separate attention-side basis count). Both ignored by every architecture
-    they don't apply to.
+    `num_bases`: applies to 'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn',
+    'rgcn_attn_depthgate', and 'rgcn_attn_markov' (`ml/models/rgcn_encoder.py`'s
+    basis-decomposition relation count, used for the message transform in
+    all six); ignored by every other architecture. `relation_embed_dim`:
+    'rgcn_relemb' only (`ml/models/rgcn_relemb_encoder.py`'s per-relation
+    embedding size). `num_bases_attn`: 'rgcn_battn' only
+    (`ml/models/rgcn_battn_encoder.py`'s separate attention-side basis
+    count). `lambda_kl`: 'rgcn_attn_depthgate' only (Step 6 pilot,
+    `ml/models/rgcn_attn_depthgate_encoder.py`'s KL-anchor weight on the
+    learned per-task depth gate) -- 'rgcn_attn_markov' (Step 6 Phase 1,
+    `ml/models/rgcn_attn_markov_encoder.py`) uses a FIXED, non-learned
+    per-task depth instead and ignores this entirely. All ignored by every
+    architecture they don't apply to.
     """
     torch.manual_seed(seed)
     metadata = train_bundles[0].data.metadata()
     in_dims = {nt: train_bundles[0].data[nt].x.size(-1) for nt in train_bundles[0].data.node_types}
 
-    model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
-                        shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
-                        relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
+    if architecture == "rgcn_attn_depthgate":
+        from ml.models.rgcn_attn_depthgate_encoder import DepthGateHADESModel
+        model = DepthGateHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                     num_bases=num_bases, lambda_kl=lambda_kl)
+    elif architecture == "rgcn_attn_markov":
+        from ml.models.rgcn_attn_markov_encoder import MarkovHADESModel
+        model = MarkovHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                  num_bases=num_bases)
+    else:
+        model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                            shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
+                            relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     alphas = compute_task_alphas(train_bundles)
     losses = {task: FocalLoss(gamma=2.0, alpha=alphas[task]) for task in TASKS}
@@ -225,6 +249,11 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     else:
         best_epoch = epochs  # no val AUC was ever computable -- fall back to final epoch
 
+    # Gate weights are read fresh from the (now best-checkpoint-restored)
+    # model's own parameters, not from any stale forward-pass side-channel
+    # -- correct regardless of when load_state_dict happened above.
+    gate_weights = model.gate_weight_summary() if hasattr(model, "gate_weight_summary") else None
+
     return {
         "model": model,
         "alphas": alphas,
@@ -238,7 +267,9 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "epochs": epochs, "lr": lr,
             "weight_decay": weight_decay, "focal_gamma": 2.0, "focal_alpha": alphas,
             "optimizer": "AdamW", "seed": seed,
-            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn") else None,
+            "lambda_kl": lambda_kl if architecture == "rgcn_attn_depthgate" else None,
+            "gate_weights": gate_weights,
+            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate", "rgcn_attn_markov") else None,
             "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
             "num_bases_attn": num_bases_attn if architecture == "rgcn_battn" else None,
         },
@@ -281,12 +312,13 @@ def run_training_job(conn, model_version: str, architecture: str, train_bundles,
                       depth_prior: dict[str, int] | None = None, hidden: int = 64,
                       epochs: int = 100, seed: int = 0, purpose: str = "",
                       num_bases: int = 8, relation_embed_dim: int = 16,
-                      num_bases_attn: int = 8) -> dict:
+                      num_bases_attn: int = 8, lambda_kl: float = 0.1) -> dict:
     """Register -> train -> activate, one call per model_registry row."""
     result = train_model(architecture, train_bundles, val_bundles, num_layers=num_layers,
                           shared_depth=shared_depth, depth_prior=depth_prior, hidden=hidden,
                           epochs=epochs, seed=seed, num_bases=num_bases,
-                          relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
+                          relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn,
+                          lambda_kl=lambda_kl)
     register_model(conn, model_version, architecture, result["hyperparameters"],
                    result["model"].parameter_count(), purpose)
     activate_model(conn, model_version, "active")

@@ -47,7 +47,8 @@ import torch
 from torch import nn
 from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
-ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn")
+ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn",
+                  "rgcn_attn_depthgate", "rgcn_attn_markov")
 
 # docs/05_Database_Design.md §6.21's example `architecture` column values use
 # the full name; this module's factory keys stay short. Both are accepted.
@@ -128,23 +129,35 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
                    num_layers: int = 4, dropout: float = 0.2, num_bases: int = 8,
                    relation_embed_dim: int = 16, num_bases_attn: int = 8) -> nn.Module:
     """Factory: `architecture` in {'hgt', 'graphsage', 'gat', 'hgt_sparse',
-    'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn'} (or the doc's full name
-    'heterogeneous_graph_transformer' for 'hgt'). 'hgt_sparse' -- Task 2's
-    sparse-relation-merged variant, see `ml/models/sparse_hgt_encoder.py`.
-    'rgcn_attn' -- "Option 1" hybrid, RGCN's basis-decomposition transform
-    plus a shared attention-weighted aggregation, see
-    `ml/models/rgcn_attn_encoder.py`. 'rgcn_relemb' -- "Option 3", Option 1
-    plus a per-relation embedding additive term in the attention logit, see
-    `ml/models/rgcn_relemb_encoder.py`. 'rgcn_battn' -- "Option 2", Option 1
-    with a SECOND basis-decomposed pool dedicated to attention (per-relation
-    attention matrices, bilinear scoring) rather than a shared vector scorer,
-    see `ml/models/rgcn_battn_encoder.py`. `num_bases` applies to 'rgcn',
-    'rgcn_attn', 'rgcn_relemb', and 'rgcn_battn' (all built on the same
-    basis-decomposition relation count for the message transform,
-    `ml/models/rgcn_encoder.py`); `relation_embed_dim` applies only to
-    'rgcn_relemb'; `num_bases_attn` applies only to 'rgcn_battn' (its
-    separate attention-side basis count); every other architecture ignores
-    whichever of these doesn't apply to it."""
+    'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate'}
+    (or the doc's full name 'heterogeneous_graph_transformer' for 'hgt').
+    'hgt_sparse' -- Task 2's sparse-relation-merged variant, see
+    `ml/models/sparse_hgt_encoder.py`. 'rgcn_attn' -- "Option 1" hybrid
+    (SHARE), RGCN's basis-decomposition transform plus a shared
+    attention-weighted aggregation, see `ml/models/rgcn_attn_encoder.py`.
+    'rgcn_relemb' -- "Option 3" (SHARP), Option 1 plus a per-relation
+    embedding additive term in the attention logit, see
+    `ml/models/rgcn_relemb_encoder.py`. 'rgcn_battn' -- "Option 2" (SHARK),
+    Option 1 with a SECOND basis-decomposed pool dedicated to attention
+    (per-relation attention matrices, bilinear scoring) rather than a shared
+    vector scorer, see `ml/models/rgcn_battn_encoder.py`.
+    'rgcn_attn_depthgate' -- Step 6 pilot, SHARE's encoder with a learned,
+    KL-anchored per-task depth gate in place of the fixed structural-prior
+    readout; returns `num_layers + 1` layer-dicts (`h^0..h^L`), NOT
+    `num_layers` like every other architecture here -- see
+    `ml/models/rgcn_attn_depthgate_encoder.py`. 'rgcn_attn_markov' -- Step 6
+    Phase 1, the SAME `h^0..h^L` encoder as 'rgcn_attn_depthgate' (this
+    identifier maps to the identical `RGCNAttnDepthGateEncoder` class --
+    the two architectures differ only in what's built on top: a learned
+    gate vs. a fixed per-task index-select), see
+    `ml/models/rgcn_attn_markov_encoder.py`. `num_bases` applies to
+    'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate',
+    and 'rgcn_attn_markov' (all built on the same basis-decomposition
+    relation count for the message transform, `ml/models/rgcn_encoder.py`);
+    `relation_embed_dim` applies only to 'rgcn_relemb'; `num_bases_attn`
+    applies only to 'rgcn_battn' (its separate attention-side basis count);
+    every other architecture ignores whichever of these doesn't apply to
+    it."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
@@ -169,6 +182,29 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
         return RGCNBasisAttnEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                      num_bases=num_bases, num_bases_attn=num_bases_attn,
                                      dropout=dropout)
+    if architecture == "rgcn_attn_depthgate":
+        # Step 6 pilot: identical to 'rgcn_attn' except forward() also
+        # returns h^0 (the pre-message-passing input projection), giving
+        # L+1 candidate depths instead of L -- see
+        # `ml/models/rgcn_attn_depthgate_encoder.py`'s module docstring.
+        # NOTE: unlike every other architecture here, this encoder's
+        # forward() returns `num_layers + 1` layer-dicts, not `num_layers`
+        # -- callers that assume `len(layers) == num_layers` (e.g. the
+        # generic parametrized encoder test) do not apply to this one.
+        from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
+        return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases, dropout=dropout)
+    if architecture == "rgcn_attn_markov":
+        # Step 6 Phase 1 (Markov-blanket-derived fixed depth,
+        # "Markov Scoping and Transformer 1.md" §7.1): same h^0..h^L
+        # exposure as 'rgcn_attn_depthgate' -- deliberately the identical
+        # encoder class, since the fixed-vs-learned readout choice lives in
+        # the model built on top (`ml/models/rgcn_attn_markov_encoder.py`),
+        # not in the encoder. Also returns `num_layers + 1` layer-dicts, not
+        # `num_layers`, same exception as 'rgcn_attn_depthgate' above.
+        from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
+        return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases, dropout=dropout)
     if architecture in ("graphsage", "gat"):
         conv_name = "gat" if architecture == "gat" else "sage"
         return HeteroGNNEncoder(metadata, in_dims, conv_name, hidden=hidden,
