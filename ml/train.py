@@ -184,7 +184,8 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                  num_bases: int = 8, relation_embed_dim: int = 16, num_bases_attn: int = 8,
                  lambda_kl: float = 0.1, device: str = "cpu",
                  rung5a_lambda_bound: float = 0.3,
-                 rung5c_freeze_epochs: int = 15, rung5c_lr_mult: float = 0.1) -> dict:
+                 rung5c_freeze_epochs: int = 15, rung5c_lr_mult: float = 0.1,
+                 t2_top_k: int = 64) -> dict:
     """
     Train one model for `epochs` epochs (matching
     `docs/14_Model_Development_Roadmap.md` §6's "train for 100 epochs" --
@@ -273,6 +274,26 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
         from ml.models.rgcn_attn_rung5_variant_d import Rung5VariantDHADESModel
         model = Rung5VariantDHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                          num_bases=num_bases)
+    elif architecture == "rgcn_attn_variant_a_transformer2":
+        from ml.models.rgcn_attn_variant_a_transformer2 import Transformer2HADESModel
+        model = Transformer2HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                        num_bases=num_bases, lambda_bound=rung5a_lambda_bound,
+                                        t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_confidence":
+        from ml.models.transformer2_confidence import Transformer2ConfidenceHADESModel
+        model = Transformer2ConfidenceHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                                  num_bases=num_bases, lambda_bound=rung5a_lambda_bound,
+                                                  t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_trustgate":
+        from ml.models.transformer2_trustgate import Transformer2TrustGateHADESModel
+        model = Transformer2TrustGateHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                                 num_bases=num_bases, lambda_bound=rung5a_lambda_bound,
+                                                 t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_crossattn":
+        from ml.models.transformer2_crossattn import Transformer2CrossAttnHADESModel
+        model = Transformer2CrossAttnHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                                 num_bases=num_bases, lambda_bound=rung5a_lambda_bound,
+                                                 t2_top_k=t2_top_k)
     else:
         model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
                             shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
@@ -359,13 +380,20 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "num_bases": num_bases if architecture in (
                 "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate",
                 "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5", "rgcn_attn_rung5_a",
-                "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_d") else None,
+                "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_d",
+                "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn") else None,
             "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
             "num_bases_attn": num_bases_attn if architecture == "rgcn_battn" else None,
             "device": device,
-            "rung5a_lambda_bound": rung5a_lambda_bound if architecture == "rgcn_attn_rung5_a" else None,
+            "rung5a_lambda_bound": rung5a_lambda_bound if architecture in (
+                "rgcn_attn_rung5_a", "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn") else None,
             "rung5c_freeze_epochs": rung5c_freeze_epochs if architecture == "rgcn_attn_rung5_c" else None,
             "rung5c_lr_mult": rung5c_lr_mult if architecture == "rgcn_attn_rung5_c" else None,
+            "t2_top_k": t2_top_k if architecture in (
+                "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn") else None,
         },
     }
 
@@ -408,7 +436,7 @@ def run_training_job(conn, model_version: str, architecture: str, train_bundles,
                       num_bases: int = 8, relation_embed_dim: int = 16,
                       num_bases_attn: int = 8, lambda_kl: float = 0.1, device: str = "cpu",
                       rung5a_lambda_bound: float = 0.3, rung5c_freeze_epochs: int = 15,
-                      rung5c_lr_mult: float = 0.1) -> dict:
+                      rung5c_lr_mult: float = 0.1, t2_top_k: int = 64) -> dict:
     """Register -> train -> activate, one call per model_registry row. `device`: see
     `train_model`'s docstring -- `train_bundles`/`val_bundles` must already be on `device`
     if it isn't `"cpu"`."""
@@ -418,7 +446,8 @@ def run_training_job(conn, model_version: str, architecture: str, train_bundles,
                           relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn,
                           lambda_kl=lambda_kl, device=device,
                           rung5a_lambda_bound=rung5a_lambda_bound,
-                          rung5c_freeze_epochs=rung5c_freeze_epochs, rung5c_lr_mult=rung5c_lr_mult)
+                          rung5c_freeze_epochs=rung5c_freeze_epochs, rung5c_lr_mult=rung5c_lr_mult,
+                          t2_top_k=t2_top_k)
     register_model(conn, model_version, architecture, result["hyperparameters"],
                    result["model"].parameter_count(), purpose)
     activate_model(conn, model_version, "active")

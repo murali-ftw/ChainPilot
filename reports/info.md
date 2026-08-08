@@ -1,10 +1,11 @@
 # ChainPilot / HADES — Architecture Reference
 
-Graph structure, encoder architecture selection (**Layer 1**), and per-task depth selection on
-top of the winning encoder (**Layer 2**) — why each design was tried, why it was or wasn't kept,
-the layer-by-layer mechanics of each, and what's still on the table. All numbers below are real,
-measured results from `reports/layer1.md`, `reports/layer2.md`, `reports/rgcn_types.md`, and
-`reports/entropy_test.md` — nothing here is estimated or assumed.
+Graph structure, encoder architecture selection (**Layer 1**), per-task depth selection on top
+of the winning encoder (**Layer 2**), and global hidden-dependency discovery on top of that
+(**Layer 3**) — why each design was tried, why it was or wasn't kept, the layer-by-layer
+mechanics of each, and what's still on the table. All numbers below are real, measured results
+from `reports/layer1.md`, `reports/layer2.md`, `reports/rgcn_types.md`,
+`reports/entropy_test.md`, and `reports/phase3.md` — nothing here is estimated or assumed.
 
 ---
 
@@ -719,3 +720,273 @@ the full catalog and reasoning.
 - A "Global Context Halting" mechanism, dependent on a future Global Transformer
   (Transformer 2) component, is speculative until that component exists — it does not
   exist in this codebase as of this document.
+
+---
+
+# LAYER 3 — Global Hidden-Dependency Discovery + Fusion
+
+Everything in Layer 1 and Layer 2 propagates information strictly along the graph's own edges
+— message passing can never connect two Suppliers with no path between them. Layer 3 adds a
+component that operates outside that constraint entirely: a global attention mechanism over
+Supplier embeddings, with no adjacency mask, specifically built to surface hidden
+dependencies the graph's own structure cannot represent — then asks whether what it discovers
+can be fused back into a prediction task to make it more accurate.
+
+## 1. Naming legend
+
+| Name used here | What it is | Status |
+|---|---|---|
+| **Transformer 2** (code base: `rgcn_attn_variant_a_transformer2`) | Global same-type attention over Supplier embeddings, no adjacency mask, top-k=64 cosine pool | Tested — **validated as a discovery mechanism** |
+| Additive Fusion (original design) | `z_impact + t2_scale · t2_output`, one global learned scalar | Tested |
+| **Confidence-Aware Fusion** (code: `rgcn_attn_t2_confidence`) | Additive fusion scaled by a label-free retrieval-confidence score | Tested — **recommended fusion design** |
+| Per-Node Trust Gate (code: `rgcn_attn_t2_trustgate`) | Small per-Supplier learned gate replacing the single global scale | Tested |
+| Cross-Attention Fusion (code: `rgcn_attn_t2_crossattn`) | Impact embedding cross-attends directly over the retrieved candidate pool | Tested |
+
+## 2. What discovery means here
+
+Every mechanism in Layer 1 and Layer 2 is bounded by the graph's own edges — a Supplier's
+representation can only ever be shaped by nodes reachable through some sequence of real
+relations (`SUPPLIES`, `SHIPS_FROM`, and so on), no matter how many layers deep it reads.
+That is a real limitation: two Suppliers can share a genuine hidden cause — the same
+unmodeled upstream plant, the same regional customs office, anything the schema never
+recorded as an edge — and no amount of depth tuning from Layer 2 can ever connect them,
+because there is no path to traverse in the first place. Layer 3 exists to close exactly that
+gap: instead of asking "how many hops should this node look," it asks "which OTHER Suppliers,
+anywhere in the graph, does this Supplier's embedding actually resemble, regardless of whether
+a path connects them at all."
+
+| Question | Which layer answers it |
+|---|---|
+| How should a node's own local neighborhood be weighted? | Layer 1 (SHARE's shared attention scorer) |
+| How many hops of that neighborhood should a task actually read? | Layer 2 (Markov Floor / Variant A) |
+| Are there hidden, non-graph-edge relationships worth surfacing at all? | **Layer 3 (Transformer 2)** |
+| If surfaced, should that discovery change a prediction? | **Layer 3 (fusion design — this is the open question)** |
+
+These are two genuinely separate claims, and this project's own validation methodology treats
+them as such: a discovery mechanism can be correct and useful (a human-reviewable
+investigation-leads tool) even in a round where it does not yet move a downstream task's AUC.
+
+## 3. Mechanism-by-mechanism
+
+### Transformer 2 — the discovery mechanism itself
+
+**Why we tried it.** Every prior architecture (Layer 1) and every depth mechanism (Layer 2)
+is fundamentally bounded by the graph's own edges. Transformer 2 tests whether a same-type,
+no-adjacency-mask global attention pass over Supplier embeddings can recover a hidden
+dependency the schema never encoded as an edge at all — the "moralization" case theorized in
+`Markov Scoping and Transformer 1.md` §1.3/§2.4.
+
+**Positives — theory.** Operates post-encoder, on top of whatever depth Variant A currently
+selects for impact — purely additive, no changes to SHARE, SHARP, SHARK, or Markov/Variant A.
+Bounded to a top-64 cosine-similarity candidate pool per Supplier, matching the original spec's
+own bounding choice.
+
+**Positives — numbers.** **VALIDATION VERDICT: PASS, decisively, consistent across all 5
+seeds.** Mean percentile rank of the 4 planted H_POLYMER suppliers' pairwise similarity: 0.7255
+(chance 0.500). Pool-membership discovery rate: 0.7444 (chance ~0.105) — every seed's discovery
+rate exceeds 0.66, 5.5–7.5x the measured chance rate. Not one lucky seed; it replicates.
+
+**Negatives — numbers.** Discovering the hidden dependency did not reliably improve impact
+AUC under the original additive-fusion design (0.9434 → 0.9455, but the delta flips sign across
+seeds — not statistically significant).
+
+**Why kept, as a discovery tool.** The `hidden_dependency_links` table is real, working, and
+populated with a genuine better-than-chance signal a human reviewer can act on — independent of
+whether any current fusion design converts that discovery into an AUC gain.
+
+---
+
+### Prerequisite findings — why the AUC gap exists (read before judging any fusion variant)
+
+**Causal coupling verdict (from `db/generate_dataset.py`, read directly).** H_POLYMER — the
+only planted hidden-dependency scenario this dataset contains — has **no cross-supplier causal
+coupling**, unlike Task 3's dual-sourcing scenario (`COPARENT_COUPLING = 0.35`). Every
+H_POLYMER member's own label is fully derivable from that supplier's own observable history
+alone; nothing about a partner's stress leaks into it. H_POLYMER is a real, causally-grounded
+correlation (all 4 members share genuine, simultaneous disruption exposure) but is
+**structurally redundant for prediction purposes** — discovering it adds nothing incrementally
+predictive, no matter how the discovery is fused in.
+
+**Retrieval-confidence-vs-usefulness correlation.** Measured directly: Suppliers with more
+confident retrieval (concentrated attention, genuinely similar top-64 pool) are the ones whose
+predictions Transformer 2 moves the most (`pearson_r = +0.7666`). A real, exploitable signal —
+though "moves a prediction a lot" and "moves it correctly" are different claims, and this
+dataset's redundancy (above) means the second claim can't currently be tested.
+
+---
+
+### Additive Fusion (original design)
+
+**Why we tried it.** The simplest possible way to let a validated discovery signal influence a
+prediction — one learned global scalar, zero-initialized so training can only move away from
+the safe, do-nothing baseline deliberately.
+
+**Positives — numbers.** Nominally higher impact AUC (0.9434 → 0.9455) and stable across
+re-runs as the reference discovery-quality benchmark (0.7730 mean percentile rank) for judging
+every other fusion variant against.
+
+**Negatives — numbers.** The AUC gain is not statistically defensible — the delta flips sign
+across seeds. A single global scale applies identically to all 800 Suppliers, diluting
+whatever real signal exists for the handful that actually have one.
+
+**Why not chosen as final.** Superseded by Confidence-Aware Fusion, which reuses the same
+mechanism with zero added parameters and better-preserved discovery quality.
+
+---
+
+### Confidence-Aware Fusion ★
+
+**Why we tried it.** Rather than let a single learned scalar apply uniformly, scale the fusion
+contribution directly by a label-free confidence signal Transformer 2 already computes
+internally (mean top-64 cosine similarity + attention entropy) — motivated directly by the
+retrieval-confidence correlation finding above.
+
+**Positives — theory.** Adds zero new learned parameters — the confidence signal already
+exists inside Transformer 2's forward pass, so there is no new trainable surface area and
+therefore no new source of the seed-dependent instability every other per-node gate in this
+project's history has shown.
+
+**Positives — numbers.** Best-preserved discovery quality of the three variants tested (0.7130
+mean percentile rank vs. the original's 0.7730 — closest of the three to the validated
+baseline). Point estimates on par with the other variants on AUC (delay 0.8176, shortage
+0.7995, impact 0.9432), though — like every other variant — not statistically significant
+against either shared baseline.
+
+**Negatives — numbers.** No variant, including this one, produced a statistically defensible
+AUC improvement — expected, given the causal-coupling finding above, not a shortcoming specific
+to this design.
+
+**Why chosen.** Zero added cost, the most stable of the three (no new learned weights), and the
+best-preserved discovery signal — the correct default until a dataset with genuine incremental
+cross-supplier signal exists to actually reward a fusion mechanism. See `reports/phase3.md`
+Part 3 for the full comparative rationale.
+
+---
+
+### Per-Node Trust Gate
+
+**Why we tried it.** Replace the single global scale with a per-Supplier learned gate
+(`trust_i = tanh(MLP(z_impact_i))`, zero-initialized, reusing Variant A's own bounded-residual
+pattern) — the most direct attempt to target only the Suppliers where fusion actually helps.
+
+**Positives — numbers.** Marginally higher point-estimate AUC than confidence-weighting on
+delay/impact (not significant). Mechanically the most flexible of the three variants.
+
+**Negatives — numbers.** **Highly unstable across seeds — the same bimodal, seed-dependent
+signature Layer 2's Rung 4/5 work found repeatedly.** Mean trust ranges from −0.009 to +0.428
+depending purely on random seed; the degree correlation flips sign across seeds
+(`[-0.129, -0.146, -0.012, -0.220, +0.101]`). The 4 known H_POLYMER members' mean trust
+(+0.0166) is *lower* than the rest of the population's (+0.1715) — consistent with the
+causal-coupling finding: there is no training pressure to trust H_POLYMER's signal specifically,
+because it carries no incremental predictive value.
+
+**Why not chosen as final.** The instability itself, not the AUC null result, is the open
+question — worth revisiting only if a future dataset provides genuine incremental
+hidden-dependency signal to train against.
+
+---
+
+### Cross-Attention Fusion
+
+**Why we tried it.** Replace the additive combination with genuine cross-attention — let the
+impact representation actively query the retrieved candidate pool, rather than receiving
+Transformer 2's generic weighting indiscriminately.
+
+**Positives — theory.** The most expressive fusion mechanism of the three — selective
+retrieval of only the relevant part of what was discovered, in principle.
+
+**Negatives — numbers.** The most expensive variant (+49,535 params, the priciest of the
+three) and the weakest discovery-quality preservation (0.6510 mean percentile rank) — the
+fusion mechanism's own gradient pulls the impact embedding away from the pure retrieval
+objective more than either simpler design.
+
+**Why not chosen.** Highest cost, weakest discovery-quality retention, no AUC compensation to
+show for either — the least justified of the three on current evidence.
+
+---
+
+## 4. Overall comparison
+
+| Arm | Delay AUC | Shortage AUC | Impact AUC | Discovery (mean percentile) | Params (Δ over base_a) |
+|---|---|---|---|---|---|
+| base_a (Variant A alone, no Transformer 2) | 0.8167 ± 0.0025 | 0.7952 ± 0.0038 | 0.9436 ± 0.0011 | n/a | 0 |
+| Additive Fusion (original) | 0.8144–0.8186 | 0.7991–0.7996 | 0.9425–0.9455 | 0.7730 (reference) | +49,537 |
+| **Confidence-Aware Fusion** ★ | 0.8176 ± 0.0026 | 0.7995 ± 0.0039 | 0.9432 ± 0.0025 | **0.7130** | **+0** (reuses existing signal) |
+| Per-Node Trust Gate | 0.8185 ± 0.0008 | 0.7991 ± 0.0037 | 0.9438 ± 0.0019 | 0.6357 | +4,160 |
+| Cross-Attention Fusion | 0.8186 ± 0.0017 | 0.7992 ± 0.0050 | 0.9443 ± 0.0020 | 0.6510 | +49,535 |
+
+Bold = chosen mechanism. No arm beats another on AUC at a statistically defensible standard —
+every comparison across every pair of arms flips sign across seeds. The differentiator across
+this layer is discovery-quality preservation and parameter cost, not AUC, per
+`reports/phase3.md`'s Prerequisite 0 finding (H_POLYMER carries no incremental predictive
+signal for any fusion mechanism to exploit).
+
+## 5. How the key mechanisms actually work
+
+### Transformer 2 — global discovery pass
+
+```mermaid
+flowchart TD
+    A["SHARE encoder's Supplier embeddings, at Variant A's own impact-depth blend z_impact"] --> B["Normalize + pairwise cosine similarity, EVERY Supplier vs EVERY other Supplier - no adjacency mask"]
+    B --> C["Per Supplier: keep only its own top-k=64 most-similar candidates"]
+    C --> D["Q/K/V attention over that candidate pool only"]
+    D --> E["t2_output_i - a global-context vector, independent of any graph path"]
+    E --> F["Logged to hidden_dependency_links - top-500 pairs by symmetric attention score + all 6 H_POLYMER ground-truth pairs"]
+```
+
+### The crack — three ways to fuse a discovered signal back into impact
+
+Everything upstream of this step (the discovery pass itself, producing `t2_output_i`) stays
+identical across all three fusion variants — only how that output gets combined with
+`z_impact` changes.
+
+```mermaid
+flowchart LR
+    subgraph BEFORE["Additive Fusion - original design"]
+        direction TB
+        B1["ONE learned global scalar t2_scale"] --> B2["z_impact + t2_scale * t2_output"] --> B3["Same weight applied to all 800 Suppliers, real signal or not"]
+    end
+    subgraph CONF["Confidence-Aware Fusion - chosen"]
+        direction TB
+        C1["Label-free confidence_i, already computed inside Transformer 2 - zero new params"] --> C2["z_impact + t2_scale * confidence_i * t2_output_i"] --> C3["Best-preserved discovery quality, most stable, cheapest"]
+    end
+    subgraph TRUST["Per-Node Trust Gate"]
+        direction TB
+        T1["Small learned MLP, hidden->32->1, zero-init"] --> T2["z_impact + tanh(MLP(z_impact_i)) * t2_output_i"] --> T3["Bimodal seed-dependent instability - same signature as Layer 2's Rung 4/5"]
+    end
+    subgraph CROSS["Cross-Attention Fusion"]
+        direction TB
+        X1["Impact embedding as query, retrieved pool as key/value"] --> X2["nn.MultiheadAttention, 4 heads, zero-init output projection"] --> X3["Most expensive, weakest discovery retention"]
+    end
+    BEFORE -. "THE FUSION QUESTION, three redesigns" .-> CONF
+    BEFORE -. " " .-> TRUST
+    BEFORE -. " " .-> CROSS
+```
+
+## 6. Next step
+
+**Status: no further fusion variant is currently planned.** The blocking finding
+(`reports/phase3.md` Prerequisite 0) is a property of the dataset, not the fusion mechanism —
+no amount of further fusion-design sophistication can produce a genuine AUC win from H_POLYMER
+specifically, because it carries no incremental predictive signal beyond what each Supplier's
+own features already capture. The natural next step is a dataset change, not a model change: a
+hidden-dependency scenario built the way Task 3's dual-sourcing scenario was (an explicit,
+incremental `COPARENT_COUPLING`-style cross-supplier bleed-through term) applied to a
+Transformer-2-style undirected/non-graph-edge relationship. Until such a dataset exists,
+Confidence-Aware Fusion remains the standing recommendation — free, stable, and the best
+current custodian of Transformer 2's one validated capability.
+
+## 7. Open items
+
+- No fusion variant tested has produced a statistically defensible AUC improvement on any
+  task — three independent designs, the same negative result, fully explained by Prerequisite
+  0's dataset-level finding rather than any design flaw.
+- Per-Node Trust Gate's instability (bimodal, seed-dependent, same signature as Layer 2's Rung
+  4/5) is unresolved and worth revisiting specifically if a future dataset provides genuine
+  incremental hidden-dependency signal.
+- The `is_frontier` override remains implemented but inert — `suppliers.is_frontier` does not
+  exist in the live schema, a disclosed limitation carried over from Round 1.
+- No dataset currently exists with an incrementally predictive (not just correlated) hidden
+  cross-supplier dependency of the kind Transformer 2's fusion designs would need to show a
+  real AUC benefit — flagged as the actual blocker for this entire layer's accuracy question,
+  not a modeling gap.

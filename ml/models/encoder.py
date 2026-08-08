@@ -49,7 +49,9 @@ from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
 ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn",
                   "rgcn_attn_depthgate", "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5",
-                  "rgcn_attn_rung5_a", "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_d")
+                  "rgcn_attn_rung5_a", "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_d",
+                  "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                  "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn")
 
 # docs/05_Database_Design.md §6.21's example `architecture` column values use
 # the full name; this module's factory keys stay short. Both are accepted.
@@ -158,14 +160,29 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
     encoder again; each node gets its OWN learned depth-weight distribution
     per task (the upgrade over 'rgcn_attn_depthgate''s one-per-task
     distribution), see `ml/models/rgcn_attn_rung4_encoder.py` /
-    `ml/models/rgcn_attn_rung5_encoder.py`. `num_bases` applies to 'rgcn',
-    'rgcn_attn', 'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate',
-    'rgcn_attn_markov', 'rgcn_attn_rung4', and 'rgcn_attn_rung5' (all built
-    on the same basis-decomposition relation count for the message
-    transform, `ml/models/rgcn_encoder.py`); `relation_embed_dim` applies
-    only to 'rgcn_relemb'; `num_bases_attn` applies only to 'rgcn_battn'
-    (its separate attention-side basis count); every other architecture
-    ignores whichever of these doesn't apply to it."""
+    `ml/models/rgcn_attn_rung5_encoder.py`. 'rgcn_attn_variant_a_transformer2'
+    -- Step 7 (Transformer 2 / Claim 3, `ml/models/transformer2.py`): SAME
+    `h^0..h^L` encoder yet again, plus Rung 5 Variant A's own gate
+    (`ml/models/rgcn_attn_rung5_variant_a.py`, reused unmodified) for every
+    task, plus a global same-type attention module fused into ONLY the
+    impact path -- see `ml/models/rgcn_attn_variant_a_transformer2.py` for
+    the full composition and the delay-vs-impact wiring deviation from
+    `docs/10_AI_ML_Documentation.md` §8.3. 'rgcn_attn_t2_confidence' /
+    'rgcn_attn_t2_trustgate' / 'rgcn_attn_t2_crossattn' -- three isolated,
+    standalone fusion-improvement variants on 'rgcn_attn_variant_a_transformer2'
+    (confidence-modulated fusion strength, a learned per-node trust gate, and
+    cross-attention over the raw retrieval pool respectively), each replacing
+    ONLY the fusion step, never stacked with each other -- see
+    `ml/models/transformer2_confidence.py` / `transformer2_trustgate.py` /
+    `transformer2_crossattn.py`. `num_bases` applies to 'rgcn', 'rgcn_attn',
+    'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate', 'rgcn_attn_markov',
+    'rgcn_attn_rung4', 'rgcn_attn_rung5', 'rgcn_attn_rung5_a'/'_b'/'_c'/'_d',
+    'rgcn_attn_variant_a_transformer2', and 'rgcn_attn_t2_confidence'/
+    '_trustgate'/'_crossattn' (all built on the same basis-decomposition
+    relation count for the message transform, `ml/models/rgcn_encoder.py`);
+    `relation_embed_dim` applies only to 'rgcn_relemb'; `num_bases_attn`
+    applies only to 'rgcn_battn' (its separate attention-side basis count);
+    every other architecture ignores whichever of these doesn't apply to it."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
@@ -215,18 +232,27 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
                                          num_bases=num_bases, dropout=dropout)
     if architecture in ("rgcn_attn_rung4", "rgcn_attn_rung5",
                         "rgcn_attn_rung5_a", "rgcn_attn_rung5_b",
-                        "rgcn_attn_rung5_c", "rgcn_attn_rung5_d"):
+                        "rgcn_attn_rung5_c", "rgcn_attn_rung5_d",
+                        "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                        "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn"):
         # Step 6 Phase 2 (per-node depth-gate hybrids, "Markov Scoping and
         # Transformer 1.md" Part 6's ladder, rungs 4 and 5, plus rung 5's
-        # four isolated-variant follow-ups A-D, `reports/step6_rung_pilot.md`):
-        # same h^0..h^L exposure again -- the encoder is identical across
-        # ALL of 'rgcn_attn_depthgate'/'rgcn_attn_markov'/'rgcn_attn_rung4'/
-        # 'rgcn_attn_rung5'/'rgcn_attn_rung5_a'/'_b'/'_c'/'_d'; they differ
-        # only in what's built on top (`ml/models/rgcn_attn_rung4_encoder.py`,
+        # four isolated-variant follow-ups A-D, `reports/step6_rung_pilot.md`)
+        # AND Step 7 (Transformer 2 / Claim 3, built on Variant A, plus its
+        # three isolated fusion-improvement variants, `reports/
+        # step7b_transformer2_fusion_pilot.md`): same h^0..h^L exposure again
+        # -- the encoder is identical across ALL of 'rgcn_attn_depthgate'/
+        # 'rgcn_attn_markov'/'rgcn_attn_rung4'/'rgcn_attn_rung5'/
+        # 'rgcn_attn_rung5_a'/'_b'/'_c'/'_d'/'rgcn_attn_variant_a_transformer2'/
+        # 'rgcn_attn_t2_confidence'/'rgcn_attn_t2_trustgate'/
+        # 'rgcn_attn_t2_crossattn'; they differ only in what's built on top
+        # (`ml/models/rgcn_attn_rung4_encoder.py`,
         # `ml/models/rgcn_attn_rung5_encoder.py`,
-        # `ml/models/rgcn_attn_rung5_variant_{a,b,d}.py`; variant C reuses
-        # Rung 5's own model class with a training-loop-only change, see
-        # `ml/train.py::train_model`). Also returns `num_layers + 1`
+        # `ml/models/rgcn_attn_rung5_variant_{a,b,d}.py`,
+        # `ml/models/rgcn_attn_variant_a_transformer2.py`,
+        # `ml/models/transformer2_{confidence,trustgate,crossattn}.py`; variant
+        # C reuses Rung 5's own model class with a training-loop-only change,
+        # see `ml/train.py::train_model`). Also returns `num_layers + 1`
         # layer-dicts, same exception as above.
         from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
         return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
