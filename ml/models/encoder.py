@@ -48,7 +48,7 @@ from torch import nn
 from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
 ARCHITECTURES = ("graphsage", "gat", "hgt", "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn",
-                  "rgcn_attn_depthgate", "rgcn_attn_markov")
+                  "rgcn_attn_depthgate", "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5")
 
 # docs/05_Database_Design.md §6.21's example `architecture` column values use
 # the full name; this module's factory keys stay short. Both are accepted.
@@ -142,22 +142,29 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
     (per-relation attention matrices, bilinear scoring) rather than a shared
     vector scorer, see `ml/models/rgcn_battn_encoder.py`.
     'rgcn_attn_depthgate' -- Step 6 pilot, SHARE's encoder with a learned,
-    KL-anchored per-task depth gate in place of the fixed structural-prior
-    readout; returns `num_layers + 1` layer-dicts (`h^0..h^L`), NOT
-    `num_layers` like every other architecture here -- see
-    `ml/models/rgcn_attn_depthgate_encoder.py`. 'rgcn_attn_markov' -- Step 6
-    Phase 1, the SAME `h^0..h^L` encoder as 'rgcn_attn_depthgate' (this
+    KL-anchored per-TASK depth gate (one shared distribution per task) in
+    place of the fixed structural-prior readout; returns `num_layers + 1`
+    layer-dicts (`h^0..h^L`), NOT `num_layers` like every other
+    architecture here -- see `ml/models/rgcn_attn_depthgate_encoder.py`.
+    'rgcn_attn_markov' -- Step 6 Phase 1, the SAME `h^0..h^L` encoder (this
     identifier maps to the identical `RGCNAttnDepthGateEncoder` class --
-    the two architectures differ only in what's built on top: a learned
-    gate vs. a fixed per-task index-select), see
-    `ml/models/rgcn_attn_markov_encoder.py`. `num_bases` applies to
-    'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate',
-    and 'rgcn_attn_markov' (all built on the same basis-decomposition
-    relation count for the message transform, `ml/models/rgcn_encoder.py`);
-    `relation_embed_dim` applies only to 'rgcn_relemb'; `num_bases_attn`
-    applies only to 'rgcn_battn' (its separate attention-side basis count);
-    every other architecture ignores whichever of these doesn't apply to
-    it."""
+    it differs from 'rgcn_attn_depthgate' only in what's built on top: a
+    fixed per-task index-select, zero new parameters), see
+    `ml/models/rgcn_attn_markov_encoder.py`. 'rgcn_attn_rung4' /
+    'rgcn_attn_rung5' -- Step 6 Phase 2, the two per-node depth-gate hybrids
+    from "Markov Scoping and Transformer 1.md" Part 6's ladder (rung 4:
+    attention-only; rung 5: prior-initialized MLP) -- SAME `h^0..h^L`
+    encoder again; each node gets its OWN learned depth-weight distribution
+    per task (the upgrade over 'rgcn_attn_depthgate''s one-per-task
+    distribution), see `ml/models/rgcn_attn_rung4_encoder.py` /
+    `ml/models/rgcn_attn_rung5_encoder.py`. `num_bases` applies to 'rgcn',
+    'rgcn_attn', 'rgcn_relemb', 'rgcn_battn', 'rgcn_attn_depthgate',
+    'rgcn_attn_markov', 'rgcn_attn_rung4', and 'rgcn_attn_rung5' (all built
+    on the same basis-decomposition relation count for the message
+    transform, `ml/models/rgcn_encoder.py`); `relation_embed_dim` applies
+    only to 'rgcn_relemb'; `num_bases_attn` applies only to 'rgcn_battn'
+    (its separate attention-side basis count); every other architecture
+    ignores whichever of these doesn't apply to it."""
     architecture = _normalize_architecture(architecture)
     if architecture == "hgt":
         return HGTEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers, dropout=dropout)
@@ -202,6 +209,18 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
         # the model built on top (`ml/models/rgcn_attn_markov_encoder.py`),
         # not in the encoder. Also returns `num_layers + 1` layer-dicts, not
         # `num_layers`, same exception as 'rgcn_attn_depthgate' above.
+        from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
+        return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                         num_bases=num_bases, dropout=dropout)
+    if architecture in ("rgcn_attn_rung4", "rgcn_attn_rung5"):
+        # Step 6 Phase 2 (per-node depth-gate hybrids, "Markov Scoping and
+        # Transformer 1.md" Part 6's ladder, rungs 4 and 5): same h^0..h^L
+        # exposure again -- the encoder is identical across
+        # 'rgcn_attn_depthgate'/'rgcn_attn_markov'/'rgcn_attn_rung4'/
+        # 'rgcn_attn_rung5'; all four differ only in what's built on top
+        # (`ml/models/rgcn_attn_rung4_encoder.py`,
+        # `ml/models/rgcn_attn_rung5_encoder.py`). Also returns
+        # `num_layers + 1` layer-dicts, same exception as above.
         from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
         return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                          num_bases=num_bases, dropout=dropout)

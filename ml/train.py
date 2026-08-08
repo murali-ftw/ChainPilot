@@ -190,17 +190,19 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     (Step B).
 
     `num_bases`: applies to 'rgcn', 'rgcn_attn', 'rgcn_relemb', 'rgcn_battn',
-    'rgcn_attn_depthgate', and 'rgcn_attn_markov' (`ml/models/rgcn_encoder.py`'s
-    basis-decomposition relation count, used for the message transform in
-    all six); ignored by every other architecture. `relation_embed_dim`:
-    'rgcn_relemb' only (`ml/models/rgcn_relemb_encoder.py`'s per-relation
-    embedding size). `num_bases_attn`: 'rgcn_battn' only
-    (`ml/models/rgcn_battn_encoder.py`'s separate attention-side basis
-    count). `lambda_kl`: 'rgcn_attn_depthgate' only (Step 6 pilot,
-    `ml/models/rgcn_attn_depthgate_encoder.py`'s KL-anchor weight on the
-    learned per-task depth gate) -- 'rgcn_attn_markov' (Step 6 Phase 1,
-    `ml/models/rgcn_attn_markov_encoder.py`) uses a FIXED, non-learned
-    per-task depth instead and ignores this entirely. All ignored by every
+    'rgcn_attn_depthgate', 'rgcn_attn_markov', 'rgcn_attn_rung4', and
+    'rgcn_attn_rung5' (`ml/models/rgcn_encoder.py`'s basis-decomposition
+    relation count, used for the message transform in all eight); ignored
+    by every other architecture. `relation_embed_dim`: 'rgcn_relemb' only
+    (`ml/models/rgcn_relemb_encoder.py`'s per-relation embedding size).
+    `num_bases_attn`: 'rgcn_battn' only (`ml/models/rgcn_battn_encoder.py`'s
+    separate attention-side basis count). `lambda_kl`: 'rgcn_attn_depthgate'
+    only (Step 6 pilot, `ml/models/rgcn_attn_depthgate_encoder.py`'s
+    KL-anchor weight on the learned per-task depth gate) -- 'rgcn_attn_markov'
+    (Step 6 Phase 1) uses a FIXED, non-learned per-task depth instead, and
+    'rgcn_attn_rung4'/'rgcn_attn_rung5' (Step 6 Phase 2, per-node depth-gate
+    hybrids) use init-time prior-biasing instead of a training-time KL
+    penalty -- all three ignore `lambda_kl` entirely. All ignored by every
     architecture they don't apply to.
     """
     torch.manual_seed(seed)
@@ -215,6 +217,14 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
         from ml.models.rgcn_attn_markov_encoder import MarkovHADESModel
         model = MarkovHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                   num_bases=num_bases)
+    elif architecture == "rgcn_attn_rung4":
+        from ml.models.rgcn_attn_rung4_encoder import Rung4HADESModel
+        model = Rung4HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                 num_bases=num_bases)
+    elif architecture == "rgcn_attn_rung5":
+        from ml.models.rgcn_attn_rung5_encoder import Rung5HADESModel
+        model = Rung5HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                 num_bases=num_bases)
     else:
         model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
                             shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
@@ -269,7 +279,7 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "optimizer": "AdamW", "seed": seed,
             "lambda_kl": lambda_kl if architecture == "rgcn_attn_depthgate" else None,
             "gate_weights": gate_weights,
-            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate", "rgcn_attn_markov") else None,
+            "num_bases": num_bases if architecture in ("rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_depthgate", "rgcn_attn_markov", "rgcn_attn_rung4", "rgcn_attn_rung5") else None,
             "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
             "num_bases_attn": num_bases_attn if architecture == "rgcn_battn" else None,
         },
