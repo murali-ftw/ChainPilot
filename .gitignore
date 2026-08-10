@@ -35,3 +35,25 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated dataset
+# Deterministically regenerable from db/generate_dataset.py + a seed (verified
+# byte-identical across runs, including under a changed PYTHONHASHSEED), so none
+# of it belongs in history -- and history is forever even after a later delete.
+# Currently 2.2 GB; the full spec-scale sweep projects to ~24-27 GB
+# (docs/phase0_power_check.md §7).
+db/csv/
+
+# resolved_config.json lives inside db/csv/ and is excluded with it. It is small,
+# but it carries a `generated_at` timestamp, so it churns on every regeneration
+# even when nothing else changed, and a full sweep produces 60 of them. To
+# preserve the manifest of a *published* run, copy that one file into docs/ --
+# a deliberate archival act rather than incidental tracking.
+
+# Database dumps and backups
+# Defensive: V2 has no reports/backups/ directory and calls no pg_dump today, but
+# db/load_data.py drives a live PostgreSQL instance and HADES_v1 kept dumps here.
+reports/backups/
+*.dump
+*.sql.gz
+*.sql.bak

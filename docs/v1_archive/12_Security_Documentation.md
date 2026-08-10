@@ -1,3 +1,7 @@
+> **ARCHIVED — V1 application documentation, superseded by the V2 benchmark reframing.**
+> JWT, RBAC and encryption for the V1 multi-tenant application. V2 generates synthetic data with no PII and no auth surface.
+> Preserved unchanged for the record. See `docs/CHANGELOG_V1_to_V2.md`.
+
 # Document 12 — Security Documentation
 
 ## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System

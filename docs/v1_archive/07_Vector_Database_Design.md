@@ -1,3 +1,7 @@
+> **ARCHIVED — V1 application documentation, superseded by the V2 benchmark reframing.**
+> Vector store for RAG evidence_chunks in the V1 application. No variant of the V2 benchmark has a retrieval component.
+> Preserved unchanged for the record. See `docs/CHANGELOG_V1_to_V2.md`.
+
 # Document 7 — Vector Database Design
 
 ## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System

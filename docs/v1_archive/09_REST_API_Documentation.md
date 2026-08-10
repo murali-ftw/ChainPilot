@@ -1,3 +1,7 @@
+> **ARCHIVED — V1 application documentation, superseded by the V2 benchmark reframing.**
+> Auth and user-administration endpoints for the V1 application. V2 datasets are gzipped CSVs on disk; there is no dataset-access API.
+> Preserved unchanged for the record. See `docs/CHANGELOG_V1_to_V2.md`.
+
 # Document 9 — REST API Documentation
 
 ## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System

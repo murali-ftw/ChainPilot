@@ -1,3 +1,7 @@
+> **ARCHIVED — V1 application documentation, superseded by the V2 benchmark reframing.**
+> Screen specifications for the V1 application UI. HADES-Bench V2 is a research benchmark with no user interface; no V2 counterpart exists.
+> Preserved unchanged for the record. See `docs/CHANGELOG_V1_to_V2.md`.
+
 # Document 3 — UI / UX Documentation
 
 ## Graph Neural Network and Generative AI-Based Supply Chain Risk Prediction System
