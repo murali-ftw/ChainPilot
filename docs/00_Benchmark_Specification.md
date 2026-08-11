@@ -298,8 +298,8 @@ parameters]**
 | World scale | `WARMUP_DAYS` — `T_START` → first `t0` | 182 | 180–365 |
 | World scale | `HORIZON_DAYS` — label horizon per snapshot | 14 | 7–28 |
 | World scale | `SETTLE_DAYS` — last `t0` → `T_END`, beyond the horizon | 44 | 14–90 |
-| World scale | `SHORTAGE_SAMPLE_RATE` — fraction of `inv_pairs` carrying shortage labels | 0.07 | 0.01–1.00 |
-| World scale | `DELAY_SAMPLE_RATE` — fraction of eligible shipments carrying delay labels | 0.50 | 0.01–1.00 |
+| World scale | `SHORTAGE_SAMPLE_RATE` — fraction of `inv_pairs` carrying shortage labels | 0.08 | 0.01–1.00 |
+| World scale | `DELAY_SAMPLE_RATE` — fraction of eligible shipments carrying delay labels | 1.00 | 0.01–1.00 |
 | Visibility (A) | Maximum Visible Tier | 2 | 1–5 |
 | Hidden Structure (B) | Hidden Parent Rate | 0.20 | 0–0.50 |
 | Hidden Structure (B) | Type A : B : C Mix | 1 : 1 : 1 | any 3-way split summing to 1 |
@@ -358,17 +358,43 @@ It is *not* the visible, label-bearing subset. Two consequences that must be res
    Once Mechanism J introduces tiers, they diverge and must be reported separately.
 
 **Why two sampling rates exist.** The three tasks scale on different denominators — impact is one
-label per supplier per snapshot at a ~2% positive rate, delay one per eligible shipment at ~6.5%,
-shortage one per (product, warehouse, snapshot) at ~7.3%. **Impact is the only task that reaches the
-2,000–5,000 range by scaling.** At the defaults above, Phase 0 measured Variant K positives of
-impact 2,049, delay 6,266 and shortage 46,966 — so delay and shortage must be **subsampled down**
-into the range while impact is scaled **up** into it. `DELAY_SAMPLE_RATE = 0.50` and
-`SHORTAGE_SAMPLE_RATE = 0.07` bring them to roughly 3,100 and 3,300.
+label per supplier per snapshot, delay one per eligible shipment, shortage one per (product,
+warehouse, snapshot) — so no single world size puts all three in range at once, and the two large
+denominators have to be sampled down while impact is scaled up.
 
 Both sampled sets must be drawn from a fixed seed and held **identical across all variants and all
 seeds**, so cross-variant comparison is never confounded by which shipments or pairs were sampled.
 Sample the *entities* (`inv_pairs`, eligible shipments), not the label rows, so each sampled
 entity keeps its full time series.
+
+**[Amended in Phase 6 — both rates re-derived at spec scale against the real generator.]** The
+Phase 0 §4 figures these rates were originally set from (Variant K: impact 2,049, delay 6,266,
+shortage 46,966) used the `ABSORB=0.533` approximation, before Mechanisms E and F were built and
+before G existed. Measured with all three live, Variant K is **impact 1,518, delay 3,642, shortage
+35,169** — 26%, 42% and 25% below the projections. Consequences, in full in
+`docs/phase6_spec_scale_report.md`:
+
+- `SHORTAGE_SAMPLE_RATE` moves from 0.07 to **0.08.** Shortage density spans only 1.42× across
+  variants, so a single global rate does exist — but 0.07 was derived from one seed, and across all
+  12 × 5 runs it puts Variant K at **1,891 on seed 46, under the floor**. The 60-run feasible
+  window is [0.074, 0.095]; 0.08 clears the floor by 8% on the worst measured seed and the ceiling
+  by 16% on the best.
+- `DELAY_SAMPLE_RATE` changes to **1.00**. Delay density spans **9.0×** across variants, and no
+  single rate satisfies both ends: the 5,000 ceiling binds at ≤ 0.152 (Variants A, J) while the
+  2,000 floor binds at ≥ 0.549 (Variant K). The floor is the constraint with statistical meaning
+  and the ceiling is a cost bound worth ~10 MB per variant-seed, so the floor wins. Eleven of
+  twelve variants therefore exceed 5,000 delay positives, by up to 6.6×; this is recorded as a
+  deliberate ceiling violation, not an oversight.
+- **Impact misses the floor on the combined benchmark.** Variant K averages **1,896** over five
+  seeds (in band on 3 of 5) and Variant F 2,256 (4 of 5); impact has no sampling lever. Closing it
+  needs `SNAPSHOTS` ≈ 53 — measured, since post-2025 snapshots carry 90% of the in-calendar
+  positive density — or a larger `SUP_N`, which `docs/phase0_power_check.md` §1 rules out. An open
+  configuration decision, not a settled default. Impact also *overshoots* on Variants A and J
+  (5,412), so it is out of band at both ends of the variant set.
+- **Read power flags across seeds, never from one run.** Delay positives vary ~2× and impact ~40%
+  between seeds, because the hidden-factor member sets are re-drawn per seed over a power-law
+  degree distribution. This is the same conclusion `docs/phase0_power_check.md` §2–§3 reach for the
+  gating checks, now measured for label volume too.
 
 
 ### Mechanism E coupling — `resilience_lambda` **[added in Phase 2]**

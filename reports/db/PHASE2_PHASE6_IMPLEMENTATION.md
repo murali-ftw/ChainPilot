@@ -95,20 +95,34 @@ mechanisms, limitations), plus this summary. `docs/phase0_power_check.md` and
 
 ## 7. Remaining TODOs
 
-1. **Run the full matrix at spec scale.** Everything reported here is the `v1` preset (800
-   suppliers, 15 snapshots), which runs in ~10 s per variant-seed. The spec configuration
-   (`sup_n=4,000`, 40 snapshots) costs ~115 s and ~443 MB per variant-seed — roughly **2 hours and
-   ~24 GB** for the full 12 × 5 sweep. Storage exceeds the ~15 GB target; the recommended lever is
-   retaining 2 of 5 seeds on disk and regenerating the rest (`docs/phase0_power_check.md` §7).
-2. **Re-derive `DELAY_SAMPLE_RATE` and `SHORTAGE_SAMPLE_RATE` at spec scale.** Both were set from
-   Phase 0 measurements taken *before* Mechanism G existed. G suppresses delay positives ~3×, so
-   0.50 is very likely wrong for any variant including G.
-3. **Neither sampling rate is wired into label emission yet.** They are configured, validated and
-   documented, but `generate_dataset.py` does not yet subsample. Every variant currently emits all
-   labels — which is why the report table shows shortage `ok` and delay `LOW` rather than both in
-   band.
-4. **Power targets are not met at the `v1` preset** (delay and impact both `LOW` for every variant).
-   Expected: that preset is the V1 fixture, not a benchmark configuration.
+**TODOs 1–3 are resolved — see `docs/phase6_spec_scale_report.md`.** TODO 4 is answered there too,
+at real scale, and the answer is not a clean pass; the surviving part of it is restated as TODO 4′
+below.
+
+1. ~~**Run the full matrix at spec scale.**~~ **Done.** `db/csv/` now holds the spec configuration
+   (`sup_n=4,000`, 40 snapshots), 12 variants × the 2 retained seeds, 24 runs, zero validation
+   failures, **22 min 56 s wall clock** at 4-way parallelism and **10.2 GB** on disk — under the
+   ~15 GB target. Seed retention (2 of 5, seeds 42 and 43) and the on-demand regeneration wrapper
+   `db/regenerate_seed.py` implement `docs/phase0_power_check.md` §7 lever 1.
+2. ~~**Re-derive `DELAY_SAMPLE_RATE` and `SHORTAGE_SAMPLE_RATE` at spec scale.**~~ **Done, and the
+   old figures did not survive.** Measured Variant K is delay 3,642 / shortage 35,169 / impact
+   1,518 against Phase 0's 6,266 / 46,966 / 2,049 — 42%, 25% and 26% lower. `SHORTAGE_SAMPLE_RATE`
+   becomes **0.08**: 0.07 looks right on seed 42 but puts Variant K at 1,891 — under the floor — on
+   seed 46, so the rate is derived against all 12 × 5 runs instead of one. `DELAY_SAMPLE_RATE`
+   becomes **1.00**: delay density spans 9.0× across variants and no single rate satisfies both the
+   2,000 floor and the 5,000 ceiling. Report §2.4 has the reasoning, including why a per-variant
+   rate table is the wrong fix.
+3. ~~**Neither sampling rate is wired into label emission yet.**~~ **Done.** Entity-level sampling
+   from a fixed hash salt, independent of `cfg.seed` and of every mechanism's RNG, so the sampled
+   sets are identical across all twelve variants and all five seeds by construction. Five
+   validation checks cover it, including that impact is *not* subsampled.
+4. ~~**Power targets are not met at the `v1` preset.**~~ Measured at spec scale instead
+   (report §4). **4′ — impact misses the 2,000 floor on the combined benchmark.** Variant K
+   averages 1,862 over five seeds and Variant F 2,173, both with wide seed spread; impact has no
+   sampling lever, so closing it needs `SNAPSHOTS` ≈ 53 or a larger `SUP_N`, each with costs
+   elsewhere. An open configuration decision, in report §5. Related and new: **seed-to-seed spread
+   on delay is ~2×** at spec scale, because the hidden-factor member sets are re-drawn per seed
+   over a power-law degree distribution — a single seed cannot establish that a variant is in band.
 5. **`supplier_upstream` has no DDL and is not loaded.** Mechanism J emits
    `supplier_upstream.csv.gz` (its upstream edge list), but `db/schema.sql` has no matching table
    and `load_data.py`'s `LOAD_ORDER` does not include it, so the file is silently skipped on load.
@@ -150,14 +164,21 @@ mechanisms, limitations), plus this summary. `docs/phase0_power_check.md` and
 
 ## 9. Suggested next phase
 
-**Run the spec-scale sweep and wire the label sampling, in that order.** Concretely:
+Steps 1–3 of this section are **done** (`docs/phase6_spec_scale_report.md`). What is left:
 
-1. Wire `DELAY_SAMPLE_RATE` / `SHORTAGE_SAMPLE_RATE` into label emission (TODO 3), sampling
-   *entities* rather than label rows so each sampled entity keeps its full time series, with the
-   sampled set held identical across variants and seeds.
-2. Re-derive both rates from a spec-scale Variant K run, since Mechanism G changed the delay
-   denominator after those defaults were set.
-3. Execute the full 12 × 5 sweep at spec scale with a seed-retention policy, and publish the report
-   table with power flags per variant per task.
-4. Then proceed to `V2_MASTER_PROMPT.md` Part 2 — the fourteen numbered docs — which should be
+1. **Decide the impact shortfall** (TODO 4′). `SNAPSHOTS = 53` is the measured lever — post-2025
+   snapshots carry 86–90% of the in-calendar positive density, so the linear extrapolation holds —
+   but it lengthens the timeline to Nov 2028 and grows the corpus ~30%. Spec owner's call.
+2. **Decide whether the 5,000 delay ceiling is a requirement or a cost bound.** The report treats
+   it as a cost bound worth ~6 MB per variant-seed and prioritises the 2,000 floor; if that is
+   wrong, §2.4 sets out what the alternatives cost.
+3. Then proceed to `V2_MASTER_PROMPT.md` Part 2 — the fourteen numbered docs — which should be
    written against measured spec-scale numbers rather than the `v1` fixture's.
+
+**Phase 7 has since landed** (`docs/phase7_training_results.md`): SHARE/SHARP/SHARK are ported into
+`ml/`, the port is verified against V1's recorded numbers on the byte-identical anchor (delay/
+shortage/impact all within 0.0012 of V1's midpoints, parameter count exact), and the twelve variants
+are trained and compared. Two results from it bear on this document: **the spec-scale sweep needs a
+GPU** (~38 h per run on this hardware, ~20,000 CPU-hours for the full grid), and **dataset-seed
+variance is ~10x model-seed variance on delay**, which means architecture claims must be averaged
+over generated worlds rather than over model initialisations.

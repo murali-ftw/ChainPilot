@@ -20,7 +20,7 @@ Design notes
   validation suite at the end asserts all of it.
 """
 
-import argparse, csv, dataclasses, gzip, io, json, math, os, random, sys, uuid
+import argparse, csv, dataclasses, gzip, hashlib, io, json, math, os, random, sys, uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -54,8 +54,15 @@ class Config:
     horizon_days: int = 14            # label horizon per snapshot
     settle_days: int = 44             # last t0 -> t_end, beyond the horizon
     t_end_override: str = ""          # exact ISO datetime; "" = derive. Used by the v1 preset.
-    shortage_sample_rate: float = 0.07
-    delay_sample_rate: float = 0.50
+    # Re-derived at spec scale against the real generator with E/F/G live, over all
+    # 12 variants x 5 seeds -- docs/phase6_spec_scale_report.md §2. Shortage takes a
+    # single global rate; the 5-seed feasible window is [0.074, 0.095] and 0.08 sits
+    # inside it with >=8% margin at both ends. (The old 0.07 was derived from one
+    # seed and puts Variant K at 1,891 on seed 46 -- under the 2,000 floor.) Delay
+    # admits NO global in-band rate: density spans 9.0x across variants, so 1.00 is
+    # chosen to clear the floor everywhere and the 5,000 ceiling is knowingly missed.
+    shortage_sample_rate: float = 0.08
+    delay_sample_rate: float = 1.00
     # -- mechanism A: partial visibility ----------------------------------
     max_visible_tier: int = 2
     # -- mechanism B: hidden shared structure -----------------------------
@@ -255,6 +262,42 @@ def write(name, header, rows):
             with io.TextIOWrapper(gz, encoding="utf-8", newline="") as f:
                 w = csv.writer(f); w.writerow(header); w.writerows(rows)
     print(f"  {name + '.gz':38s} {len(rows):>7,} rows")
+
+# ---------------------------------------------------------------- label entity sampling
+# `delay_sample_rate` / `shortage_sample_rate` subsample ENTITIES, never label rows:
+# a sampled shipment (or (product, warehouse) pair) keeps its entire time series, and
+# an unsampled one contributes no label at any t0. Dropping individual rows instead
+# would hand the model histories with holes punched through them, which is not a thing
+# any real label store looks like.
+#
+# The draw is a fixed salt hashed with the entity's own identity -- deliberately NOT
+# `random`, whose stream every mechanism and every seed perturbs. Entity identities are
+# uuid5 over a stable key (`uid("shp", idx)`, `uid("prod", i)`, `uid("wh", i)`), so an
+# entity that exists in two variants, or at two seeds, falls on the same side of the
+# threshold in both. That is the spec's "sampled sets held identical across all variants
+# and seeds" requirement met by construction rather than by remembering to reseed.
+SAMPLE_SALT = "hades-bench-v2/label-entity-sample"
+
+
+def sample_u(task, *key):
+    """Deterministic uniform [0,1) for one entity under one task. Independent of
+    cfg.seed, of the variant, and of every mechanism's RNG consumption."""
+    blob = "|".join((SAMPLE_SALT, task) + tuple(str(k) for k in key)).encode()
+    return int.from_bytes(hashlib.blake2b(blob, digest_size=8).digest(), "big") / 2.0 ** 64
+
+
+def in_sample(task, rate, *key):
+    return rate >= 1.0 or sample_u(task, *key) < rate
+
+
+# Diagnostic: with HADES_RATE_CURVE=1 the manifest carries, per task, the exact number
+# of emitted rows and positives at every rate on a grid -- computed from ALL eligible
+# entities regardless of the active rate. Because sampling is a pure filter on emission
+# (it changes nothing upstream in the simulation), one run therefore yields the exact
+# post-sampling counts for every candidate rate simultaneously, which is how the rates in
+# docs/phase6_spec_scale_report.md were derived without a run per candidate.
+RATE_CURVE = os.environ.get("HADES_RATE_CURVE") == "1"
+RATE_GRID = [round(0.01 * i, 2) for i in range(1, 101)]
 
 # ---------------------------------------------------------------- Chapter 2/3
 COUNTRIES = {  # lead-time profile (lognormal mu in days), sea-freight?, base reliability alpha/beta
@@ -1258,6 +1301,17 @@ def sup_features(sup, t0):
     return r30, r90, r180, slope, var, dsl, n180
 
 stf_rows, carrier_rows, snap_rows, label_rows = [], [], [], []
+
+# The two sampled entity sets, fixed once for the whole run. Impact is deliberately NOT
+# subsampled: per docs/phase0_power_check.md §4 it is the one task that reaches the target
+# range by scaling *up*, and it sits on the smallest denominator of the three.
+DELAY_SAMPLE = frozenset(sh["id"] for sh in shipments
+                         if in_sample("delay", CFG.delay_sample_rate, sh["id"]))
+SHORTAGE_SAMPLE = frozenset(
+    (ip["product_id"], ip["warehouse_id"]) for ip in inv_pairs
+    if in_sample("shortage", CFG.shortage_sample_rate, ip["product_id"], ip["warehouse_id"]))
+_curve = {"delay": {}, "shortage": {}}      # entity key -> [rows, positives], pre-sampling
+
 for t0 in T0S:
     # supplier temporal features -- Mechanism A: hidden-tier suppliers emit none
     for s in suppliers:
@@ -1286,7 +1340,12 @@ for t0 in T0S:
         # the model may READ (asof_status, sup_features), never the ground truth.
         ev = next((at for (_s, stat, _p, at, _r) in trans_by_sid.get(sh["id"], ()) if stat == "delayed" and t0 < at <= hz), None)
         lab = ev is not None
+        # Impact's ground truth is read off EVERY eligible shipment, sampled or not: the
+        # delay sample must not silently thin the impact task with it.
         if lab and sh["supplier_id"]: sup_hit.add(sh["supplier_id"])
+        if RATE_CURVE:
+            c = _curve["delay"].setdefault(sh["id"], [0, 0]); c[0] += 1; c[1] += int(lab)
+        if sh["id"] not in DELAY_SAMPLE: continue
         n_pos["delay"] += int(lab)
         label_rows.append([uid("lbl", t0, "delay", sh["id"]), uid("snap", t0), "shipment", sh["id"], "delay",
                            str(lab).lower(), fmt(ev) if ev else "", "shipment_status_history", ""])
@@ -1295,6 +1354,9 @@ for t0 in T0S:
         ev = next((w + timedelta(hours=6) for w in shortage_events.get(key, [])
                    if t0 < w + timedelta(hours=6) <= hz), None)      # compare on observed_at, incl. the 6h offset
         lab = ev is not None
+        if RATE_CURVE:
+            c = _curve["shortage"].setdefault(key, [0, 0]); c[0] += 1; c[1] += int(lab)
+        if key not in SHORTAGE_SAMPLE: continue
         n_pos["shortage"] += int(lab)
         # entity_id stays product_id (entity_type='product'), but warehouse_id is now
         # carried alongside it -- Fix 3: previously two rows for the SAME product could
@@ -1435,7 +1497,28 @@ _manifest = {
     "row_counts": {"suppliers_emitted": len(VISIBLE_SUP), "suppliers_simulated": SUP_N,
                    "shipments": len(shipments), "transitions": len(transitions),
                    "inventory_observations": len(inv_hist), "labels": len(label_rows)},
+    "label_sampling": {
+        "salt": SAMPLE_SALT,
+        "delay": {"rate": CFG.delay_sample_rate, "entities_total": len(shipments),
+                  "entities_sampled": len(DELAY_SAMPLE)},
+        "shortage": {"rate": CFG.shortage_sample_rate, "entities_total": len(inv_pairs),
+                     "entities_sampled": len(SHORTAGE_SAMPLE)},
+        "impact": {"rate": 1.0, "entities_total": len(VISIBLE_SUP),
+                   "entities_sampled": len(VISIBLE_SUP)},
+    },
 }
+if RATE_CURVE:
+    _curve_out = {}
+    for _task, _ents in _curve.items():
+        _pts = sorted((sample_u(_task, *((k,) if isinstance(k, str) else k)), n, p)
+                      for k, (n, p) in _ents.items())
+        _cum, _rows_c, _pos_c, _j = [], 0, 0, 0
+        for _r in RATE_GRID:
+            while _j < len(_pts) and _pts[_j][0] < _r:
+                _rows_c += _pts[_j][1]; _pos_c += _pts[_j][2]; _j += 1
+            _cum.append({"rate": _r, "n": _rows_c, "positives": _pos_c})
+        _curve_out[_task] = _cum
+    _manifest["sampling_rate_curve"] = _curve_out
 with open(os.path.join(OUT, "resolved_config.json"), "w") as _f:
     json.dump(_manifest, _f, indent=2, sort_keys=True)
 print(f"  {'resolved_config.json':38s} variant={VARIANT} seed={CFG.seed}")
@@ -1501,6 +1584,37 @@ for r in label_rows:
         t0 = _t0_by_snap[r[1]]
         if not (fmt(t0) < r[6] <= fmt(t0 + timedelta(days=HORIZON))): bad_win += 1
 check("labels: event within (t0, t0+H]", bad_win == 0, f"({bad_win} outside)")
+# ---- label entity sampling (spec configuration table; docs/phase6_spec_scale_report.md)
+_de = {r[3] for r in label_rows if r[4] == "delay"}
+_se = {(r[3], r[8]) for r in label_rows if r[4] == "shortage"}
+check("sampling: every emitted delay/shortage entity is in the sampled set",
+      _de <= DELAY_SAMPLE and _se <= SHORTAGE_SAMPLE,
+      f"(delay {len(_de):,}/{len(DELAY_SAMPLE):,} sampled, shortage {len(_se):,}/{len(SHORTAGE_SAMPLE):,})")
+# Entity sampling, not row sampling: a sampled entity must carry EVERY label row it is
+# eligible for. Eligibility is per-t0, so the test is that no sampled entity is missing
+# a row it would have had -- equivalently, emitted rows per entity match the unsampled
+# eligibility count, which for shortage is exactly one row per t0 per pair.
+_short_rows_per_ent = {}
+for r in label_rows:
+    if r[4] == "shortage": _short_rows_per_ent[(r[3], r[8])] = _short_rows_per_ent.get((r[3], r[8]), 0) + 1
+check("sampling: sampled entities keep their FULL time series (no row-level dropout)",
+      all(v == len(T0S) for v in _short_rows_per_ent.values()),
+      f"({len(_short_rows_per_ent):,} pairs x {len(T0S)} t0s)")
+_dr, _sr = CFG.delay_sample_rate, CFG.shortage_sample_rate
+_dhat = len(DELAY_SAMPLE) / max(1, len(shipments)); _shat = len(SHORTAGE_SAMPLE) / max(1, len(inv_pairs))
+check("sampling: realised entity fractions match the configured rates",
+      abs(_dhat - _dr) < 0.02 and abs(_shat - _sr) < 0.02,
+      f"(delay {_dhat:.4f} vs {_dr}, shortage {_shat:.4f} vs {_sr})")
+# The sample must not move with the seed or the variant, or cross-variant comparison is
+# confounded by which entities happened to be included. Membership is re-derived here from
+# the entity id alone -- no config, no RNG -- and must reproduce the set exactly.
+_probe = [s["id"] for s in shipments][::max(1, len(shipments) // 500)]
+check("sampling: membership depends only on entity identity (seed/variant invariant)",
+      all((p in DELAY_SAMPLE) == (_dr >= 1.0 or sample_u("delay", p) < _dr) for p in _probe),
+      f"({len(_probe)} probes)")
+check("sampling: impact is NOT subsampled (every visible supplier x t0 emits a label)",
+      sum(1 for r in label_rows if r[4] == "impact") == len(VISIBLE_SUP) * len(T0S),
+      f"({sum(1 for r in label_rows if r[4] == 'impact'):,} = {len(VISIBLE_SUP):,} x {len(T0S)})")
 leak = sum(1 for r in stf_rows for _ in [0] if False)
 check("features: windows end at t0 (by construction)", True)
 deg = sum(len(v) for v in prod_bom_sup.values()) / len(prod_bom_sup)

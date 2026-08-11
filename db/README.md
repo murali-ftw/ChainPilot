@@ -12,6 +12,7 @@ db/
 ├── schema.sql                  DDL only — enums, 19 tables, indexes, constraints
 ├── generate_dataset.py         the simulation engine + all ten mechanisms + validation suite
 ├── run_benchmark.py            Phase 6: generate the variant x seed matrix, report, determinism
+├── regenerate_seed.py          Phase 6: regenerate the 3 non-retained seeds on demand
 ├── benchmark_eval.py           Phase 6: temporal splits, paired bootstrap, sign consistency
 ├── load_data.py                loads schema + CSVs into PostgreSQL, then verifies
 ├── phase0_power_harness.py     Phase 0 label-volume sweep (superseded by the config object)
@@ -21,6 +22,13 @@ db/
 ├── README.md
 └── csv/v<variant>_seed<n>/     one <table>.csv.gz per table + resolved_config.json
 ```
+
+**What is on disk.** `csv/` holds the benchmark at its **spec configuration** — `SUP_N = 4,000`,
+40 monthly snapshots (Jul 2024 – Oct 2027) — for all twelve variants at the **two retained seeds,
+42 and 43**: 24 variant-seeds, **10.2 GB** (9.7 GiB), ~424 MB each. Seeds 44–46 are not stored; they are
+regenerated exactly on demand (see `Regenerating`). The `v1` preset that used to live here is the
+V1 byte-identity anchor, not a benchmark configuration; it is regenerated in ~10 s per variant-seed
+with `--config v1` and is still verified byte-identical against V1's output.
 
 ## The twelve benchmark variants
 
@@ -52,11 +60,15 @@ J; coupling needs B's Type A groups; transmission is derived from E's resilience
 python3 db/generate_dataset.py --variant K --seed 42            # spec defaults
 python3 db/generate_dataset.py --variant 0 --config v1          # V1 reproduction fixture
 
-# the full matrix, counts only (no CSVs — the full sweep at spec scale is ~24 GB)
+# the full matrix, counts only (no CSVs — all 12 x 5 at spec scale would be ~25 GB)
 python3 db/run_benchmark.py --stats-only --report report.json
+
+# the retained sweep as it is on disk now: 12 variants x seeds 42,43
+python3 db/run_benchmark.py --seeds 42,43 --manifest-dir manifests/ --report report.json
 
 # reproducibility: diffs the COMPRESSED bytes, not the decompressed contents
 python3 db/run_benchmark.py --verify-determinism --variant K
+python3 db/regenerate_seed.py --verify --variant K --seed 42   # against the on-disk copy
 
 # split composition and label availability for a generated variant
 python3 db/benchmark_eval.py --dataset db/csv/vK_seed42
@@ -66,8 +78,9 @@ python3 db/benchmark_eval.py --dataset db/csv/vK_seed42
 range-checked at startup; out-of-range or unknown parameters abort before generation. A variant
 whose mechanisms are not yet implemented is refused rather than silently emitted as Variant 0.
 
-**Output is gzip-compressed** (`<table>.csv.gz`, level 9). At the V1 scale below that is
-**124.7 MB → 39.2 MB, a 3.18× ratio**; the ratio is modest because roughly half the corpus is
+**Output is gzip-compressed** (`<table>.csv.gz`, level 9). At spec scale that is
+**1.299 GB → 423 MB per variant-seed, a 3.07× ratio**; at the V1 preset, **124.7 MB → 39.2 MB, a
+3.18× ratio**. The ratio is modest because roughly half the corpus is
 `inventory_history` and every row is UUID-keyed, and random hex does not compress. Compression does
 not weaken the determinism guarantee: `write()` uses `gzip.GzipFile(..., mtime=0, filename="")`, so
 the gzip header carries no timestamp and no embedded source filename, and two runs at the same seed
@@ -75,33 +88,45 @@ and config produce **byte-identical `.csv.gz`** files — verified by diffing th
 directly, including across differing `PYTHONHASHSEED` values. `load_data.py` decompresses
 transparently and still accepts a plain `.csv` directory if one is present.
 
-**v3 (current)** — scaled up further and extended in time (`reports/step5_result_v3.md`):
-v2 fixed delay/shortage label volume but left impact under-scaled (44 total, ~21 in a test
-split) because impact is a per-supplier, per-snapshot label — it scales with supplier count
-**and** snapshot count, not shipment volume. `SUP_N` went 180→800 (`SCALE = SUP_N/50 = 16`,
-propagated the same way as v2), and the simulated timeline extended from 6 monthly snapshots
-(Jul–Dec 2024) to **15** (Jul 2024 – Sep 2025).
+**Spec scale (current)** — `SUP_N = 4,000` (`SCALE = SUP_N/50 = 80`), **40** monthly snapshots
+(Jul 2024 – Oct 2027), timeline 2024-01-01 → 2027-11-28 (1,427 days). Row counts below are
+`v0_seed42` as generated; the `v1`-preset numbers that used to sit here are kept further down as
+the superseded fixture.
 
 | Table | Rows | Notes |
 |---|---|---|
-| suppliers | 800 | 6 countries, power-law degree, `reliability_history` display-only |
-| components | 2,400 | each belongs to exactly one supplier |
-| products | 1,280 | 6 categories |
-| product_components | 7,098 | BOM with validity windows; substitutions/additions now extend into 2025 (see "v3 fixes") |
-| factories / product_factories | 5 / 1,933 | per-product capacity, `is_primary` (factory count NOT scaled — physical infrastructure) |
-| warehouses / inventory | 8 / 3,194 | current state only (warehouse count NOT scaled, same reason) |
-| inventory_history | 293,848 | weekly observations, bitemporal (`observed_at`+`recorded_at`) |
-| customers | 1,600 | strategic ~15% / standard ~70% / low ~15% |
-| orders / order_items | 27,967 / 69,828 | order count scales with BOTH world size and timeline length (`SCALE x TIMELINE_DAYS/365`), keeping per-product weekly demand intensity at the calibrated level |
-| shipments | 39,130 | supplier→warehouse replenishment + factory fulfilment |
-| shipment_status_history | 121,057 | full transition log — the delay-label source |
-| supplier_temporal_features | 12,000 | 15 monthly `as_of_date`s × 800 suppliers, windows end at t0 |
-| carrier_performance_snapshots | 75 | 5 carriers × 15 t0s |
-| graph_snapshots | 15 | t0 = Jul 1 2024 … Sep 1 2025, horizon 14d, counts JSON |
-| training_labels | 71,240 | tasks `delay`/`shortage`/`impact`; **17.29%/6.60%/3.15%** positive (**1,959/3,161/378** total). Counts re-measured from the current `csv/` during the Phase 0 power check — the previously documented 1,066/2,875/279 at 9.55%/6.00%/2.33% were stale by roughly 2× on delay and impact. Impact remains the binding task for statistical power: see `docs/phase0_power_check.md` |
-| risk_scores | 800 | seed rows, `weighted_formula` — **not** model output |
+| suppliers | 4,000 | 6 countries, power-law degree, `reliability_history` display-only. Variants A and K emit **3,323** — Mechanism A truncates past `max_visible_tier` |
+| supplier_upstream | 3,277 (K) | Mechanism J's upstream edge list; emitted only by variants including J, and only where both endpoints survive A's truncation. Variants without J emit no file (see Known limitations — no DDL yet) |
+| components | 12,000 | each belongs to exactly one supplier |
+| products | 6,400 | 6 categories |
+| product_components | 35,059 | BOM with validity windows; substitutions/additions extend across the timeline |
+| factories / product_factories | 5 / 9,534 | per-product capacity, `is_primary` (factory count NOT scaled — physical infrastructure) |
+| warehouses / inventory | 8 / 16,011 | current state only (warehouse count NOT scaled, same reason) |
+| inventory_history | 3,266,244 | weekly observations, bitemporal (`observed_at`+`recorded_at`) — 54% of the compressed corpus |
+| customers | 8,000 | strategic ~15% / standard ~70% / low ~15% |
+| orders / order_items | 312,767 / 781,578 | order count scales with BOTH world size and timeline length (`SCALE x TIMELINE_DAYS/365`), keeping per-product weekly demand intensity at the calibrated level |
+| shipments | 437,257 | supplier→warehouse replenishment + factory fulfilment |
+| shipment_status_history | 1,433,635 | full transition log — the delay-label source |
+| supplier_temporal_features | 160,000 | 40 monthly `as_of_date`s × 4,000 suppliers, windows end at t0 (132,920 in A/K) |
+| carrier_performance_snapshots | 200 | 5 carriers × 40 t0s |
+| graph_snapshots | 40 | t0 = Jul 1 2024 … Oct 1 2027, horizon 14d, counts JSON |
+| training_labels | 377,424 | tasks `delay`/`shortage`/`impact`; **18.86%/8.00%/2.13%** positive (**31,370/4,086/3,410** on 166,344/51,080/160,000 rows). Shortage rows are `SHORTAGE_SAMPLE_RATE = 0.08` × `inv_pairs` × 40 t0s (1,277 of 16,011 pairs); `DELAY_SAMPLE_RATE = 1.00`, so delay emits every eligible row. Per-variant positives and power flags: `docs/phase6_spec_scale_report.md` §4 |
+| risk_scores | 4,000 | seed rows, `weighted_formula` — **not** model output (3,323 in A/K) |
 
-Exact counts vary slightly on regeneration-affecting edits (RNG draw order shifts downstream), but are always internally consistent and re-validated by the generator's own suite — see `Regenerating` below.
+Exact counts vary by variant and by seed — mechanisms change how much RNG is consumed, and
+**delay positives vary ~2× across seeds** because the hidden-factor member sets are re-drawn per
+seed over a power-law degree distribution. They are always internally consistent and re-validated
+by the generator's own suite — see `Regenerating` below.
+
+**v3 (superseded — the `v1` preset, and the V1 byte-identity anchor)** — 800 suppliers, 15
+snapshots (Jul 2024 – Sep 2025): suppliers 800, components 2,400, products 1,280,
+product_components 7,098, factories/product_factories 5/1,933, warehouses/inventory 8/3,194,
+inventory_history 293,848, customers 1,600, orders/order_items 27,967/69,828, shipments 39,130,
+shipment_status_history 121,057, supplier_temporal_features 12,000,
+carrier_performance_snapshots 75, graph_snapshots 15, training_labels 71,240
+(delay/shortage/impact 17.29%/6.60%/3.15%, **1,959/3,161/378** total), risk_scores 800. Both
+sample rates are pinned to 1.0 in this preset, which is what keeps Variant 0 byte-identical to V1.
+Regenerate with `python3 db/generate_dataset.py --variant 0 --config v1`.
 
 **v2 (superseded)** — the 180-supplier, 6-snapshot world: suppliers 180, components 540,
 products 288, product_components 1,580, factories/product_factories 5/427,
@@ -325,17 +350,35 @@ python generate_dataset.py
 ```
 
 Fully deterministic: fixed RNG seed + UUIDv5 keys. The validation suite
-(FK/PK integrity, chronology, non-negative stock, label windows, graph
-connectivity, hidden-dependency observability) runs at the end and exits
+(FK/PK integrity, chronology, non-negative stock, label windows, label sampling,
+graph connectivity, hidden-dependency observability) runs at the end and exits
 non-zero on any failure.
 
-To confirm determinism yourself — note this diffs the **compressed** bytes, which
-is the stronger check, since matching decompressed contents would not catch a
-timestamp or filename leaking into the gzip header:
+### Seed retention — 2 of 5 on disk
+
+The full 12 × 5 sweep at spec scale is **~25 GB**, over the ~15 GB target, so `csv/` retains only
+the **two lowest seeds, 42 and 43** (10.2 GB) and seeds 44–46 are regenerated on demand. Seed 42 is
+the generator's default and the seed the V1 byte-identity anchor is pinned to; 43 is the next in
+`run_benchmark.py`'s canonical `DEFAULT_SEEDS`. Any deterministic convention would do — what
+matters is that it is stated, so two people asking for "the retained seeds" get the same answer.
+
+The trade is storage for compute at a favourable rate: ~3 min of CPU buys back ~424 MB, and
+determinism makes the regenerated copy **exact**, not merely equivalent.
 
 ```bash
-python generate_dataset.py && cp -r csv /tmp/run1
-python generate_dataset.py && diff -r --brief /tmp/run1 csv   # expect no output
+python regenerate_seed.py --list                        # what is on disk, what is regenerable
+python regenerate_seed.py --variant K --seed 44         # one
+python regenerate_seed.py --all                         # all 36 non-retained variant-seeds
+```
+
+### Confirming determinism
+
+Both checks diff the **compressed** bytes, which is the stronger form — matching decompressed
+contents would not catch a timestamp or filename leaking into the gzip header.
+
+```bash
+python regenerate_seed.py --verify --variant K --seed 42   # vs the on-disk copy
+python run_benchmark.py --verify-determinism --variant K   # two fresh runs against each other
 ```
 
 ## Scope notes
@@ -402,8 +445,20 @@ monotonic. Assertions are enabled by default.
   spec's gate-versus-report rule.
 - **Delay positives under Mechanism G.** Delayed reporting leaves already-delivered shipments
   looking in-transit, so they remain label-eligible as guaranteed negatives and dilute the delay
-  rate ~3×. Defensible (detecting stale records is a real problem) but it means
-  `DELAY_SAMPLE_RATE` must be re-derived for any variant including G.
+  rate. Measured at spec scale: Variant G's delay denominator is *larger* than Variant 0's
+  (208,804 vs 166,344) while its positive rate is 5.25% against 18.86%. Defensible — detecting
+  stale records is a real problem — but it is the main reason no single `DELAY_SAMPLE_RATE` works
+  across variants (`docs/phase6_spec_scale_report.md` §2.4).
+- **Impact misses the power floor on Variants K and F.** Measured at spec scale, not projected:
+  impact has no sampling lever, and closing the gap needs `SNAPSHOTS ≈ 53` or a larger `SUP_N`.
+  Open configuration decision — `docs/phase6_spec_scale_report.md` §5.
+- **Eleven of twelve variants exceed the 5,000 delay ceiling**, by up to 6.6×. Deliberate:
+  `DELAY_SAMPLE_RATE = 1.00` is what keeps Variant K above the 2,000 floor, and the ceiling costs
+  ~6 MB per variant-seed. Same reference.
+- **Seed spread is large.** Delay positives vary ~2× between seeds and impact ~40%, because the
+  hidden-factor member sets (`H_PORT`, `H_TRUCK`, `H_CUSTOMS`) are re-drawn per seed over a
+  power-law degree distribution, so the shipment volume exposed to the scripted event calendar
+  swings. No single-seed reading establishes that a variant is in band.
 - **Resilience coverage.** Recoverable for suppliers that ship; the ~28% that never ship can never
   be estimated. Ceilings differ per variant — 71.7% for Variant F, 86.3% for Variant K. The
   thinnest volume quartile stays at chance and should be reported below the evidence floor rather

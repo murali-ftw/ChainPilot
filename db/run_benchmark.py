@@ -92,6 +92,11 @@ def main():
                     help="regenerate one variant twice and diff the compressed bytes")
     ap.add_argument("--variant", default="K", help="variant for --verify-determinism")
     ap.add_argument("--report", default="", help="write the report table to this path")
+    ap.add_argument("--manifest-dir", default="",
+                    help="also dump each run's full resolved_config manifest here as "
+                         "<variant>_<seed>.json. With HADES_RATE_CURVE=1 in the environment "
+                         "those manifests carry the sampling rate curve the rates were "
+                         "derived from (docs/phase6_spec_scale_report.md §2).")
     args = ap.parse_args()
 
     if args.verify_determinism:
@@ -112,6 +117,8 @@ def main():
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     rows, total_fails = [], 0
+    if args.manifest_dir:
+        os.makedirs(args.manifest_dir, exist_ok=True)
 
     print(f"generating {len(variants)} variants x {len(seeds)} seeds "
           f"(config={args.config}, stats_only={args.stats_only})\n")
@@ -119,6 +126,9 @@ def main():
         for sd in seeds:
             man, fails, secs, _out = run_one(v, sd, args.config, args.stats_only)
             total_fails += fails
+            if args.manifest_dir:
+                with open(os.path.join(args.manifest_dir, f"{v}_{sd}.json"), "w") as f:
+                    json.dump(man, f, indent=2, sort_keys=True)
             lc, rc = man["label_counts"], man["row_counts"]
             rows.append(dict(variant=v, seed=sd, fails=fails, secs=round(secs, 1),
                              mechanisms=man["mechanisms_enabled"],

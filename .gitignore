@@ -44,6 +44,23 @@ Thumbs.db
 # (docs/phase0_power_check.md §7).
 db/csv/
 
+# The v1-preset fixture db/csv/ held before the Phase 6 spec-scale sweep. Parked
+# rather than deleted; regenerable in ~10 s per variant-seed with `--config v1`
+# and verified byte-identical during that session, so it is safe to `rm -rf`.
+db/csv_v1preset_superseded/
+
+# The V1-comparable builds the Phase 7 training sweep runs on (12 variants x 5
+# seeds at `--config v1`, 2.2 GB). Same argument as db/csv/: deterministically
+# regenerable, so none of it belongs in history.
+db/csv_v1scale/
+
+# ML harness working files: the snapshot-assembly cache (large, derived) and the
+# training results. Results JSONs carry the raw test predictions so paired
+# comparisons can be recomputed without retraining -- useful, but megabytes per
+# run and regenerable. The REPORT is what gets committed (docs/phase7_*.md).
+ml/.cache/
+out/
+
 # resolved_config.json lives inside db/csv/ and is excluded with it. It is small,
 # but it carries a `generated_at` timestamp, so it churns on every regeneration
 # even when nothing else changed, and a full sweep produces 60 of them. To
