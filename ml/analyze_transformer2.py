@@ -29,20 +29,33 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.evaluate import paired_delta_auc_ci, sign_consistency  # noqa: E402
 from ml.models.depth import TASKS  # noqa: E402
+from ml.retrieval_metrics import METRICS  # noqa: E402
 
 BASELINE = "rgcn_attn_rung5_a"
 ARM_ORDER = [BASELINE, "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
-             "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn"]
+             "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn", "rgcn_attn_t2_contrastive"]
 ARM_LABEL = {BASELINE: "Variant A (no T2)", "rgcn_attn_variant_a_transformer2": "T2 plain",
              "rgcn_attn_t2_confidence": "T2 confidence", "rgcn_attn_t2_trustgate": "T2 trustgate",
-             "rgcn_attn_t2_crossattn": "T2 crossattn"}
+             "rgcn_attn_t2_crossattn": "T2 crossattn",
+             "rgcn_attn_t2_contrastive": "T2 contrastive (privileged)"}
+METRIC_LABEL = {"pct_rank": "percentile rank", "discovery_rate": "discovery rate",
+                "recall_at_k": "Recall@K", "precision_at_k": "Precision@K", "mrr": "MRR"}
 
 
-def load(results_dir: str) -> dict:
+def load(results_dir: str, tag: str | None = None) -> dict:
+    """Runs keyed by (variant, arch, seed).
+
+    `tag` selects one replicate when a directory holds several identically-configured
+    ones (`ml/run_retrieval_redesign.py --tag`). Without it, a directory of replicates
+    would silently collapse to whichever file sorted last, which is exactly the kind of
+    quiet collision the `ml/data/loader.py` cache-key bug already cost this project once.
+    """
     runs = {}
     for path in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
         blob = json.load(open(path))
         if "arch" not in blob:
+            continue
+        if tag is not None and blob.get("tag", "") != tag:
             continue
         runs[(blob["variant"], blob["arch"], blob["seed"])] = blob
     return runs
@@ -62,15 +75,77 @@ def fmt(x, nd=4):
     return "--" if x is None else f"{x:.{nd}f}"
 
 
+def retrieval_tables(runs: dict, variants: list[str], checkpoint: str, dump: dict) -> None:
+    """The full IR metric set for runs carrying a `retrieval` blob
+    (`ml/run_retrieval_redesign.py`): percentile rank and pool discovery rate -- the two
+    `reports/layer3_testing.md` §2 already reported, on the same definitions -- plus
+    Recall@K, Precision@K and MRR.
+
+    Every metric is printed **against its own chance baseline** and as a ratio to it,
+    because the five have wildly different natural scales: a percentile rank of 0.52 and
+    a Recall@64 of 0.28 sound similar and are not remotely comparable claims. Group types
+    A/B/C are reported separately, and where a run carries a supervised/held-out split
+    that is reported separately too -- pooling those would hide the single most important
+    contrast this session produces.
+
+    `checkpoint` selects `retrieval` (best-validation-AUC weights, what the AUC table
+    rests on) or `retrieval_final_epoch` (last-epoch weights).
+    """
+    field = "retrieval" if checkpoint == "best" else "retrieval_final_epoch"
+    keys_seen: list[str] = []
+    for k in runs:
+        for key in runs[k].get(field, {}) or {}:
+            if key not in ("n_nodes", "top_k", "chance_discovery_rate") and key not in keys_seen:
+                keys_seen.append(key)
+    if not keys_seen:
+        return
+    order = [k for k in ("A", "B", "C") if k in keys_seen] + \
+            sorted(k for k in keys_seen if "|" in k)
+
+    print(f"\n## Retrieval quality -- full IR metric set ({checkpoint}-checkpoint weights)\n")
+    print("| var | arm | seeds | group set | " + " | ".join(
+        f"{METRIC_LABEL[m]} | chance | ratio" for m in METRICS) + " | pairs |")
+    print("|---|---|---|---|" + "---|---|---|" * len(METRICS) + "---|")
+    for variant in variants:
+        for arm in [a for a in ARM_ORDER if any(k[1] == a for k in runs)]:
+            rs = [runs[k] for k in sorted(runs)
+                  if k[0] == variant and k[1] == arm and runs[k].get(field)]
+            if not rs:
+                continue
+            for key in order:
+                cells, rec = [], {"variant": variant, "arm": arm, "group_set": key,
+                                  "n_seeds": 0, "checkpoint": checkpoint}
+                present = [r[field][key] for r in rs if key in r[field]]
+                if not present:
+                    continue
+                rec["n_seeds"] = len(present)
+                for m in METRICS:
+                    obs = float(np.mean([p[m] for p in present]))
+                    ch = float(np.mean([p["chance"][m] for p in present]))
+                    cells.append(f" {obs:.4f} | {ch:.4f} | {obs/ch:.2f}x |" if ch
+                                 else f" {obs:.4f} | -- | -- |")
+                    rec[m] = {"observed": obs, "chance": ch,
+                              "ratio": (obs / ch) if ch else None,
+                              "per_seed": [p[m] for p in present]}
+                pairs = int(np.mean([p["n_pairs"] for p in present]))
+                print(f"| {variant} | {ARM_LABEL.get(arm, arm)} | {len(present)} | {key} |"
+                      + "".join(cells) + f" {pairs:,} |")
+                rec["pairs"] = pairs
+                dump.setdefault("retrieval", []).append(rec)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--results", default=os.path.join("out", "t2mid"))
     ap.add_argument("--variants", default="B,D")
     ap.add_argument("--out", default=None, help="optional JSON dump of everything printed")
+    ap.add_argument("--tag", default=None,
+                    help="select one replicate when the results directory holds several "
+                         "identically-configured ones (e.g. r1, r2)")
     args = ap.parse_args()
 
-    runs = load(args.results)
+    runs = load(args.results, tag=args.tag)
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
     arms = [a for a in ARM_ORDER if any(k[1] == a for k in runs)]
     dump: dict = {"auc": [], "delta": [], "discovery": [], "trust": []}
@@ -157,6 +232,10 @@ def main() -> int:
                     "variant": variant, "arm": arm, "type": t, "n_seeds": len(pct),
                     "pct_rank": float(np.mean(pct)), "rate": float(np.mean(rate)),
                     "chance": chance, "ratio": ratio, "pairs": int(np.mean(npairs))})
+
+    # ---- Retrieval quality, full IR metric set (session 2 / report section 9) --
+    retrieval_tables(runs, variants, "best", dump)
+    retrieval_tables(runs, variants, "final", dump)
 
     # ---- Trust-gate stability (V1 layer3.md section 2.7) -----------------------
     print("\n## Trust-gate stability, per run\n")
