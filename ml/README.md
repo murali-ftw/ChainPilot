@@ -2,7 +2,7 @@
 
 The models are ported from HADES V1 (`HADES_v1/ml/`); the data layer and the evaluation protocol are
 new, because V2's benchmark artifact is a directory of gzipped CSVs rather than a live PostgreSQL
-database. Results and reasoning: `docs/phase7_training_results.md`.
+database. Results and reasoning: `reports/phase7_training_results.md`.
 
 ```
 ml/
@@ -45,12 +45,14 @@ counts slightly (disclosed in every results table).
 # 1. the gate: does the port reproduce V1 on the byte-identical anchor?
 python3 ml/run_benchmark_eval.py sanity --seeds 0,1,2,3,4 --out out/sanity.json
 
-# 2. the sweep (one process per variant is the usual parallelisation)
-OMP_NUM_THREADS=1 python3 ml/run_benchmark_eval.py sweep \
-    --csv-dir db/csv_v1scale --variants K --seeds 42,43,44,45,46 \
-    --epochs 100 --out out/sweep_K.json
+# 2. the sweep. Four worker processes at THREE threads each is the measured optimum
+#    (~419 s/run); one thread per process is 8.6x slower, and MPS does not parallelise
+#    -- reports/phase7_training_results.md §5.1 and §8.1.
+OMP_NUM_THREADS=3 MKL_NUM_THREADS=3 python3 ml/run_benchmark_eval.py sweep \
+    --csv-dir db/csv_v1scale --variants I,J,K --seeds 42,43,44,45,46 \
+    --epochs 100 --out out/sweep_IJK.json
 
-# spec scale: point at db/csv instead (see docs/phase7_training_results.md §3 first)
+# spec scale: point at db/csv instead (see reports/phase7_training_results.md §3 first)
 python3 ml/run_benchmark_eval.py sweep --variants 0 --seeds 42 --out out/spec_0.json
 
 # 3. tables, variant effects, and the mandated caveats
@@ -76,3 +78,6 @@ rather than silently skipping them.
   whole purpose is that those differ.
 - **Snapshot assembly is cached** to `ml/.cache/` per (variant-seed, feature spec, clock), because
   nine architectures × five seeds read the same bundles 45 times for each time they are built.
+- **Do not mix devices inside a comparison.** `--device mps` works (and is 2.2x faster than CPU for
+  a single job at ~30k nodes) but CPU/MPS float32 reduction orders differ, and the cross-variant
+  deltas this harness reports are as small as 0.002.

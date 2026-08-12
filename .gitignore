@@ -54,6 +54,11 @@ db/csv_v1preset_superseded/
 # regenerable, so none of it belongs in history.
 db/csv_v1scale/
 
+# Mid-scale (sup_n=2,000) builds for the Layer 3 discovery check, where the v1
+# preset lacks the statistical power to support it. Regenerable; see
+# reports/layer3_testing.md section 2.2.
+db/csv_mid/
+
 # ML harness working files: the snapshot-assembly cache (large, derived) and the
 # training results. Results JSONs carry the raw test predictions so paired
 # comparisons can be recomputed without retraining -- useful, but megabytes per

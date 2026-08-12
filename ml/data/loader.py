@@ -474,6 +474,10 @@ class VariantDataset:
         data = HeteroData()
         for nt in NODE_TYPES:
             data[nt].x = self._tensor(frames[nt])
+            # Row index -> entity id, so a per-node diagnostic can join model output back
+            # to the world that produced it (gate-disagreement analysis needs this; V1's
+            # PostgreSQL builder carried the same `node_id` list for the same reason).
+            data[nt].node_id = frames[nt]["entity_id"].tolist()
         for key, (ei, ea) in self._edges(t0, id_maps, latest_inv).items():
             data[key].edge_index = ei
             if ea is not None:
@@ -521,7 +525,13 @@ def load_bundles(path_dir: str, cache_dir: str | None = None, asof_clock: str = 
     `cache_dir` keyed by the variant directory, the feature-spec version and the
     as-of clock. Nine architectures x five model seeds means the cache is read
     45 times for each time it is written."""
-    key = f"{os.path.basename(path_dir.rstrip('/'))}_{FEATURE_SPEC_VERSION}_{asof_clock}.pt"
+    # The key must identify the BUILD, not just its directory name: two different
+    # configurations both produce a `vB_seed42` directory, and keying on the basename
+    # alone silently serves one configuration's bundles for the other's request. The
+    # parent directory disambiguates them (db/csv_v1scale vs db/csv_mid vs db/csv).
+    abs_dir = os.path.abspath(path_dir.rstrip("/"))
+    key = (f"{os.path.basename(os.path.dirname(abs_dir))}__{os.path.basename(abs_dir)}_"
+           f"{FEATURE_SPEC_VERSION}_{asof_clock}_ids.pt")
     cache_path = os.path.join(cache_dir, key) if cache_dir else None
     if cache_path and os.path.exists(cache_path):
         blob = torch.load(cache_path, weights_only=False)
@@ -549,7 +559,7 @@ def split_bundles(bundles: list[SnapshotBundle], fractions=(0.4, 0.2, 0.4)) -> t
     whatever `SNAPSHOTS` the data on disk actually has (40 -> 16/8/16). The step
     brief quotes "60/20/40", which sums to 120% and cannot be a proportion; V1's
     actual 40/20/40 is used instead, and the discrepancy is recorded in
-    `docs/phase7_training_results.md`."""
+    `reports/phase7_training_results.md`."""
     n = len(bundles)
     n_train = int(round(fractions[0] * n))
     n_val = int(round(fractions[1] * n))

@@ -26,7 +26,7 @@ graph-wide attention term, summed, then a feed-forward block — with the global
 term computed by **linear (kernelised) attention within each node type**, which is
 O(n·d^2) and preserves the "every node can see every same-type node" property that
 distinguishes GPS from a pure MPNN. This deviation is stated in
-`docs/phase7_training_results.md`; a GraphGPS result here is a result for that
+`reports/phase7_training_results.md`; a GraphGPS result here is a result for that
 adaptation, not for the dense-attention original.
 """
 
@@ -37,7 +37,22 @@ from torch import nn
 from torch_geometric.nn import GATConv, HeteroConv, HGTConv, Linear, SAGEConv
 
 ARCHITECTURES = ("gcn", "graphsage", "gat", "hgt", "rgcn", "gps",
-                 "rgcn_attn", "rgcn_relemb", "rgcn_battn")
+                 "rgcn_attn", "rgcn_relemb", "rgcn_battn",
+                 # Phase 7c: the depth-selection family, ported from V1's Step 6 Rounds 3-5.
+                 # All four share ONE encoder class -- `RGCNAttnDepthGateEncoder`, which is
+                 # `RGCNAttnEncoder` with h^0 (the raw lin_in projection) prepended, so the
+                 # readout has L+1 = 5 candidate depths instead of L. They differ only in what
+                 # is built on top: a fixed index-select (markov), a per-node MLP gate (rung5),
+                 # that gate with a tanh-bounded residual (rung5_a), or with structural features
+                 # concatenated onto its input (rung5_b). `rung5_c` is not an architecture at
+                 # all -- it is `rung5` plus a freeze schedule in ml/train.py.
+                 "rgcn_attn_markov", "rgcn_attn_rung5", "rgcn_attn_rung5_a",
+                 "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac",
+                 # Layer 3: Transformer 2 and its three fusion designs. All four use the
+                 # SAME h^0..h^L encoder as the Rung 5 family -- Transformer 2 is purely
+                 # additive on top of Variant A's readout, changing nothing below it.
+                 "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                 "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn")
 
 # The three named architectures, mapped to their code identifiers, so reports can
 # print the name the project uses without the caller re-deriving it.
@@ -45,6 +60,11 @@ ARCHITECTURE_NAMES = {
     "rgcn_attn": "SHARE", "rgcn_relemb": "SHARP", "rgcn_battn": "SHARK",
     "gcn": "GCN", "graphsage": "GraphSAGE", "gat": "GAT", "hgt": "HGT", "rgcn": "RGCN",
     "gps": "GraphGPS",
+    "rgcn_attn_markov": "Markov", "rgcn_attn_rung5": "Rung5",
+    "rgcn_attn_rung5_a": "Rung5-A", "rgcn_attn_rung5_b": "Rung5-B",
+    "rgcn_attn_rung5_c": "Rung5-C", "rgcn_attn_rung5_ac": "Rung5-A+C",
+    "rgcn_attn_variant_a_transformer2": "T2-plain", "rgcn_attn_t2_confidence": "T2-conf",
+    "rgcn_attn_t2_trustgate": "T2-trust", "rgcn_attn_t2_crossattn": "T2-cross",
 }
 
 _ARCHITECTURE_ALIASES = {"heterogeneous_graph_transformer": "hgt", "graphgps": "gps"}
@@ -289,6 +309,19 @@ def build_encoder(architecture: str, metadata, in_dims: dict[str, int], hidden: 
         return RGCNBasisAttnEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
                                     num_bases=num_bases, num_bases_attn=num_bases_attn,
                                     dropout=dropout)
+    if architecture in ("rgcn_attn_markov", "rgcn_attn_rung5", "rgcn_attn_rung5_a",
+                        "rgcn_attn_rung5_b", "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac",
+                 # Layer 3: Transformer 2 and its three fusion designs. All four use the
+                 # SAME h^0..h^L encoder as the Rung 5 family -- Transformer 2 is purely
+                 # additive on top of Variant A's readout, changing nothing below it.
+                 "rgcn_attn_variant_a_transformer2", "rgcn_attn_t2_confidence",
+                 "rgcn_attn_t2_trustgate", "rgcn_attn_t2_crossattn"):
+        # One encoder for all five: h^0..h^L exposure. NOTE this returns `num_layers + 1`
+        # layer-dicts, not `num_layers` -- the depth-selection models index into that list,
+        # every other architecture here does not.
+        from ml.models.rgcn_attn_depthgate_encoder import RGCNAttnDepthGateEncoder
+        return RGCNAttnDepthGateEncoder(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                        num_bases=num_bases, dropout=dropout)
     if architecture in ("graphsage", "gat"):
         conv_name = "gat" if architecture == "gat" else "sage"
         return HeteroGNNEncoder(metadata, in_dims, conv_name, hidden=hidden,

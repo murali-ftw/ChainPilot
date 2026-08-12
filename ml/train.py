@@ -69,7 +69,9 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                 weight_decay: float = 1e-4, seed: int = 0, num_bases: int = 8,
                 relation_embed_dim: int = 16, num_bases_attn: int = 8,
                 device: str = "cpu", patience: int | None = None,
-                progress: bool = False) -> dict:
+                progress: bool = False, rung5a_lambda_bound: float = 0.3,
+                rung5c_freeze_epochs: int = 15, rung5c_lr_mult: float = 0.1,
+                anneal_lambda: bool = False, t2_top_k: int = 64) -> dict:
     """Train one model. `seed` controls model init and dropout masks only -- the
     dataset, split and features are deterministic upstream, so varying it alone
     is a clean model-fit-variance probe.
@@ -84,12 +86,75 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     metadata = train_bundles[0].data.metadata()
     in_dims = {nt: train_bundles[0].data[nt].x.size(-1) for nt in train_bundles[0].data.node_types}
 
-    model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
-                       shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
-                       relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
+    # The depth-selection family (Phase 7c) builds its own model class over the shared
+    # h^0..h^L encoder; everything else is plain HADESModel. Ported from V1's dispatch in
+    # `HADES_v1/ml/train.py`, trimmed to the arms this project carries.
+    if architecture == "rgcn_attn_markov":
+        from ml.models.rgcn_attn_markov_encoder import MarkovHADESModel
+        model = MarkovHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                 num_bases=num_bases)
+    elif architecture in ("rgcn_attn_rung5", "rgcn_attn_rung5_c"):
+        # Variant C is architecturally IDENTICAL to the base Rung 5 -- it is the freeze
+        # schedule below and nothing else. `model.architecture` is overridden so the logged
+        # rows say which arm was actually requested.
+        from ml.models.rgcn_attn_rung5_encoder import Rung5HADESModel
+        model = Rung5HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                num_bases=num_bases)
+        model.architecture = architecture
+    elif architecture in ("rgcn_attn_rung5_a", "rgcn_attn_rung5_ac"):
+        # `_ac` is Variant A's architecture with Variant C's freeze schedule applied on top --
+        # a composition of one model change and one training-loop change, so it needs no new
+        # model file, exactly as Variant C itself needs none.
+        from ml.models.rgcn_attn_rung5_variant_a import Rung5VariantAHADESModel
+        model = Rung5VariantAHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                        num_bases=num_bases, lambda_bound=rung5a_lambda_bound)
+        model.architecture = architecture
+    elif architecture == "rgcn_attn_rung5_b":
+        from ml.models.rgcn_attn_rung5_variant_b import Rung5VariantBHADESModel
+        model = Rung5VariantBHADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                        num_bases=num_bases)
+    elif architecture == "rgcn_attn_variant_a_transformer2":
+        from ml.models.rgcn_attn_variant_a_transformer2 import Transformer2HADESModel
+        model = Transformer2HADESModel(metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                                       num_bases=num_bases, lambda_bound=rung5a_lambda_bound,
+                                       t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_confidence":
+        from ml.models.transformer2_confidence import Transformer2ConfidenceHADESModel
+        model = Transformer2ConfidenceHADESModel(metadata, in_dims, hidden=hidden,
+                                                 num_layers=num_layers, num_bases=num_bases,
+                                                 lambda_bound=rung5a_lambda_bound, t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_trustgate":
+        from ml.models.transformer2_trustgate import Transformer2TrustGateHADESModel
+        model = Transformer2TrustGateHADESModel(metadata, in_dims, hidden=hidden,
+                                                num_layers=num_layers, num_bases=num_bases,
+                                                lambda_bound=rung5a_lambda_bound, t2_top_k=t2_top_k)
+    elif architecture == "rgcn_attn_t2_crossattn":
+        from ml.models.transformer2_crossattn import Transformer2CrossAttnHADESModel
+        model = Transformer2CrossAttnHADESModel(metadata, in_dims, hidden=hidden,
+                                                num_layers=num_layers, num_bases=num_bases,
+                                                lambda_bound=rung5a_lambda_bound, t2_top_k=t2_top_k)
+    else:
+        model = HADESModel(architecture, metadata, in_dims, hidden=hidden, num_layers=num_layers,
+                           shared_depth=shared_depth, depth_prior=depth_prior, num_bases=num_bases,
+                           relation_embed_dim=relation_embed_dim, num_bases_attn=num_bases_attn)
     model = model.to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if architecture in ("rgcn_attn_rung5_c", "rgcn_attn_rung5_ac"):
+        # Variant C, verbatim in effect from V1: freeze the gate for the first
+        # `rung5c_freeze_epochs` epochs so the encoder and heads settle on the
+        # Markov-prior-initialised readout, then unfreeze it at a reduced LR for the rest.
+        # One optimizer with two param groups throughout -- a frozen parameter produces no
+        # gradient, so AdamW skips it for free and no second optimizer is needed.
+        gate_params = list(model.gates.parameters())
+        gate_ids = {id(q) for q in gate_params}
+        other_params = [q for q in model.parameters() if id(q) not in gate_ids]
+        for q in gate_params:
+            q.requires_grad_(False)
+        optimizer = torch.optim.AdamW(
+            [{"params": other_params, "lr": lr},
+             {"params": gate_params, "lr": lr * rung5c_lr_mult}], weight_decay=weight_decay)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     alphas = compute_task_alphas(train_bundles)
     losses = {task: FocalLoss(gamma=2.0, alpha=alphas[task]) for task in TASKS}
 
@@ -97,6 +162,22 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     history, since_best = [], 0
     t_start = time.time()
     for epoch in range(1, epochs + 1):
+        if architecture in ("rgcn_attn_rung5_c", "rgcn_attn_rung5_ac") \
+                and epoch == rung5c_freeze_epochs + 1:
+            for q in gate_params:
+                q.requires_grad_(True)
+        if anneal_lambda and hasattr(model, "gates"):
+            # Annealed cap: start tight so the gate inherits the prior's behaviour, widen
+            # linearly to the target so it can explore later, once the encoder has settled.
+            # Tests whether the gate sits at the prior because the cap is tight or because it
+            # has found nothing worth moving for. Set by mutating the gate heads' attribute
+            # rather than by editing `rgcn_attn_rung5_variant_a.py`, which is a byte-identical
+            # port of V1's file and must stay that way -- the head reads `self.lambda_bound`
+            # on every forward, so this is exactly equivalent to a scheduled constructor arg.
+            frac = (epoch - 1) / max(1, epochs - 1)
+            lam = 0.1 + frac * (rung5a_lambda_bound - 0.1)
+            for _g in model.gates.values():
+                _g.lambda_bound = lam
         model.train()
         epoch_loss = 0.0
         for bundle in train_bundles:
@@ -146,7 +227,17 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
             "weight_decay": weight_decay, "focal_gamma": 2.0, "focal_alpha": alphas,
             "optimizer": "AdamW", "seed": seed,
             "num_bases": num_bases if architecture in (
-                "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn") else None,
+                "rgcn", "rgcn_attn", "rgcn_relemb", "rgcn_battn", "rgcn_attn_markov",
+                "rgcn_attn_rung5", "rgcn_attn_rung5_a", "rgcn_attn_rung5_b",
+                "rgcn_attn_rung5_c") else None,
+            "rung5a_lambda_bound": rung5a_lambda_bound if architecture in (
+                "rgcn_attn_rung5_a", "rgcn_attn_rung5_ac") else None,
+            "anneal_lambda": anneal_lambda,
+            "t2_top_k": t2_top_k if architecture in ('rgcn_attn_variant_a_transformer2', 'rgcn_attn_t2_confidence', 'rgcn_attn_t2_trustgate', 'rgcn_attn_t2_crossattn') else None,
+            "rung5c_freeze_epochs": rung5c_freeze_epochs if architecture in (
+                "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac") else None,
+            "rung5c_lr_mult": rung5c_lr_mult if architecture in (
+                "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac") else None,
             "relation_embed_dim": relation_embed_dim if architecture == "rgcn_relemb" else None,
             "num_bases_attn": num_bases_attn if architecture == "rgcn_battn" else None,
             "device": device,

@@ -78,6 +78,20 @@ ARCH_CONFIG = {
     "rgcn_attn":   dict(hidden=128, num_bases=10),
     "rgcn_relemb": dict(hidden=128, num_bases=10, relation_embed_dim=16),
     "rgcn_battn":  dict(hidden=110, num_bases=9, num_bases_attn=16),
+    # Phase 7c depth-selection family. All five run at SHARE's matched-d config, which is
+    # what V1's Step 6 Rounds 3-5 used throughout -- these arms are variations on SHARE's
+    # READOUT, so they must sit on SHARE's encoder budget for the comparison to isolate
+    # depth selection rather than capacity.
+    "rgcn_attn_markov":   dict(hidden=128, num_bases=10),
+    "rgcn_attn_rung5":    dict(hidden=128, num_bases=10),
+    "rgcn_attn_rung5_a":  dict(hidden=128, num_bases=10),
+    "rgcn_attn_rung5_b":  dict(hidden=128, num_bases=10),
+    "rgcn_attn_rung5_c":  dict(hidden=128, num_bases=10),
+    "rgcn_attn_rung5_ac": dict(hidden=128, num_bases=10),
+    "rgcn_attn_variant_a_transformer2": dict(hidden=128, num_bases=10),
+    "rgcn_attn_t2_confidence": dict(hidden=128, num_bases=10),
+    "rgcn_attn_t2_trustgate": dict(hidden=128, num_bases=10),
+    "rgcn_attn_t2_crossattn": dict(hidden=128, num_bases=10),
 }
 
 # V1's recorded matched-parameter results (HADES_v1/reports/info.md §4), the
@@ -85,6 +99,19 @@ ARCH_CONFIG = {
 V1_REFERENCE = {
     "rgcn_attn": {"delay": (0.8105, 0.8118), "shortage": (0.7971, 0.7982),
                   "impact": (0.9365, 0.9393), "params": 752211},
+    # HADES_v1/reports/layer2.md Round 5's five-seed means (Round 4's are within one std of
+    # these for the two arms it shares). Ranges are +/- one recorded std, so the sanity
+    # tolerance below is applied to a band rather than a point.
+    "rgcn_attn_markov":  {"delay": (0.8145, 0.8199), "shortage": (0.7954, 0.7986),
+                          "impact": (0.9368, 0.9430), "params": 752211},
+    "rgcn_attn_rung5":   {"delay": (0.8151, 0.8189), "shortage": (0.7758, 0.8050),
+                          "impact": (0.9436, 0.9464), "params": 765105},
+    "rgcn_attn_rung5_a": {"delay": (0.8160, 0.8216), "shortage": (0.7963, 0.7997),
+                          "impact": (0.9429, 0.9465), "params": 765090},
+    "rgcn_attn_rung5_b": {"delay": (0.8132, 0.8156), "shortage": (0.7969, 0.8005),
+                          "impact": (0.9313, 0.9451), "params": 766289},
+    "rgcn_attn_rung5_c": {"delay": (0.8135, 0.8197), "shortage": (0.7964, 0.8046),
+                          "impact": (0.9371, 0.9445), "params": 765105},
 }
 
 # The spec's variant dependency table, made executable. A variant listed here
@@ -106,14 +133,14 @@ def reference_for(variant: str) -> str | None:
 VARIANT_CAVEATS = {
     "K": ("impact is UNDER the spec's 2,000-positive floor on this configuration "
           "(1,896 mean over 5 seeds, in band on 3/5) — an impact result here is "
-          "underpowered by construction, see docs/phase6_spec_scale_report.md §5"),
+          "underpowered by construction, see reports/db/phase6_spec_scale_report.md §5"),
     "F": ("resilience recoverability INVERTS in sign between Variant E (direct, "
           "AUC 0.561) and Variant F (inverted, 0.396) — a reader comparing E and F "
           "head-to-head without this will read F as noise "
-          "(docs/PHASE2_PHASE6_IMPLEMENTATION.md §8.2)"),
+          "(reports/db/PHASE2_PHASE6_IMPLEMENTATION.md §8.2)"),
     "A": ("Mechanism A removes zero-shipper nodes, which makes Variant F, not "
           "Variant A, the harder case for resilience recovery "
-          "(docs/PHASE2_PHASE6_IMPLEMENTATION.md §8.4)"),
+          "(reports/db/PHASE2_PHASE6_IMPLEMENTATION.md §8.4)"),
 }
 
 
@@ -153,6 +180,12 @@ def run_one(dataset_dir: str, architecture: str, model_seed: int, epochs: int,
     reconstructed from summary statistics alone."""
     if bundles is None:
         bundles, manifest = load_bundles(dataset_dir, cache_dir=CACHE_DIR)
+    if device != "cpu":
+        # `train_model` never touches bundle device placement (V1's contract, kept),
+        # so the caller must. Done once here rather than per epoch; the bundles are
+        # shared across architectures within a sweep, so a second call is a no-op.
+        for b in bundles:
+            b.to(device)
     train_b, val_b, test_b = split_bundles(bundles)
 
     cfg = dict(ARCH_CONFIG[architecture])
@@ -337,35 +370,45 @@ def mode_sanity(args) -> int:
     print(f"  split: {len(tr)} train / {len(va)} val / {len(te)} test snapshots "
           f"(train ends {tr[-1].t0.date()}, test starts {te[0].t0.date()})")
 
+    archs = [a.strip() for a in args.archs.split(",") if a.strip()]
+    if args.mode == "sanity" and args.archs == ",".join(ARCH_CONFIG):
+        archs = ["rgcn_attn"]      # default sanity arm, unchanged
     runs = []
-    for seed in args.seeds:
-        t = time.time()
-        r = run_one(d, "rgcn_attn", seed, args.epochs, args.device, args.layers,
-                    args.patience, bundles=bundles, manifest=manifest, progress=args.progress)
-        r["variant"] = "0"
-        runs.append(r)
-        line = "  ".join(f"{t_}={r['metrics'][t_]['roc_auc']:.4f}" if r["metrics"].get(t_) else f"{t_}=n/a"
-                         for t_ in TASKS)
-        print(f"  seed {seed}: {line}  params={r['parameter_count']:,}  "
-              f"({time.time() - t:.0f}s, best epoch {r['best_epoch']})", flush=True)
+    for arch in archs:
+        for seed in args.seeds:
+            t = time.time()
+            r = run_one(d, arch, seed, args.epochs, args.device, args.layers,
+                        args.patience, bundles=bundles, manifest=manifest, progress=args.progress)
+            r["variant"] = "0"
+            runs.append(r)
+            line = "  ".join(f"{t_}={r['metrics'][t_]['roc_auc']:.4f}" if r["metrics"].get(t_)
+                             else f"{t_}=n/a" for t_ in TASKS)
+            print(f"  {ARCHITECTURE_NAMES[arch]:<10} seed {seed}: {line}  "
+                  f"params={r['parameter_count']:,}  ({time.time() - t:.0f}s, "
+                  f"best epoch {r['best_epoch']})", flush=True)
 
-    print("\n  V1 recorded (HADES_v1/reports/info.md §4, matched-d=128, num_bases=10):")
-    ref = V1_REFERENCE["rgcn_attn"]
-    verdict_ok = runs[0]["parameter_count"] == ref["params"]
-    print(f"    parameter count: ported {runs[0]['parameter_count']:,} vs V1 {ref['params']:,} "
-          f"{'MATCH' if verdict_ok else 'MISMATCH'}")
-    agg = aggregate(runs)
-    for task in TASKS:
-        row = next((a for a in agg if a["task"] == task), None)
-        lo, hi = ref[task]
-        if row is None:
-            print(f"    {task:<9} ported n/a")
+    print("\n  against V1's recorded numbers:")
+    for arch in archs:
+        ref = V1_REFERENCE.get(arch)
+        rs = _by(runs, architecture=arch)
+        if ref is None or not rs:
             continue
-        inside = lo - 0.02 <= row["mean_auc"] <= hi + 0.02
-        print(f"    {task:<9} ported {row['mean_auc']:.4f} ± {row['std_auc']:.4f}  "
-              f"vs V1 {lo:.4f}–{hi:.4f}  "
-              f"delta {row['mean_auc'] - (lo + hi) / 2:+.4f}  "
-              f"{'within ±0.02' if inside else 'OUTSIDE ±0.02'}")
+        ok = rs[0]["parameter_count"] == ref["params"]
+        print(f"  {ARCHITECTURE_NAMES[arch]} — parameter count: ported "
+              f"{rs[0]['parameter_count']:,} vs V1 {ref['params']:,} "
+              f"{'MATCH' if ok else 'MISMATCH'}")
+        agg = aggregate(rs)
+        for task in TASKS:
+            row = next((x for x in agg if x["task"] == task), None)
+            lo, hi = ref[task]
+            if row is None:
+                print(f"    {task:<9} ported n/a")
+                continue
+            inside = lo - 0.02 <= row["mean_auc"] <= hi + 0.02
+            print(f"    {task:<9} ported {row['mean_auc']:.4f} ± {row['std_auc']:.4f}  "
+                  f"vs V1 {lo:.4f}–{hi:.4f}  "
+                  f"delta {row['mean_auc'] - (lo + hi) / 2:+.4f}  "
+                  f"{'within ±0.02' if inside else 'OUTSIDE ±0.02'}")
     save(args.out, runs, [], args)
     return 0
 

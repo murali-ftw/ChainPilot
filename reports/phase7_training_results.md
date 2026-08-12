@@ -464,3 +464,146 @@ Two cheaper intermediate options, in case the full sweep is not wanted:
 
 Option 1 is the better buy: the architecture ranking is the part that already has a V1 control, and
 the variant effects are the part that is new.
+
+---
+
+## 8. SHARP across all twelve variants (Phase 7b)
+
+§5.1 left SHARP tested on Variant 0 only, so there was no evidence either way about whether the two
+architectures respond to the mechanisms the same way. This section closes that gap: SHARP
+(`rgcn_relemb`, 752,599 params) run across **all twelve variants × five dataset seeds**, at the same
+V1-comparable configuration, same 40/20/40 temporal split, same matched-parameter arm, same
+block-bootstrap protocol. 60 runs at **419 s each — identical per-run cost to SHARE**, as the
+budget estimate predicted from their near-identical size.
+
+### 8.1 Device check: MPS wins at this scale, and was still not used
+
+§3.1 found MPS *slower* than CPU at spec scale. That does not transfer, and it was worth measuring
+rather than assuming — at this sweep's scale (27,012 nodes, 123,232 edges per snapshot) **MPS is
+2.2× faster than CPU in a single process**: 1.23 s/epoch against 2.71 s/epoch, a projected 123 s
+against 271 s for a 100-epoch run.
+
+It was still not used, for two measured reasons:
+
+| configuration | per-run | throughput |
+|---|---|---|
+| MPS, 1 worker | 123 s | 29 runs/h |
+| MPS, 2 workers | 222 s each | 32 runs/h |
+| MPS, 4 workers | 440 s each | 33 runs/h |
+| **CPU, 4 workers × 3 threads** | **419 s each** | **34 runs/h** |
+| 2 MPS + 2 CPU (hybrid) | 222 s / 367 s | **52 runs/h** |
+
+1. **MPS does not parallelise.** Per-run time scales almost linearly with worker count, so aggregate
+   throughput is flat at ~30 runs/h — the GPU is the bottleneck and is no faster in total than four
+   CPU workers. The 2.2× single-process win buys nothing for a 60-run sweep.
+2. **The hybrid would have been fastest (52 runs/h, ~1.5×) and would have invalidated the
+   comparison.** Splitting variants across devices puts any numeric difference between CPU and MPS
+   float32 reduction orders inside every cross-variant delta — and the deltas below are as small as
+   0.002. SHARE's numbers were produced on CPU at 4 workers × 3 threads, so SHARP was run
+   identically and the SHARP-vs-SHARE comparison carries no device confound.
+
+Recorded for future sweeps: **at ~30k-node graphs prefer MPS for a single job and CPU for many; do
+not mix devices inside a comparison.** A harness bug was fixed to make this testable at all —
+`run_one()` passed `--device` through to the model but never moved the bundles, so `--device mps`
+had never actually worked.
+
+### 8.2 SHARP per-variant (5 dataset seeds)
+
+| var | mechanisms | delay AUC | pos | shortage AUC | pos | impact AUC | pos |
+|---|---|---|---|---|---|---|---|
+| 0 | — | 0.7828 ± 0.0414 | 519 | 0.7846 ± 0.0069 | 1,036 | 0.9321 ± 0.0104 | 156 |
+| A | J+A | 0.7662 ± 0.0336 | 628 | 0.7842 ± 0.0019 | 1,077 | 0.9236 ± 0.0038 | 203 |
+| B | B | 0.7849 ± 0.0314 | 553 | 0.7755 ± 0.0168 | 1,048 | 0.9366 ± 0.0094 | 155 |
+| C | C | 0.7770 ± 0.0286 | 520 | 0.7861 ± 0.0092 | 1,023 | 0.9291 ± 0.0099 | 150 |
+| D | B+D | 0.7776 ± 0.0370 | 548 | 0.7794 ± 0.0115 | 1,026 | 0.9293 ± 0.0079 | 157 |
+| E | E | 0.8155 ± 0.0234 | 403 | 0.7915 ± 0.0087 | 761 | 0.9204 ± 0.0107 | 84 |
+| F | E+F | 0.8118 ± 0.0249 | 370 | 0.7773 ± 0.0145 | 791 | 0.9149 ± 0.0207 | 83 |
+| G | G | **0.9174** ± 0.0115 | 184 | **0.7362** ± 0.0051 | 1,036 | 0.9441 ± 0.0063 | 103 |
+| H | H | 0.7761 ± 0.0306 | 549 | 0.7811 ± 0.0088 | 1,035 | 0.9281 ± 0.0156 | 155 |
+| I | I | 0.7770 ± 0.0289 | 502 | 0.7749 ± 0.0090 | 1,045 | 0.9301 ± 0.0059 | 156 |
+| J | J | 0.7627 ± 0.0395 | 628 | 0.7816 ± 0.0033 | 1,077 | 0.9364 ± 0.0044 | 203 |
+| K | all ten | **0.9110** ± 0.0194 | **113** | **0.7427** ± 0.0120 | 745 | 0.9255 ± 0.0095 | **65** |
+
+Mechanism G's delay figure carries §5.4's warning unchanged — it is a task-difficulty artifact, not
+a signal. Variant K's impact cell rests on 65 test positives and is underpowered by construction.
+
+### 8.3 SHARP's variant effects, each against its mandated reference
+
+| effect | task | mean delta | sign |
+|---|---|---|---|
+| **G vs 0** | delay | **+0.1346 ± 0.0336** | 5+/0− consistent |
+| | shortage | **−0.0484 ± 0.0036** | 0+/5− consistent |
+| | impact | **+0.0120 ± 0.0042** | 5+/0− consistent |
+| **K vs D** | delay | **+0.1334 ± 0.0411** | 5+/0− consistent |
+| | shortage | **−0.0367 ± 0.0155** | 0+/5− consistent |
+| | impact | −0.0039 ± 0.0084 | 1+/4− mixed |
+| **E vs 0** | delay | **+0.0327 ± 0.0196** | 5+/0− consistent |
+| | shortage | +0.0069 ± 0.0083 | 4+/1− mixed |
+| | impact | **−0.0117 ± 0.0073** | 0+/5− consistent |
+| **J vs 0** | delay | **−0.0201 ± 0.0088** | 0+/5− consistent |
+| | shortage | −0.0030 ± 0.0079 | 2+/3− mixed |
+| | impact | +0.0043 ± 0.0095 | 3+/2− mixed |
+| **A vs J** | delay | +0.0034 ± 0.0071 | 3+/2− mixed |
+| | shortage | +0.0026 ± 0.0029 | 4+/1− mixed |
+| | impact | **−0.0128 ± 0.0036** | 0+/5− consistent |
+| **F vs E** | delay | −0.0038 ± 0.0146 | 3+/2− mixed |
+| | shortage | **−0.0142 ± 0.0083** | 0+/5− consistent |
+| | impact | −0.0055 ± 0.0168 | 2+/3− mixed |
+| **I vs 0** | delay | −0.0058 ± 0.0188 | 1+/4− mixed |
+| | shortage | **−0.0097 ± 0.0055** | 0+/5− consistent |
+| | impact | −0.0019 ± 0.0069 | 1+/4− mixed |
+| **D vs B** | delay | −0.0074 ± 0.0125 | 2+/3− mixed |
+| | shortage | +0.0039 ± 0.0075 | 3+/2− mixed |
+| | impact | −0.0072 ± 0.0083 | 1+/4− mixed |
+| **B vs 0** | all three | ≤ ±0.0092 | mixed on all three |
+| **C vs 0** | all three | ≤ ±0.0058 | mixed on all three |
+| **H vs 0** | all three | ≤ ±0.0067 | mixed on all three |
+
+### 8.4 Does SHARP track SHARE? On every effect either one calls consistent, yes
+
+Head-to-head, paired on identical held-out rows per variant and seed, **SHARP − SHARE is within
+±0.0085 on all 36 variant × task cells**, and only four reach 5/5 sign agreement (Variant A delay
+−0.0071, Variant D delay −0.0046, Variant H shortage −0.0047, Variant I shortage −0.0055 — all
+marginally in SHARE's favour, none larger than 0.008). **V1's conclusion that SHARP adds cost for
+no measurable accuracy gain now holds across all twelve variants, not just the plain dataset**,
+which is the specific gap this session existed to close.
+
+The more informative result is what happens when the two architectures' *mechanism responses* are
+compared. Across the 33 effect × task cells:
+
+- **12 cells have at least one architecture reporting 5/5 sign agreement. In all 12, the other
+  architecture agrees in direction.** Not one reverses.
+- **8 cells disagree in sign, and all 8 are cells BOTH architectures already flagged mixed** —
+  A vs J shortage, C vs 0 delay, all three of D vs B, H vs 0 delay and shortage, I vs 0 delay.
+
+The two sets do not overlap at all. The sign-consistency gate this project has used since Phase 0 is
+therefore doing real work: it separates effects that survive an architecture change from effects
+that do not. Nothing labelled consistent flipped; everything that flipped was already labelled mixed.
+
+**Effects now confirmed by two independent architectures** (both 5/5, same direction): G's delay
+inflation and shortage damage, K vs D's inherited version of both, E's delay easing, J's delay
+hardening, and A's impact cost. These are the benchmark's architecture-independent mechanism
+signatures.
+
+**Effects SHARP resolves that SHARE left mixed** — SHARP reaches 5/5 consistency where SHARE did
+not, in the same direction each time: E vs 0 impact (−0.0117), F vs E shortage (−0.0142), I vs 0
+shortage (−0.0097), G vs 0 impact (+0.0120). The consequential one is **Mechanism I**: §6.2 listed
+it among three mechanisms with no detectable effect, and SHARP shows a consistent −0.0097 on
+shortage across all five seeds. Multi-source AND/OR dependency does measurably harden the shortage
+task; SHARE simply could not resolve it. **This corrects §6.2's "C, H and I are null" to "C and H
+are not detected; I is a real, small effect on shortage."**
+
+**The D vs B null is now considerably stronger.** Two architectures, five seeds each, and they
+disagree in sign on all three tasks with every cell mixed. If coupling produced a real effect at
+this label volume, two architectures of near-identical capacity would not land on opposite sides of
+zero on every task. **Discovering hidden structure, once causally coupled, remains not detected at
+this label volume** — still a non-detection rather than an established absence, since this is the
+V1-comparable configuration and not spec scale.
+
+### 8.5 What this section does not change
+
+- **Still not spec scale.** §3 and §7 stand; every null here is bounded by 65–1,077 test positives.
+- **Still no third architecture across all twelve variants.** GCN covers twelve variants (five seeds
+  on eight of them); HGT, RGCN, GAT, GraphSAGE and GraphGPS remain Variant-0 only.
+- **SHARP is still not recommended over SHARE.** It ties everywhere and costs an extra per-relation
+  embedding table; §6.1's verdict is unchanged and now rests on 12 variants instead of one.
