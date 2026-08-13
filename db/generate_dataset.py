@@ -1162,6 +1162,24 @@ agent_pending = {}     # sup_id -> [(recorded_at, was_late)] not yet visible
 agent_seen = {}        # sup_id -> [n_observed, n_late]  (visible history only)
 agent_frontier = {}    # sup_id -> as_of of the last advance, for the monotonicity assert
 
+# (sup_id, as_of) -> mitigation in [0,1]. NEVER emitted -- same standard as RESILIENCE
+# and own_stress; `mitigation` is already on ml/data/loader.py's HIDDEN_STATE_COLUMNS
+# guard list, which asserts no emitted table carries a column by that name.
+#
+# HADES V3 Phase 1 instrumentation. Unlike own_stress()/stress(), mitigation_level()
+# CANNOT be recomputed after the run: agent_observe() drains agent_pending into
+# agent_seen as the weekly walk consumes it, and asserts the agent clock never moves
+# backwards, so a post-hoc call at an earlier as_of would both trip that assert and
+# read a total that has already absorbed future outcomes. The value therefore has to
+# be recorded at the moment the simulation uses it.
+#
+# This recording consumes no RNG draw and changes no control flow -- it adds dict
+# writes on paths that already existed, and writes nothing at all when Mechanism E is
+# off (mitigation_level returns before the first write when RESILIENCE is empty), so
+# every non-E variant is untouched. Byte-identity of variants 0/E/K at the `v1` preset
+# is verified against pre-change output in reports/phase1_mitigation_level.md.
+MITIGATION_HISTORY = {}
+
 
 def agent_observe(sup_id, as_of):
     """Advance a supplier-agent's visible history to `as_of`.
@@ -1201,9 +1219,12 @@ def mitigation_level(sup_id, as_of):
         return 0.0
     seen = agent_observe(sup_id, as_of)
     if seen[0] < 3:
+        MITIGATION_HISTORY[(sup_id, as_of)] = 0.0
         return 0.0                       # not enough observed history to react to
     observed_late_rate = seen[1] / seen[0]
-    return min(1.0, observed_late_rate * (0.5 + RESILIENCE[sup_id]))
+    _mit = min(1.0, observed_late_rate * (0.5 + RESILIENCE[sup_id]))
+    MITIGATION_HISTORY[(sup_id, as_of)] = _mit
+    return _mit
 
 
 # weekly inventory walk + demand-triggered replenishment (supplier -> warehouse)
