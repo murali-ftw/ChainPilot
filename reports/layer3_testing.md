@@ -876,3 +876,671 @@ Raw per-run results in `out/t2redesign/` (40 runs, `r1`/`r2` tags), Stage 2 in
 `out/stage1_gate_final.json` and `out/stage1_gate_best.json`. Ground truth from
 `out/hidden_mid/`, unchanged. `verify_no_hidden_state()` returns empty on all ten mid-scale
 variant-seeds.
+
+## 10. Behavioural Hypothesis Generation — ranked explanations instead of discovery
+
+§9.8 closed the discovery question: at **no depth of SHARE's stack, including the raw input
+features, does hidden-parent co-membership separate from a size-matched random regrouping.**
+This section does not reopen it. It builds a weaker, checkable claim in its place — given an
+observed co-degradation between two suppliers, emit a **ranked, calibrated** distribution over
+candidate explanations, with an explicit "unknown", and leave the call to a human reviewer —
+and then asks honestly whether those confidences mean anything.
+
+**The prediction was recorded in code before any number existed**
+(`ml/run_hypothesis_module.py`'s module docstring), so that the central result could not later
+be read as a bug. `regional_logistics` maps onto the base world's `H_PORT` / `H_TRUCK` /
+`H_CUSTOMS` pools, two of which are *defined* by `country` and the third by a `sea` flag
+closely proxied by lead time — all observable — so it should rank and calibrate well.
+`shared_upstream` is exactly the object §9.8 found carries no encodable signal, so a correctly
+calibrated module should push it toward its base rate or toward `unknown`. **That outcome is
+the module working, not failing.**
+
+**The answer, stated first. The prediction holds on both halves.** `regional_logistics` ranks at
+**AUC 0.817/0.818** and calibrates to **ECE 0.0036/0.0032** against a model-seed floor of
+0.0045/0.0034 — over ten equal-count bins of 13,297 instances each, predicted and empirical rates
+agree to within 0.011 everywhere, so "this pair's co-degradation is 24% likely to be regional"
+means what it says. `shared_upstream` behaves exactly as forecast: the module never emits a
+confidence above **0.13%** for it in any bin, on any variant, including on pairs that genuinely
+share a hidden parent, and on the highest-powered measurement available — 328 positive pairs — it
+ranks at **0.4928 / 0.5088**, chance, with the inert Type C decoy scoring *above* both real group
+types on Variant B. **This is the module working correctly, not failing.** The pipeline is not
+what is limiting it: the deliberately-observable `shared_sourcing` positive control comes back at
+**0.945–0.994** across both candidate sets and both variants, so the machinery can rank and
+calibrate a class whose cause is readable.
+
+**One genuine positive, and it is narrower than it first looks.** The brief's per-class
+disaggregation is what caught it: splitting `shared_upstream` by group type shows **Type B** — the
+type whose shared factor enters each member's own observable history by construction — separable
+at **AUC 0.739/0.638**, 5 of 5 folds above chance on both variants, clearing its reproduction
+floor, while **Type A** — the type whose coupling is *not* in a member's own history — sits at
+chance on the variant where its coupling is switched off. A `top_k` sweep to 128 and 256 triples
+the positives and leaves Type B unchanged (0.715/0.668, still 5/5, decoy contrast clearing its
+floor by 10x and 3.5x), so it is not a small-sample artifact. But it is **regime-dependent**:
+across the full universe of supplier pairs the same quantity falls to 0.520/0.518. Type B
+co-membership is separable *among pairs that already co-degrade strongly* and not separable across
+the population — and even that is a supervised classifier shown the answer on four seeds and asked
+about a fifth, not discovery. The sweep also exposes a clean mechanism-on/mechanism-off control:
+**Type A rises 0.462 → 0.583 with pool width on Variant D, where `HP_ALPHA = 0.35`, and stays flat
+at chance on Variant B, where it is 0** — a faint trace of that coupling which no single pool
+width would have shown. §10.3.3 reports the whole sequence rather than the most flattering row.
+
+### 10.1 Ground truth — built from mechanisms that already exist, and one that turned out empty
+
+The multi-label ground truth is constructed per supplier **pair** from what
+`db/generate_dataset.py` already tracks, read the privileged way `HP_GROUPS` was read in §2 and
+§9 — the generator executed in-process with `write()` stubbed
+(`ml/extract_mechanism_state.py`). Nothing was invented: an unsupervised category has no truth
+to calibrate against, so its confidence could only ever be asserted, never checked, which is the
+trap this section exists to avoid.
+
+| class | mechanism | live on B/D? |
+|---|---|---|
+| `shared_upstream` | `HP_GROUPS` Type **A** or **B** co-membership, plus V1's legacy `H_POLYMER` | yes |
+| `regional_logistics` | shared membership in `H_PORT` / `H_TRUCK` / `H_CUSTOMS` | yes |
+| `shared_sourcing` | a `component_suppliers` co-parent edge (`COPARENT_COUPLING = 0.35`) | yes |
+| ~~`supplier_switching`~~ | Mechanism C rewiring (`CS_REWIRES`) | **no — dropped** |
+| `unknown` | none of the above | yes, by construction |
+
+Type C is excluded from `shared_upstream` deliberately: it is the decoy, structurally identical
+to A and B and downstream-inert, so counting it positive would score a model for finding
+something that does not exist. It is scored separately below as a control instead.
+
+**`supplier_switching` was confirmed untestable and dropped rather than trained on an empty
+class.** §9.7.1 reported `CS_REWIRES = 0` on Variants B and D; that was re-confirmed here live
+on **all ten variant-seeds**, not carried over. `VARIANTS` gives B = `("B",)` and
+D = `("B", "D")`, so Mechanism C is simply not in either generation path and the class has zero
+positives by construction. Extending the variant set was considered and rejected on the cost
+discipline every prior session applied: the only stock variant carrying Mechanism C alongside
+Mechanism B is **K**, which also switches on A, E, F, G, H, I and J — a different world, not the
+same world plus rewiring, and every other §10 number would have stopped being comparable to §9's.
+
+**`shared_sourcing` is a disclosed substitution for it, and doubles as a positive control.** It
+is the nearest mechanism of the same *kind* — a sourcing-graph relation between the two named
+suppliers — that does have positives here, and unlike the other two it is fully **observable**:
+`components.supplier_id` plus `component_suppliers.csv.gz` reconstruct the generator's internal
+`coparents` dict exactly. That equality is asserted on every variant-seed rather than claimed
+(`ml/run_hypothesis_module.py::build_one`), which makes the class a check on the pipeline
+itself: a class whose cause is directly readable *must* come back near-perfectly ranked, and if
+it does not, the machinery is broken rather than the world being uninformative. It does —
+**0.983/0.945** — so the pipeline is sound and the `shared_upstream` null is a fact about the
+world rather than about the code.
+
+**Multi-label, not multi-class.** A Type A pair that also shares `H_PORT` carries both labels;
+four independent sigmoid heads let both be true, where a softmax would force the model to trade
+one against the other and make "distribution over hypotheses" mean something the world does not.
+Overlap is rare but real: 0–2 `shared_upstream & regional_logistics` pairs and 2–7
+`regional_logistics & shared_sourcing` pairs per variant-seed in the detected set.
+
+**Disclosure, in the same terms §9.1 used.** These labels are privileged and are
+**training-time and evaluation-time only**. They are never a model input: the ranking head's
+feature vector comes from emitted CSV columns alone, and `assert_no_privileged_features` refuses
+to proceed if a mechanism name reaches the feature set — §9.1's disclosure was prose, this is the
+executable form of it. One thing is *weaker* here than in §9.1: no privileged value reaches a
+gradient of SHARE. §9.1's contrastive term put `HP_GROUPS` into the encoder's own loss; §10's
+head is a separate 7,684-parameter model over frozen observable data, and SHARE itself is
+untouched until §10.5.
+
+**Two properties of this world that the numbers below cannot be read without.**
+
+*Type A is behaviourally inert on Variant B.* `HP_ALPHA = CFG.alpha if "D" in MECHS else 0.0`,
+so on Variant B (`MECHS = ("B",)`) a Type A group has **no downstream effect whatsoever** and is
+indistinguishable from the Type C decoy; only on Variant D (`HP_ALPHA = 0.35`) does Type A
+couple. `shared_upstream` merges A and B, so §10.3 reports the split as well as the merge.
+
+*Seed 44's world fails one of the generator's own acceptance checks.* On both variants,
+`B: Type A/B/C indistinguishable from TOPOLOGY` fails — macro held-out AUC **0.643** against a
+permutation null of [0.351, 0.595] — meaning group *type* is partially recoverable from graph
+structure there. It is recorded per seed by the extractor rather than assumed to pass, and seed
+44 is also by far the thinnest world by observable coverage (482–495 usable suppliers against
+704–792 elsewhere, and only 5–6% of its A/B pairs evaluable against 11–17%). Both facts argue
+for reading seed 44's fold with suspicion, and §10.3's per-fold columns allow that.
+
+*En passant*, two pieces of provenance the earlier sections left implicit are now checked in.
+`db/config_mid.json` records the mid-scale preset (the `v1` preset with `sup_n` raised to 2,000),
+which had been passed ad-hoc and never written down; it is verified by regenerating each world
+in-process and asserting the supplier id list matches `db/csv_mid/v*_seed*/suppliers.csv.gz` row
+for row, and `ml/hypothesis_labels.py` re-asserts that on every load. And
+`ml/extract_hidden_state.py`'s `except SystemExit: pass` turns out to be load-bearing in the
+wrong direction: `resolve_config` exits *before* the world is built if a config override carries
+one unrecognised key, so that handler returns an **empty** namespace, which reads downstream as
+"this variant has no mechanisms" rather than as a crash — it produced a full set of all-zero
+ground truth on the first attempt here. The new extractor distinguishes the two cases (a
+check-suite failure leaves the state perfectly readable and is recorded; a config failure
+raises), and the seed-44 disclosure above exists only because of it.
+
+### 10.2 The detected pattern set — thin, confound-heavy, and capped before detection starts
+
+Detection reuses §9.7's instrument unchanged: the Pearson correlation of each supplier's
+`on_time_rate_90d` residual against the fleet, the exact column §2.2's generator-side
+co-degradation check validated (`ml/observable_cofailure.py::cofailure_scores`). A **pattern
+instance** is an unordered pair where either supplier ranks the other in its top 64 — the same
+pool width `Transformer2GlobalAttention` attends over throughout §2 and §9 — and the correlation
+is positive. No new instrument was built.
+
+**One deviation from §9.7, stated because it changes what the numbers mean.** Stage 2 was a
+*forecasting* test and correlated only rows with `as_of_date < t0`, leaving 9 snapshots. §10's
+module is **retrospective**: a reviewer is handed a co-degradation that has already happened and
+asked what explains it, so detection reads the full 15-snapshot history. This is not a relaxed
+leakage rule, it is a different task — the targets are static structural properties of the
+world, not future events, so there is no "future" to leak from. `--respect-t0` re-runs the whole
+module under Stage 2's restriction and both are reported, so the choice is visible rather than
+assumed.
+
+| variant | seed | instances | usable sup (of 2,000) | shared_upstream | regional_logistics | shared_sourcing | unknown | A/B pairs evaluable |
+|---|---|---|---|---|---|---|---|---|
+| B | 42 | 26,818 | 708 | 10 | 2,945 | 23 | 23,843 | 62/512 (12%) |
+| B | 43 | 30,586 | 792 | 9 | 3,140 | 34 | 27,406 | 73/511 (14%) |
+| B | 44 | 18,422 | 495 | 6 | 2,033 | 34 | 16,351 | 27/521 (5%) |
+| B | 45 | 27,554 | 719 | 7 | 2,429 | 30 | 25,096 | 70/527 (13%) |
+| B | 46 | 29,590 | 759 | 11 | 3,161 | 34 | 26,389 | 75/501 (15%) |
+| D | 42 | 27,316 | 704 | 13 | 3,101 | 41 | 24,169 | 54/512 (11%) |
+| D | 43 | 29,937 | 776 | 8 | 3,351 | 30 | 26,551 | 61/511 (12%) |
+| D | 44 | 18,111 | 482 | 5 | 1,899 | 31 | 16,179 | 29/521 (6%) |
+| D | 45 | 28,259 | 735 | 12 | 2,889 | 38 | 25,326 | 91/527 (17%) |
+| D | 46 | 29,733 | 766 | 13 | 3,262 | 31 | 26,431 | 72/501 (14%) |
+
+**The imbalance is severe and it is handled explicitly, not ignored.** `shared_upstream` is
+0.032% of the detected set and `shared_sourcing` 0.12%, against `unknown` at 89%. The head is
+trained with per-class `pos_weight` capped at 50 (`regional_logistics` lands at 8.3–9.1,
+the two rare classes at the cap) — and that weighting **deliberately wrecks the raw
+calibration**, which is why §10.3 reports ECE before and after recalibration rather than only
+after. A model reported post-calibration only would hide the size of the distortion.
+
+**But the binding constraint is upstream of all of that, and it is the most important number in
+this section.** Of the ~515 true Type A/B pairs the generator creates per seed, only **27–91 have
+both suppliers carrying any usable `on_time_rate_90d` trajectory at all** — 5% to 17%. A pair
+whose suppliers have no recorded history has no behavioural pattern to explain and can never
+enter a candidate set however the detector is tuned. Roughly **86% of the ground truth is
+unreachable before detection starts**, and the detected set then retains 5–13 of the survivors.
+This is the §9.7.3 coverage limit reappearing as a hard cap on statistical power: only 972–1,066
+of 2,000 suppliers have any observable trajectory and 482–792 have four or more points. Every
+`shared_upstream` figure below rests on 43–51 pooled positive pairs, so its binomial standard
+error is **±0.07 to ±0.10** — larger than any reproduction floor in this report, and the real
+limit on what can be claimed.
+
+Because of that, §10.3 also reports a second, **power-maximising** candidate set: every pair of
+suppliers with a usable trajectory, 116k–313k pairs per seed, which raises `shared_upstream` to
+30–97 positives per seed. It selects nothing and is not a detector — the detected set is what
+the module would actually emit, and its thinness is itself one of §10's findings — but a null
+stated on 328 positives is a null with a sample size behind it, and one stated on 43 is not.
+
+Under §9.7's forecasting restriction the same detection yields 14,475–26,505 instances from
+387–663 usable suppliers, with A/B evaluability falling to 16–65 pairs per seed. Every stage of
+this pipeline is coverage-bound, not method-bound.
+
+### 10.3 Ranking quality and calibration — per class, never pooled
+
+The head is a 7,684-parameter MLP (two hidden layers of 64) with four independent sigmoid
+outputs, fitted on observable pair features only: the detection correlation and its
+cohort-residualised twin, the *gap* between them, the 30-day correlation, retrieval ranks,
+joint-dip counts and depths, snapshot overlap, and each supplier's own emitted attributes
+(country as a generic per-country "both in X" indicator, lead time, capacity, reliability,
+primary and secondary degree, shipment counts, lateness variance, trend). Capacity is
+deliberately small — §9.8 established that capacity is not the binding constraint anywhere in
+this problem, so spending it here would only buy a less honest number.
+
+**Folds are whole dataset seeds.** §9.8's finding is that co-membership is distinguishable only
+by supplier *identity*, so a random pair-level split would leave the same suppliers on both
+sides and let the head memorise them — precisely what §9.4 caught Stage 1 doing. Each fold holds
+out one seed for test and a second for the isotonic calibration fit, training on the remaining
+three; nothing about a test seed's suppliers, groups or pools is seen during fitting or
+calibration.
+
+| variant | class | base rate | positives | AUC | AP | ECE raw | ECE calibrated | Brier cal |
+|---|---|---|---|---|---|---|---|---|
+| B | shared_upstream | 0.00032 | 43 | 0.6543 | 0.0008 | 0.0128 | **0.0002** | 0.000323 |
+| B | regional_logistics | 0.10309 | 13,708 | **0.8174** | 0.3324 | 0.2546 | **0.0036** | 0.079668 |
+| B | shared_sourcing | 0.00117 | 155 | **0.9831** | 0.9518 | 0.0014 | **0.0001** | 0.000074 |
+| B | unknown | 0.89558 | 119,085 | 0.8106 | 0.9703 | 0.0076 | **0.0038** | 0.080264 |
+| D | shared_upstream | 0.00038 | 51 | 0.5927 | 0.0006 | 0.0123 | **0.0002** | 0.000382 |
+| D | regional_logistics | 0.10875 | 14,502 | **0.8182** | 0.3414 | 0.2484 | **0.0032** | 0.082655 |
+| D | shared_sourcing | 0.00128 | 171 | **0.9447** | 0.9416 | 0.0019 | **0.0001** | 0.000075 |
+| D | unknown | 0.88977 | 118,656 | 0.8114 | 0.9689 | 0.0099 | **0.0037** | 0.083636 |
+
+**Calibration is the deliverable, and it works — for the class that has signal.** The `ECE raw`
+column is the `pos_weight` distortion made visible: `regional_logistics` is predicted at a mean
+of 0.358 against a true base rate of 0.103, a 3.5x over-prediction, which is what a weight of
+~8.7 buys in ranking and costs in calibration. Isotonic recalibration on the held-out
+calibration seed removes it, and the reliability curve is genuinely flat:
+
+| variant | bin | n | predicted | empirical | gap |
+|---|---|---|---|---|---|
+| B | 1 | 13,297 | 0.0021 | 0.0044 | +0.0024 |
+| B | 4 | 13,297 | 0.0302 | 0.0309 | +0.0007 |
+| B | 7 | 13,297 | 0.1063 | 0.1013 | −0.0050 |
+| B | 9 | 13,297 | 0.2318 | 0.2277 | −0.0041 |
+| B | 10 | 13,297 | 0.3729 | 0.3623 | −0.0105 |
+| D | 1 | 13,336 | 0.0019 | 0.0038 | +0.0019 |
+| D | 4 | 13,336 | 0.0314 | 0.0317 | +0.0003 |
+| D | 7 | 13,335 | 0.1101 | 0.1055 | −0.0046 |
+| D | 9 | 13,335 | 0.2413 | 0.2385 | −0.0029 |
+| D | 10 | 13,335 | 0.3964 | 0.3872 | −0.0093 |
+
+*(`regional_logistics`, calibrated, 10 equal-count bins; bins 2/3/5/6/8 omitted for width, all
+inside ±0.006. Equal-count rather than equal-width because these predictions pile up near zero
+and equal-width bins would put a handful of points behind most of the curve.)*
+
+So the brief's actual test — does "41% shared upstream" correspond to roughly 41% of
+such-labelled instances being true, over enough instances to say so — is passed for
+`regional_logistics`, with 13,297 instances behind every point. The module's top bin tops out at
+**37–40%**: it never claims more than that for a regional cause, and that ceiling is honest.
+
+**`shared_upstream`'s near-zero ECE is calibration achieved by refusing to discriminate, and must
+be read that way.** Its reliability curve runs from 0.0000 to **0.0013** across all ten bins on
+both variants, against empirical rates of 0.0000–0.0007. The module is well calibrated there in
+the only sense available to it: it has no evidence, so it predicts the base rate, and the base
+rate is right. Quoting ECE 0.0002 as a calibration success without that sentence attached would
+be the same trick as quoting a confident-looking attention weight as an explanation.
+
+#### 10.3.1 The reproduction floor, measured on this session's device
+
+The brief asks for 8–10 identically-configured retrains. The first two showed why that budget is
+better spent elsewhere here: the fit is **bit-deterministic** on this device, with max absolute
+deviation exactly **0.0000** on every class and both metrics, and further identical repeats would
+have reproduced that zero at ~25 s of CV each. That is a fact to state, not a floor to celebrate
+— it means run-to-run numerical noise is not the operative uncertainty for this model, unlike the
+GNN arms of §4 and §9.2, where scatter/index_add ordering produced a real floor even on one
+device. The replicate budget was therefore moved to the thing that *does* vary and that nothing
+in the result should depend on — the **model-init seed** — measured over 10 further full
+five-fold cross-validations per variant:
+
+| variant | class | metric | mean | mean abs dev | max abs dev |
+|---|---|---|---|---|---|
+| B | shared_upstream | auc | 0.6220 | 0.0163 | **0.0443** |
+| B | regional_logistics | auc | 0.8159 | 0.0018 | **0.0045** |
+| B | regional_logistics | ece_calibrated | 0.0034 | 0.0009 | **0.0023** |
+| B | shared_sourcing | auc | 0.9709 | 0.0225 | **0.0570** |
+| B | unknown | auc | 0.8079 | 0.0041 | **0.0107** |
+| D | shared_upstream | auc | 0.5913 | 0.0231 | **0.0687** |
+| D | regional_logistics | auc | 0.8172 | 0.0012 | **0.0034** |
+| D | regional_logistics | ece_calibrated | 0.0026 | 0.0006 | **0.0021** |
+| D | shared_sourcing | auc | 0.9581 | 0.0117 | **0.0359** |
+| D | unknown | auc | 0.8103 | 0.0032 | **0.0097** |
+
+`regional_logistics` clears its floor by roughly 70x on AUC-above-chance (0.317 against 0.0045)
+and its ECE sits at the floor's own magnitude, which is the correct place for a well-calibrated
+number to sit. The rare classes' floors are an order of magnitude larger, exactly as their
+positive counts predict — and for `shared_upstream` the **binomial standard error (±0.076 on 43
+positives, ±0.070 on 51) is larger still**, which is the number that actually bounds the claim.
+
+#### 10.3.2 Splitting `shared_upstream` — the result the disaggregation was required to find
+
+| variant | subtype | positives | AUC ± binomial SE | model-seed floor | clears floor? | folds > chance |
+|---|---|---|---|---|---|---|
+| B | Type A | 12 | 0.4822 ± 0.144 | 0.0674 | no | 4/5 |
+| B | **Type B** | 25 | **0.7389 ± 0.100** | 0.0548 | **yes** | **5/5** |
+| B | Type C (decoy) | 28 | 0.4549 ± 0.094 | 0.0825 | no | 2/5 |
+| D | Type A | 14 | 0.4617 ± 0.134 | 0.0744 | no | 1/4 |
+| D | **Type B** | 35 | **0.6378 ± 0.085** | 0.0819 | **yes** | **5/5** |
+| D | Type C (decoy) | 21 | 0.5338 ± 0.109 | 0.0827 | no | 4/5 |
+
+Read alone, this table looks like the one place §10 found something, and in exactly the place the
+generator says it should be. Type B is the *redundant* group type: a shared hidden factor raises
+each member's own stress directly, so co-degradation enters each member's own observable history
+by construction — it is V1's `H_POLYMER` behaviour and what §2.2's co-degradation check detects.
+Type A is the *coupled* type, incrementally predictive precisely because it is **not** derivable
+from a member's own history. Type B ranking at 0.64–0.74 with 5/5 fold consistency on both
+variants while Type A sits at chance is exactly that distinction. **The higher-powered
+measurement does not support it, and that is the finding.**
+
+#### 10.3.3 The same question at 5–7x the power — and it comes back null
+
+The detected set holds 25 and 35 Type B positives. The `usable_universe` candidate set — every
+pair of suppliers carrying a usable trajectory, 116k–313k pairs per seed — holds **173 and 184**,
+and 328 `shared_upstream` positives per variant against 43–51:
+
+| variant | class / subtype | positives | AUC ± binomial SE | decoy-controlled contrast |
+|---|---|---|---|---|
+| B | `shared_upstream` (merged) | 328 | **0.4928 ± 0.028** | — |
+| B | Type A | 134 | 0.4849 ± 0.043 | −0.0519 (floor 0.0283) |
+| B | Type B | 173 | 0.5197 ± 0.038 | **−0.0171** (floor 0.0064) |
+| B | Type C (decoy) | 170 | **0.5368 ± 0.038** | — |
+| D | `shared_upstream` (merged) | 328 | **0.5088 ± 0.028** | — |
+| D | Type A | 123 | 0.5087 ± 0.045 | −0.0011 (floor 0.0473) |
+| D | Type B | 184 | 0.5183 ± 0.037 | +0.0085 (floor 0.0193) |
+| D | Type C (decoy) | 177 | 0.5098 ± 0.038 | — |
+
+At this power every subtype collapses to chance, and on Variant B **the inert Type C decoy scores
+higher than either real type** — the decoy-controlled contrast for Type B is *negative*. That is
+the §9.7.3 pattern precisely: an effect carried by a handful of instances that does not survive
+being asked again with more of them. `regional_logistics` and `shared_sourcing`, by contrast,
+reproduce almost exactly across the two candidate sets (0.805/0.807 and 0.990/0.994 against
+0.817/0.818 and 0.983/0.945), which is what a real effect looks like under the same change.
+
+**Two readings — and a pool-width sweep separates them.** Either the detected-set Type B
+elevation is small-sample noise, or the two candidate sets pose genuinely different questions and
+the effect is real *within the co-degradation-detected regime only*. Widening the detection pool
+interpolates between them and multiplies the positive count while doing so, so it distinguishes
+the readings directly:
+
+| candidate set | Type B positives (B / D) | Type B AUC (B / D) | folds > chance | decoy contrast (B / D) |
+|---|---|---|---|---|
+| detected, `top_k=64` | 25 / 35 | 0.7389 / 0.6378 | 5/5, 5/5 | +0.2840 / +0.1041 (D inside floor) |
+| detected, `top_k=128` | 43 / 60 | 0.7347 / 0.6525 | 5/5, 5/5 | +0.2749 / +0.0935 (both clear) |
+| detected, `top_k=256` | 69 / 99 | **0.7152 / 0.6682** | **5/5, 5/5** | **+0.2541 / +0.2147 (both clear)** |
+| `usable_universe` | 173 / 184 | 0.5197 / 0.5183 | 4/5, 3/5 | −0.0171 / +0.0085 |
+
+**Tripling the positives does not move it.** Across `top_k` 64 → 128 → 256 the Type B AUC runs
+0.739 → 0.735 → 0.715 on Variant B and 0.638 → 0.653 → 0.668 on Variant D, with 5/5 fold
+consistency at every width, while the positive count rises 2.8x. The decoy-controlled contrast
+*strengthens* rather than decays, clearing its floor by 10x on Variant B and 3.5x on Variant D at
+`top_k=256`. A small-sample artifact does not behave like this. The effect is **regime-dependent,
+not spurious** — it exists among pairs that already co-degrade strongly and disappears across the
+population at large.
+
+**And the sweep surfaces a control that no single pool width could.** Type A, whose coupling is
+*switched off on Variant B* (`HP_ALPHA = 0`) and *on for Variant D* (`HP_ALPHA = 0.35`), behaves
+differently on the two variants as the pool widens:
+
+| variant | Type A `k=64` | `k=128` | `k=256` | decoy contrast at `k=256` |
+|---|---|---|---|---|
+| B (coupling **off**) | 0.4822 | 0.4651 | 0.4841 | +0.0229 (floor 0.0617) — inside |
+| D (coupling **on**) | 0.4617 | 0.5343 | **0.5827** | **+0.1292** (floor 0.0508) — clears |
+
+On the variant where the mechanism is disabled the number is flat and at chance across a 4x
+change in pool width; on the variant where it is enabled it rises monotonically and clears its
+decoy control at the widest pool. That is the cleanest mechanism-on/mechanism-off contrast
+available in this dataset — same group structure, same generator, one flag — and it says Type A
+coupling does leave *some* observable trace, just a much fainter one than Type B's, needing ~4x
+the candidate pool before it is visible at all. It rests on 54 positives and one pool width, so it
+is a lead rather than a result.
+
+There is a mechanism for that, and it is about what each head is trained to discriminate. The
+detected head sees only high-correlation pairs and must therefore learn what separates them *from
+each other*. The universe head is trained on a negative sample dominated by uncorrelated pairs
+and can drive its loss down by learning "correlated at all" — which is the regional signal — so
+the finer within-regime distinction never has to be learned. That makes the two numbers answers
+to different questions rather than a contradiction, and it is why both are reported.
+
+**What can honestly be claimed is narrow.** Among supplier pairs that already show strong
+observable co-degradation, Type B co-membership is separable at AUC 0.64–0.74, reproducibly and
+above its decoy control. Across all supplier pairs it is not separable at all. Type A — the group
+type whose coupling is *not* present in a member's own history — is at chance in every setting
+tested, at every pool width, on both variants. And none of this is discovery: it is a supervised
+classifier told the answer on four dataset seeds and asked about a fifth, which is a far weaker
+claim than §2 originally set for Transformer 2.
+
+This is consistent with §9.8 rather than a challenge to it. §9.8 probed whether **SHARE's learned
+representation** encodes co-membership and found nothing at any depth; §10 asks whether
+**engineered observable features under direct supervision** can, and finds nothing that survives
+its own controls. The remaining checks all point the same way:
+
+| check | Variant B | Variant D |
+|---|---|---|
+| detected set, Type B | 0.7389 (25 pos), 5/5 folds | 0.6378 (35 pos), 5/5 folds |
+| decoy contrast, detected set | +0.2840 (floor 0.1047) — clears | +0.1041 (floor 0.1071) — **does not clear** |
+| under §9.7's forecasting restriction | 0.6022 (18 pos) | 0.5072 (14 pos) |
+| universe set, Type B | **0.5197** (173 pos) | **0.5183** (184 pos) |
+| decoy contrast, universe set | **−0.0171** — negative | +0.0085 — inside floor |
+
+#### 10.3.4 Withholding the co-parent edge — what a coupling of the same strength looks like when it *is* detectable
+
+`shared_sourcing`'s 0.9898/0.9940 on the `usable_universe` set is not a finding on its own: the
+observable `is_coparent` feature reconstructs the label exactly, so the class is there to prove
+the pipeline can rank and calibrate when the cause is readable. Withholding that one feature turns it into a genuine behavioural
+test — can a co-parent relationship be recovered from co-degradation alone?
+
+| variant | `shared_sourcing` AUC, with `is_coparent` | with it withheld |
+|---|---|---|
+| B | 0.9898 | **0.7821** |
+| D | 0.9940 | **0.7819** |
+
+*(`usable_universe`, 1,260/1,280 positives, ECE calibrated 0.0001 in all four cells.)*
+
+**This is the most useful comparison in §10, because it holds coupling strength fixed and varies
+only the coupling's shape.** `COPARENT_COUPLING` is **0.35** and Mechanism D's `HP_ALPHA` is also
+**0.35** — the same number, both gated by the same `recv_atten` term. Yet co-parent coupling is
+recoverable from behaviour alone at **0.78** on 1,260 positives, while Type A co-membership sits
+at **0.485–0.509** on 123–134. The difference is not strength, it is topology and dilution: a
+co-parent pair exchanges stress *directly and mutually* between exactly those two suppliers
+(`x_i += 0.35 · own_stress(j)`), whereas a Type A member receives `0.35 ×` the **mean** own-stress
+of its whole group, so any individual pair's share of the signal is divided across four or five
+co-members and never attributable to the partner in particular.
+
+That sharpens what §9.8's null is actually about. It is not that this world's hidden couplings are
+too weak to leave observable traces — one of the same magnitude leaves a trace recoverable at 0.78.
+It is that **hidden-parent co-membership is mediated by a group average**, which destroys the
+pairwise attribution any retriever or pair classifier would need. A generator change that made
+hidden-parent coupling pairwise rather than group-mean-mediated would very likely be recoverable,
+and that is a more specific version of the recommendation §9.9 closed with.
+
+### 10.4 What a reviewer actually sees
+
+Aggregate metrics are not the deliverable a supply-chain reviewer is handed. This is: for each
+detected pattern instance, the supplier pair, the behavioural pattern that triggered detection,
+and the ranked hypothesis list with **calibrated** confidences. Rows where `unknown` wins are
+kept, not filtered — being willing to say "this looks like coincidence" is the capability that
+separates this module from the attention-weight-as-explanation trap §7 flagged.
+
+Variant D, drawn from the detected set, sampled **stratified** across ground-truth classes so the
+rare ones appear at all. That stratification is disclosed because it means the table is *not* a
+representative sample of the module's output — the representative answer is `unknown`,
+overwhelmingly, which is §10.2's composition table.
+
+| supplier A | supplier B | corr | ranked hypotheses (calibrated) | truth |
+|---|---|---|---|---|
+| `c851a75d` | `0d70c28a` | +0.654 | unknown 91.1% · regional_logistics 7.3% · shared_upstream 0.0% | shared_upstream |
+| `2ab8e0c2` | `da65a463` | +0.824 | unknown 55.0% · regional_logistics 41.2% · shared_upstream 0.0% | shared_upstream, regional_logistics |
+| `6bfe9d03` | `d1104815` | +0.526 | unknown 96.1% · regional_logistics 2.7% · shared_upstream 0.1% | shared_upstream |
+| `2b1bef2d` | `cde3373d` | +0.614 | unknown 98.6% · regional_logistics 1.4% · shared_upstream 0.0% | shared_upstream |
+| `17515f8c` | `d9b9dfe6` | +0.450 | unknown 69.0% · regional_logistics 44.4% · shared_upstream 0.0% | shared_upstream |
+| `c3ae80a4` | `c0654ca5` | +0.863 | unknown 98.7% · regional_logistics 0.5% · shared_upstream 0.0% | shared_upstream |
+| `02205db5` | `ea36b216` | +0.785 | **regional_logistics 53.9%** · unknown 42.6% · shared_upstream 0.1% | regional_logistics |
+| `b0a44c22` | `def96a59` | +0.678 | unknown 73.2% · regional_logistics 34.7% · shared_upstream 0.0% | regional_logistics |
+| `f2911b5a` | `b1b63f26` | +0.382 | unknown 57.9% · regional_logistics 37.5% · shared_upstream 0.1% | regional_logistics |
+| `5e65bb1d` | `2039c8be` | +0.362 | unknown 56.5% · regional_logistics 33.9% · shared_upstream 0.1% | regional_logistics |
+| `4626a89f` | `bf28fe33` | +0.500 | unknown 75.2% · regional_logistics 23.3% · shared_upstream 0.0% | regional_logistics |
+| `3ebd62e2` | `1e0e4e29` | +0.523 | unknown 91.1% · regional_logistics 7.3% · shared_upstream 0.0% | regional_logistics |
+
+Two properties of this output are worth stating explicitly because a reader will notice them.
+
+**The confidences are per-hypothesis marginals, not a normalised distribution.** They can sum to
+more than 100% (`d79c7795`/`d5be40fe` in the full sample reads unknown 92.1% + regional 9.6%),
+because the model is multi-label by design: a pair can share a port *and* a hidden parent, and a
+softmax would have forbidden that. A reviewer reads each row as four independent "how likely is
+this explanation" answers, not as a pie chart.
+
+**`shared_upstream` never exceeds 0.1% anywhere in the sample — including on the six rows where
+it is the truth.** That is the predicted behaviour and it is the module working correctly: it has
+no evidence for a hidden shared parent, so it declines to claim one, and §10.3's reliability
+curve confirms the 0.1% is honest rather than merely small. What a reviewer is handed for a true
+hidden-parent pair is *"unknown, 91%"* — which is the correct answer given the observable
+evidence, and is also a direct admission that this module cannot do the job §2 originally set for
+Transformer 2.
+
+### 10.5 Fusion and AUC — separate, secondary, and null as predicted
+
+**Stated up front, as the brief requires: the result here does not undermine §10.3.** Hypothesis
+quality and downstream AUC are different claims, and §7 recorded what happens in this project
+when the two get conflated. Every version of Transformer 2 fusion tested across four prior
+sessions came back flat-to-strongly-negative on impact AUC — the original additive fusion (§3),
+the attention-entropy confidence variant, the trust gate (§5, and unstable), cross-attention, and
+the contrastive-retrieval arm (§9, **−0.145 on Variant B and −0.158 on Variant D**, the largest
+effect this project has measured anywhere). Nothing about reframing retrieval as hypothesis
+ranking changes that history, and this experiment did not assume it would.
+
+What is genuinely different from `ml/models/transformer2_confidence.py` is where the weight comes
+from. That variant derived its per-node fusion strength from the attention pool's *own* entropy
+and mean cosine — a self-referential quantity, since a confident-looking pool and a correct one
+are not the same thing, and §2 had already shown those pools contain no co-members to be
+confident about. This arm supplies the weight from **outside** the model: §10's calibrated
+hypothesis confidence, validated against ground truth before ever being used. Per supplier,
+
+    confidence_i = max over i's detected partners j of (1 − P_calibrated(unknown | i, j))
+
+— how confidently any of this supplier's observed co-degradations can be attributed to a *named*
+mechanism at all. It is far from constant (mean **0.143**, full range 0 to 1 over 2,000
+suppliers), and suppliers with no usable trajectory get exactly 0, which is the substantive
+behavioural difference from a global scalar: no evidence, so no reason to trust retrieval there.
+**The confidence is produced out-of-fold** — the head scoring a seed's suppliers was trained on
+the other seeds, exactly as in §10.3 — because otherwise the arm would be tuned on its own test
+set and any gain would be meaningless.
+
+The weight is applied by a **forward hook** on the retrieval module (`ml/train.py`'s new
+`hyp_confidence` argument), which scales `t2_out` before the existing fusion site, reaching
+`z_impact + t2_scale · confidence · t2_out` without any of the five ported Transformer 2 files
+being edited. They remain byte-identical, re-verified at the close of this session; the arm
+reports the same **814,627** parameters as §1.1, and `hyp_confidence=None` leaves the forward pass
+exactly what every earlier result was trained under.
+
+Two arms, paired by dataset seed, Variant B, 5 seeds, 40 epochs, CPU, **each configuration run
+twice** so the floor is measured on the same runs that produce the deltas:
+
+| seed | tag | delay | shortage | impact |
+|---|---|---|---|---|
+| 42 | r1 / r2 | +0.0009 / −0.0007 | −0.0010 / −0.0040 | +0.0032 / +0.0055 |
+| 43 | r1 / r2 | +0.0020 / +0.0021 | −0.0035 / −0.0024 | +0.0014 / +0.0034 |
+| 44 | r1 / r2 | +0.0009 / −0.0037 | −0.0008 / +0.0009 | +0.0048 / +0.0011 |
+| 45 | r1 / r2 | −0.0004 / +0.0018 | +0.0009 / +0.0010 | −0.0007 / +0.0007 |
+| 46 | r1 / r2 | −0.0039 / +0.0022 | +0.0010 / −0.0003 | −0.0010 / +0.0001 |
+| **mean over 10** | | **+0.0001** | **−0.0008** | **+0.0018** |
+| **sign consistency** | | 6/10 | 6/10 | 8/10 |
+
+And the floor, from the replicate pairs of each arm on this session's device:
+
+| arm | delay | shortage | impact |
+|---|---|---|---|
+| baseline | 0.0012 / 0.0021 | 0.0006 / 0.0012 | **0.0021 / 0.0033** |
+| hypconf | 0.0025 / 0.0065 | 0.0009 / 0.0021 | **0.0013 / 0.0022** |
+| §4, CPU, for reference | 0.0024 / 0.0121 | 0.0007 / 0.0031 | 0.0026 / 0.0082 |
+
+*(mean abs / max abs, 5 pairs per arm.)*
+
+**This is a null.** The impact mean of **+0.0018** sits below both arms' mean-abs floors (0.0021
+and 0.0013) and well below the max-abs floors this project judges deltas against (0.0033 and
+0.0022) — the same conservative choice §4 made when it judged against 0.0082 rather than 0.0026.
+Per *dataset seed*, which is the unit §3.2's standard applies to, both replicates agree in sign
+on only **3 of 5** seeds: seeds 45 and 46 straddle zero. The 8/10 figure counts replicates rather
+than seeds and should not be read as sign consistency in this project's sense.
+
+**One thing is worth recording, carefully.** This is the first Transformer 2 fusion variant in
+four sessions that is not *negative*. The original additive fusion, the trust gate, cross-attention
+and the contrastive arm all cost impact AUC, the last of them by −0.145 and −0.158; this one costs
+nothing and may help fractionally. That is a genuine difference in kind — an externally-supplied,
+validated weight does not damage the model the way a self-referential or privileged-supervision one
+did — but it is emphatically not a benefit, and the floor is what says so. The mechanism is the
+same one §9.8 identified: confidence-aware fusion can only help if the confidence tracks *retrieval*
+quality, and §10's confidence is a statement about co-degradation explainability, which has no
+relationship to whether a supplier's top-64 embedding pool contains its co-members. There is
+nothing in the pool for a weight to modulate, so the best a well-behaved weight can do is stay out
+of the way.
+
+**Scope, stated rather than glossed.** Only Variant B was run: at ~390 s per training on this
+session's CPU the full two-variant, two-replicate grid is 40 trainings and roughly four and a half
+hours, and the brief makes this experiment explicitly secondary to §10.3. Variant B with a paired
+replicate is the version that carries its own floor, which is the property that makes the null
+readable at all; Variant D was not run, and the same cost discipline that declined Variant K in §9
+applies. Given a mean inside the floor and 3 of 5 seeds sign-consistent, a second variant would
+not change the reading.
+
+### 10.6 What this settles
+
+**The `shared_upstream` class landed where §9.8 predicted, and the module is working when it says
+so.** Across all twelve variant-by-configuration settings tested — three pool widths, the
+forecasting restriction, the full pair universe and the co-parent ablation — it never emits a
+confidence above **0.126%** for a shared upstream dependency, not on the pairs that have one, and
+its highest observed empirical rate in any bin is 0.072%. On the highest-powered measurement,
+328 positive pairs per variant, it ranks at 0.4928/0.5088 with the inert Type C decoy scoring
+*above* both real group types on Variant B. Its near-zero calibration error (ECE 0.0002) is
+calibration achieved by declining to discriminate, and that is the correct behaviour for a model
+with no evidence: the reliability curve confirms the 0.1% is honest rather than merely small.
+This is not a disappointing result to be explained away. It is a module correctly refusing to
+manufacture a hypothesis, which is precisely the capability that separates it from the
+attention-weight-as-explanation failure §7 flagged, and the deliberately-observable
+`shared_sourcing` control (0.945–0.994, falling to 0.782 when its giveaway feature is withheld)
+establishes that the pipeline could have found the signal had one been there.
+
+**What Layer 3 is worth as decision support, at this label volume.** It can do one thing well and
+one thing usefully. Well: it separates and calibrates `regional_logistics` at AUC 0.817/0.818 and
+ECE 0.0032–0.0036, with predicted and empirical rates agreeing to within 0.011 across ten bins of
+13,297 instances — a reviewer handed "24% regional" can act on that number. Usefully: it says
+`unknown` when it should, on the overwhelming majority of the 18,000–30,000 patterns it detects
+per variant-seed, which is what makes the 24% mean anything. What it cannot do is the thing
+Transformer 2 was introduced for. It cannot tell a reviewer that two suppliers share a hidden
+parent, and §10.3.4 locates why more precisely than §9.9 could: hidden-parent coupling of strength
+0.35 is invisible while **co-parent coupling of the identical strength 0.35 is recoverable at
+0.78** from behaviour alone, because the first is mediated by a group *average* over four or five
+members and the second is a direct pairwise exchange. The obstacle is not signal strength, it is
+that group-mean mediation destroys pairwise attribution — which is what any retriever, and any
+pair classifier, has to work with.
+
+**And the downstream claim stays separate, as promised up front.** §10.5's fusion delta is
+**+0.0018 on impact AUC, inside the floor measured on its own replicate pairs** (0.0021–0.0033
+baseline, 0.0013–0.0022 hypconf) and sign-consistent on 3 of 5 dataset seeds. That is a null, and
+it neither adds to nor subtracts from the calibration findings above — the two are different
+claims, which is why they were decoupled before either was run. Its one novel property is
+negative-space: it is the first fusion variant across five sessions that does not *hurt*, which
+distinguishes an externally-validated weight from a self-referential one without making it useful.
+
+**What it does not settle.** All of it rests on `sup_n=2,000`, 15 snapshots, 5 dataset seeds, two
+variants and CPU-class hardware — not the benchmark's own configuration, the same standing caveat
+every other result in this project carries. Four limits deserve naming. First, **86% of the ground
+truth was never evaluable**: only 27–91 of ~515 true Type A/B pairs per seed have both suppliers
+carrying any observable trajectory, so every `shared_upstream` number here is a statement about
+the evaluable eighth, and a denser observable history remains the single change most likely to
+move it — as it was in §9.9. Second, the Type B result is **regime-dependent and unexplained**: it
+is stable across a 2.8x change in positives inside the detected pool and absent across the full
+pair universe, and this session could distinguish the two readings but not adjudicate the
+mechanism beyond a plausible training-distribution argument. Third, the Variant D Type A trend
+(0.462 → 0.583 with pool width, absent on Variant B) rests on 54 positives at one pool width and
+is a lead, not a result. Fourth, `supplier_switching` was never tested at all — Mechanism C is
+inert on both variants — so nothing here speaks to it. And the generator change §9.9 recommended
+can now be stated more sharply: make hidden-parent coupling **pairwise rather than group-mean
+mediated**, at unchanged strength, and §10.3.4 predicts it would become recoverable.
+
+### 10.7 Provenance
+
+**No SHARE training was required for §10.1–§10.4.** The hypothesis module is a data-level
+measurement on top of frozen observable CSVs, which is the same cost discipline §9.7 applied when
+it ran Stage 2 before Stage 1's grid. **Six module configurations** — detected at `top_k` 64, 128
+and 256, detected under `--respect-t0`, `usable_universe`, and `usable_universe
+--ablate-coparent` — each over 2 variants x 5 dataset seeds, with replicate counts per
+configuration of (2 identical + 10 seed-varied) at `top_k=64` and (1 + 2) to (2 + 4) elsewhere.
+That is **70 five-fold cross-validations, 350 individual fold fits**, all on **CPU**, 25 s to
+250 s per CV depending on candidate set. §10.5 adds **20 SHARE trainings** (2 arms x 5 seeds x 2
+replicates, Variant B). Timing was measured before committing to any grid, and the
+`usable_universe` configuration was re-scoped from 12 replicates to 4 when the first run measured
+789 s per variant.
+
+**Device: CPU throughout, serial for the module runs and up to three concurrent processes for the
+mixed workload.** The identically-configured floor is **exactly 0.0000** on every class and metric
+— the ranking head is bit-deterministic here — so the operative floor is the model-init seed
+spread, re-measured on this device rather than carried over from §9.2's MPS figures, per §9.10's
+finding that floors are device- and arm-dependent. §10.5's AUC deltas are judged against §4's CPU
+floor (0.0026 mean abs / 0.0082 max abs on impact), the closest same-device measurement.
+
+**All five ported Transformer 2 files remain byte-identical**, re-verified at the close of this
+session: `git diff` reports no change to `transformer2.py`,
+`rgcn_attn_variant_a_transformer2.py`, `transformer2_confidence.py`, `transformer2_trustgate.py`
+or `transformer2_crossattn.py`. §10.5's confidence-weighted fusion was reached with a **forward
+hook** on the retrieval module rather than by editing any of them, exactly as §9 did for the
+contrastive arm's embedding capture; the arm reports the same **814,627** parameters as §1.1.
+
+New code: `ml/extract_mechanism_state.py` (privileged mechanism state — base pools, `CS_REWIRES`,
+`SHOCK_EVENTS`, co-parents, `IDIO`, and the generator's own per-seed check results),
+`ml/hypothesis_labels.py` (the multi-label ground truth, the decoy exclusion and the
+detectability ceiling), `ml/hypothesis_features.py` (detection and the observable pair features,
+plus `assert_no_privileged_features`), `ml/hypothesis_ranker.py` (the head, isotonic
+recalibration written out rather than imported, ECE and the reliability curve),
+`ml/run_hypothesis_module.py` (§10.1–§10.4), `ml/run_hypothesis_fusion.py` (§10.5),
+`ml/analyze_hypothesis.py` (the tables above), `ml/test_hypothesis_calibration.py` (the metric
+validation). Extended: `ml/train.py` (the optional `hyp_confidence` weight; `None` leaves the
+forward pass byte-for-byte what every earlier result was trained under). New data:
+`db/config_mid.json`, the mid-scale preset reconstructed and verified against the emitted
+supplier order.
+
+**The metric implementations were validated before any §10 number was believed**
+(`ml/test_hypothesis_calibration.py`, 13 checks, all passing), the same discipline §9.2 applied to
+`ml/retrieval_metrics.py`. ROC AUC and average precision are checked against sklearn to 1e-9;
+ECE is checked to return ~0.0016 on a predictor calibrated by construction at 200,000 samples and
+**exactly 0.60 on a 0.9-always predictor of a 30% class** — the check a broken ECE fails, and the
+one that matters most, because a broken ECE returns a small number and a small number is what
+success looks like here. Isotonic regression is checked to be monotone, to repair a squashed
+predictor (ECE 0.353 → 0.002), to leave an already-calibrated one alone, and — fit on one split
+and applied to another, as the pipeline uses it — never to improve ranking.
+
+Raw results in `out/hypothesis/` (`detected.json`, `detected_k128.json`, `detected_k256.json`,
+`detected_t0.json`, `universe.json`, `universe_ablate.json`) and `out/hypfusion/` (20 runs,
+`r1`/`r2` tags). Privileged ground truth in `out/hidden_mid_ext/`, cross-checked group for group
+against §9's `out/hidden_mid/` on every load so §10's labels are provably the same object §2 and
+§9 scored against.

@@ -72,7 +72,8 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                 progress: bool = False, rung5a_lambda_bound: float = 0.3,
                 rung5c_freeze_epochs: int = 15, rung5c_lr_mult: float = 0.1,
                 anneal_lambda: bool = False, t2_top_k: int = 64,
-                contrastive: dict | None = None) -> dict:
+                contrastive: dict | None = None,
+                hyp_confidence: "torch.Tensor | None" = None) -> dict:
     """Train one model. `seed` controls model init and dropout masks only -- the
     dataset, split and features are deterministic upstream, so varying it alone
     is a clean model-fit-variance probe.
@@ -90,6 +91,19 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     the forward pass changes, the parameter count is unchanged, and `contrastive=None`
     (the default) leaves this function byte-for-byte the objective every earlier result
     in this project was trained under.
+
+    `hyp_confidence`: `[n_suppliers]` in `[0, 1]`, §10's Confidence-Aware Fusion. The
+    original T2 fuses with one GLOBAL learned scalar applied to every Supplier alike;
+    `ml/models/transformer2_confidence.py` made that per-node using the attention pool's
+    OWN entropy, which is self-referential -- a confident-looking pool and a correct one
+    are different things, and §3.2/§5 found it flat-to-negative. This path supplies the
+    weight from OUTSIDE the model instead: §10's calibrated hypothesis confidence,
+    computed from observable co-degradation and validated against ground truth before it
+    is ever used here. Applied as `t2_out <- confidence * t2_out` by a forward HOOK on
+    the retrieval module, for the same reason the contrastive term uses one -- the five
+    ported Transformer 2 files are byte-identical to V1 and are re-verified by md5 at the
+    close of every session that touches Layer 3. Parameter count is unchanged and
+    `hyp_confidence=None` (the default) leaves the forward pass exactly as it was.
 
     The CALLER must have moved the bundles to `device` already."""
     torch.manual_seed(seed)
@@ -182,7 +196,7 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
     # tensor the model then hands to `Transformer2GlobalAttention`, so the hook sees the
     # retrieval geometry itself, not a copy of it.
     z_live: dict = {}
-    hook = None
+    hook = conf_hook = None
     con_sup = con_w = con_temp = con_warmup = None
     con_dropout_free = False
     if contrastive is not None:
@@ -194,6 +208,22 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
         con_dropout_free = bool(contrastive.get("dropout_free", True))
         hook = model.gates["impact"].register_forward_hook(
             lambda _m, _i, out: z_live.__setitem__("z", out[0]))
+
+    if hyp_confidence is not None:
+        if not hasattr(model, "transformer2"):
+            raise ValueError(f"hyp_confidence needs a Transformer 2 arm, not {architecture!r}")
+        _conf = hyp_confidence.to(device).reshape(-1, 1)
+        # `Transformer2GlobalAttention` returns `(t2_out, alpha, topk_idx)`; a forward hook
+        # that returns a value REPLACES that output, so scaling element 0 here is exactly
+        # `z_impact + t2_scale * confidence * t2_out` at the fusion site, without the
+        # ported file being edited. `alpha` and `topk_idx` are passed through untouched so
+        # every retrieval diagnostic still reports the real pool.
+        def _scale(_m, _i, out):
+            if _conf.size(0) != out[0].size(0):
+                raise ValueError(f"hyp_confidence has {_conf.size(0)} rows, "
+                                 f"model produced {out[0].size(0)} suppliers")
+            return (out[0] * _conf, out[1], out[2])
+        conf_hook = model.transformer2.register_forward_hook(_scale)
 
     best_state, best_auc, best_epoch = None, -1.0, -1
     history, since_best = [], 0
@@ -267,6 +297,9 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
 
     if hook is not None:
         hook.remove()
+    # The confidence hook is deliberately LEFT ATTACHED: it is part of this arm's forward
+    # pass, not a training-time instrument, so the returned model must keep it or every
+    # downstream evaluation would silently score the plain-T2 arm instead.
     epochs_run = len(history)
     # Checkpoint selection is by validation TASK AUC, which is the right rule for every
     # AUC number this project reports but is orthogonal to -- and can be in tension with
@@ -307,6 +340,10 @@ def train_model(architecture: str, train_bundles, val_bundles, num_layers: int =
                 "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac") else None,
             "rung5c_lr_mult": rung5c_lr_mult if architecture in (
                 "rgcn_attn_rung5_c", "rgcn_attn_rung5_ac") else None,
+            "hyp_confidence": (None if conf_hook is None else {
+                "n": int(hyp_confidence.numel()),
+                "mean": float(hyp_confidence.mean()), "min": float(hyp_confidence.min()),
+                "max": float(hyp_confidence.max())}),
             "contrastive": (None if contrastive is None else {
                 "weight": con_w, "temperature": con_temp, "warmup_epochs": con_warmup,
                 "dropout_free_forward": con_dropout_free,

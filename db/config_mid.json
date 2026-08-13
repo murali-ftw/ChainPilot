@@ -1,0 +1,7 @@
+{
+  "sup_n": 2000,
+  "snapshots": 15,
+  "t_end_override": "2025-09-30T23:00",
+  "shortage_sample_rate": 1.0,
+  "delay_sample_rate": 1.0
+}
