@@ -59,6 +59,17 @@ db/csv_v1scale/
 # reports/layer3_testing.md section 2.2.
 db/csv_mid/
 
+# V3 schema-enrichment builds (`--enrich`): the v1-preset worlds re-emitted with
+# db/enrich_schema.py's Carrier/Port/Route/replenishment tables added. Same
+# argument as every other build above -- deterministically regenerable, ~18 s per
+# variant-seed with
+#   python3 db/generate_dataset.py --variant 0 --seed <s> --config v1 --enrich
+# and db/verify_enriched.py asserts the 20 pre-existing tables come out
+# BYTE-IDENTICAL to a non-enriched build, so the enriched directory is a strict,
+# reproducible superset rather than a distinct artifact. 212 MB for the five
+# seeds; see reports/new_nodes_result.md section 1.
+db/csv_v3enriched/
+
 # ML harness working files: the snapshot-assembly cache (large, derived) and the
 # training results. Results JSONs carry the raw test predictions so paired
 # comparisons can be recomputed without retraining -- useful, but megabytes per
@@ -71,6 +82,12 @@ out/
 # even when nothing else changed, and a full sweep produces 60 of them. To
 # preserve the manifest of a *published* run, copy that one file into docs/ --
 # a deliberate archival act rather than incidental tracking.
+
+# Ad-hoc transfer/scratch archives at the repo root. Not produced by any script
+# in this repository and not reproducible from it, so they are working files
+# rather than artifacts -- currently ~1.1 GB of them. Anchored to the root so a
+# legitimately named file deeper in the tree is unaffected.
+/_tmp_*
 
 # Database dumps and backups
 # Defensive: V2 has no reports/backups/ directory and calls no pg_dump today, but

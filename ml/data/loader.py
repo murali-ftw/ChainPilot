@@ -53,6 +53,9 @@ from torch_geometric.data import HeteroData
 from torch_geometric.transforms import ToUndirected
 
 FEATURE_SPEC_VERSION = "v2"
+# Bumped only for enriched builds, so a V2 directory keeps hitting its existing cache
+# entry and an enriched one can never be served from it.
+FEATURE_SPEC_VERSION_V3 = "v3enriched"
 
 SHIPMENT_STATUSES = ["scheduled", "in_transit", "delivered", "delayed"]
 CUSTOMER_TIERS = ["strategic", "standard", "low"]
@@ -60,6 +63,38 @@ ORDER_STATUSES = ["open", "fulfilled", "cancelled", "at_risk"]
 
 NODE_TYPES = ["Supplier", "Component", "Product", "Factory", "Warehouse",
               "Shipment", "Order", "Customer"]
+
+# V3 schema enrichment (`db/enrich_schema.py`). Present only when the world was generated
+# with `--enrich`; a V2 directory has none of these files and takes every pre-existing code
+# path below unchanged, so this module still returns bit-identical bundles for every world
+# every earlier result was trained on. `VariantDataset.enriched` records which case applies.
+V3_NODE_TYPES = ["Carrier", "Port", "Route"]
+
+# Which shape the V3 Carrier information takes in the built graph. All three read BYTE-IDENTICAL
+# CSVs -- a `(carrier, lane)` node is a regrouping of two already-emitted columns
+# (`shipment_routes.carrier_id` x `shipment_routes.route_id`) and needs no new simulation data --
+# so a comparison across them isolates graph SHAPE and nothing else.
+#
+#   "full"         `Shipment -HANDLED_BY-> Carrier`, 5 carrier nodes. The shape
+#                  `reports/new_nodes_result.md` trained on and found unstable: mean in-degree
+#                  grows to ~7,100, i.e. one carrier node averages a quarter of every shipment
+#                  in the world under a single per-destination softmax.
+#   "no_carrier"   the relation AND the `Carrier` node type dropped entirely. A CONTROL, not a
+#                  candidate: `HANDLED_BY` is the only relation touching `Carrier`, so removing
+#                  it would orphan the node type anyway.
+#   "carrier_lane" `Shipment -HANDLED_BY-> CarrierLane`, one node per OBSERVED (carrier, lane)
+#                  pair. Same fact, same features, spread over ~300 small nodes instead of 5
+#                  huge ones. This is the fix.
+V3_SCHEMAS = ("full", "no_carrier", "carrier_lane")
+V3_TABLES = ("carriers", "ports", "routes", "route_ports", "shipment_routes",
+             "route_dependencies", "product_replenishment", "warehouse_customers",
+             "carrier_temporal_features", "route_conditions", "port_congestion_history",
+             "warehouse_role_features")
+PORT_TYPES = ["sea", "inland"]
+REGIONS = ["AMER", "APAC", "EMEA"]
+TRANSPORT_MODES = ["sea", "land"]
+PORT_ROLES = ["origin", "transit", "destination"]
+DEPENDS_CHANNELS = ["port", "trucking", "customs"]
 
 TASK_ENTITY_TYPE = {"delay": "Shipment", "shortage": "Product", "impact": "Supplier"}
 TASK_CSV_ENTITY = {"delay": "shipment", "shortage": "product", "impact": "supplier"}
@@ -157,9 +192,12 @@ class VariantDataset:
     """Every table of one variant-seed, read once, plus the derived as-of
     machinery each snapshot needs. Build snapshots with `bundles()`."""
 
-    def __init__(self, path_dir: str, asof_clock: str = "recorded"):
+    def __init__(self, path_dir: str, asof_clock: str = "recorded", v3_schema: str = "full"):
         if asof_clock not in ("recorded", "changed"):
             raise ValueError("asof_clock must be 'recorded' or 'changed'")
+        if v3_schema not in V3_SCHEMAS:
+            raise ValueError(f"v3_schema must be one of {V3_SCHEMAS}")
+        self.v3_schema = v3_schema
         self.dir = path_dir
         self.asof_clock = asof_clock
         with open(os.path.join(path_dir, "resolved_config.json")) as fh:
@@ -215,6 +253,7 @@ class VariantDataset:
                             usecols=["snapshot_id", "entity_type", "entity_id", "task",
                                      "label", "event_at", "warehouse_id"],
                             parse_dates=("event_at",))
+        self._read_v3_tables()
         self._prepare_inventory_history()
         self._prepare_status_history()
         self._prepare_static_features()
@@ -226,6 +265,297 @@ class VariantDataset:
             "Warehouse": {v: i for i, v in enumerate(self.warehouses["id"])},
             "Customer": {v: i for i, v in enumerate(self.customers["id"])},
         }
+        if self.enriched:
+            self._id_maps_static.update({
+                "Port": {v: i for i, v in enumerate(self.ports["id"])},
+                "Route": {v: i for i, v in enumerate(self.routes["id"])},
+            })
+            if self.v3_schema == "full":
+                self._id_maps_static["Carrier"] = {
+                    v: i for i, v in enumerate(self.carriers["id"])}
+            elif self.v3_schema == "carrier_lane":
+                self._id_maps_static["CarrierLane"] = {
+                    v: i for i, v in enumerate(self.carrier_lanes["id"])}
+
+    # -- V3 schema enrichment ---------------------------------------------
+
+    def _read_v3_tables(self) -> None:
+        """Read `db/enrich_schema.py`'s tables if this world has them.
+
+        `self.enriched` is False for every V2 directory, and every V3 code path below is
+        guarded on it, so a pre-enrichment world produces exactly the bundles it always did.
+        The check is on `carriers.csv.gz` specifically rather than on any of the twelve,
+        because a partial enrichment is a broken build and should fail loudly at feature
+        assembly rather than silently emit a graph missing one relation.
+        """
+        self.enriched = os.path.exists(os.path.join(self.dir, "carriers.csv.gz"))
+        if not self.enriched:
+            return
+        self.carriers = _read(self.dir, "carriers",
+                              usecols=["id", "name", "mode", "shipment_count_total",
+                                       "lane_count", "inbound_share"])
+        self.ports = _read(self.dir, "ports",
+                           usecols=["id", "location", "country", "region", "port_type",
+                                    "is_sea_gateway"])
+        self.routes = _read(self.dir, "routes",
+                            usecols=["id", "origin_location", "destination_location", "mode",
+                                     "typical_transit_days", "distance_km",
+                                     "shipment_count_total", "is_cross_region"])
+        self.route_ports = _read(self.dir, "route_ports",
+                                 usecols=["route_id", "port_id", "role", "sequence"])
+        self.shipment_routes = _read(self.dir, "shipment_routes",
+                                     usecols=["shipment_id", "route_id", "carrier_id",
+                                              "created_at"], parse_dates=("created_at",))
+        self.route_deps = _read(self.dir, "route_dependencies",
+                                usecols=["route_id", "depends_on_route_id", "channel",
+                                         "group_size"])
+        self.replenish = _read(self.dir, "product_replenishment",
+                               usecols=["product_id", "warehouse_id", "shipment_id",
+                                        "ordered_at", "eta", "closed_at", "recorded_at"],
+                               parse_dates=("ordered_at", "eta", "closed_at", "recorded_at"))
+        self.wh_customers = _read(self.dir, "warehouse_customers",
+                                  usecols=["warehouse_id", "customer_id", "order_count",
+                                           "first_seen_at"], parse_dates=("first_seen_at",))
+        self.ctf = _read(self.dir, "carrier_temporal_features",
+                         usecols=["carrier_id", "as_of_date", "on_time_rate_30d",
+                                  "on_time_rate_90d", "on_time_rate_180d", "trend_slope",
+                                  "transit_variance_30d", "days_since_last_late",
+                                  "shipment_count_180d", "active_shipments", "recorded_at"],
+                         parse_dates=("as_of_date", "recorded_at"))
+        self.route_cond = _read(self.dir, "route_conditions",
+                                usecols=["route_id", "as_of_date", "on_time_rate_30d",
+                                         "on_time_rate_90d", "transit_days_mean_30d",
+                                         "transit_days_var_30d", "volume_30d",
+                                         "condition_index", "recorded_at"],
+                                parse_dates=("as_of_date", "recorded_at"))
+        self.port_cong = _read(self.dir, "port_congestion_history",
+                               usecols=["port_id", "as_of_date", "congestion_index",
+                                        "dwell_days_mean", "arrivals_30d", "late_rate_30d",
+                                        "transit_days_mean_30d", "recorded_at"],
+                               parse_dates=("as_of_date", "recorded_at"))
+        self.wh_roles = _read(self.dir, "warehouse_role_features",
+                              usecols=["warehouse_id", "as_of_date", "inbound_share",
+                                       "inbound_30d", "outbound_30d", "open_inbound",
+                                       "open_outbound", "recorded_at"],
+                              parse_dates=("as_of_date", "recorded_at"))
+        # Carrier name -> node id: `shipments.carrier` is a NAME, not an id, so the
+        # HANDLED_BY edge has to go through this map.
+        self.carrier_by_name = dict(zip(self.carriers["name"], self.carriers["id"]))
+        if self.v3_schema == "carrier_lane":
+            self._build_carrier_lanes()
+
+    def _build_carrier_lanes(self) -> None:
+        """One node per OBSERVED `(carrier, lane)` pair, replacing the 5 `Carrier` nodes.
+
+        **No information is added and none is removed.** The bucket is a regrouping of two
+        columns `shipment_routes` already carries, `carrier_id` and `route_id`; a shipment that
+        mapped to carrier `c` now maps to the single node `(c, its lane)`, and `lane_parent`
+        below recovers `c` from that node exactly. `VariantDataset.assert_carrier_recoverable()`
+        checks that on every shipment rather than leaving it as a claim.
+
+        **Features are the PARENT CARRIER'S, copied down unchanged** -- deliberately, not for
+        convenience. Recomputing on-time rates per `(carrier, lane)` would make each bucket
+        strictly more informative than the carrier node it replaces, and any improvement could
+        then be a better feature rather than a smaller fan-in. Copying keeps the feature content
+        byte-identical to the `full` schema so that graph SHAPE is the only thing that varies.
+        """
+        sr = self.shipment_routes
+        pairs = sr[["carrier_id", "route_id"]].drop_duplicates()
+        pairs = pairs.sort_values(["carrier_id", "route_id"], kind="stable").reset_index(drop=True)
+        pairs["id"] = pairs["carrier_id"] + "|" + pairs["route_id"]
+        self.carrier_lanes = pairs
+        self.lane_parent = dict(zip(pairs["id"], pairs["carrier_id"]))
+        # shipment -> its (carrier, lane) node, precomputed once for every snapshot to reuse.
+        self.ship_lane = dict(zip(sr["shipment_id"], sr["carrier_id"] + "|" + sr["route_id"]))
+
+    def assert_carrier_recoverable(self) -> dict:
+        """Every shipment's true carrier is still exactly recoverable from its bucket node.
+
+        This is the claim the fix rests on -- "re-granularize, do not remove information" -- so
+        it is asserted over every shipment, not sampled. Returns a small summary for reporting.
+        """
+        if self.v3_schema != "carrier_lane":
+            raise RuntimeError("only meaningful for v3_schema='carrier_lane'")
+        name_by_id = dict(zip(self.carriers["id"], self.carriers["name"]))
+        n = 0
+        for sid, carrier_name in zip(self.shipments["id"], self.shipments["carrier"]):
+            node = self.ship_lane.get(sid)
+            if node is None:                 # shipment with no warehouse leg carries no lane
+                continue
+            if name_by_id[self.lane_parent[node]] != carrier_name:
+                raise AssertionError(f"carrier not recoverable for shipment {sid}")
+            n += 1
+        return {"shipments_checked": n,
+                "carrier_lane_nodes": int(len(self.carrier_lanes)),
+                "parent_carriers": int(self.carrier_lanes["carrier_id"].nunique())}
+
+    def _carrier_lane_features(self, t0: pd.Timestamp) -> pd.DataFrame:
+        """Each bucket carries its parent carrier's feature row, unchanged -- see
+        `_build_carrier_lanes` for why this is a copy rather than a per-lane recomputation."""
+        car = self._carrier_features(t0).rename(columns={"entity_id": "carrier_id"})
+        out = self.carrier_lanes[["id", "carrier_id"]].merge(car, on="carrier_id", how="left")
+        return out.drop(columns=["carrier_id"]).rename(columns={"id": "entity_id"})
+
+    def _asof_latest(self, df: pd.DataFrame, key: str, t0: pd.Timestamp,
+                     drop=("as_of_date", "recorded_at")) -> pd.DataFrame:
+        """Latest row per `key` whose observation AND report time are both <= t0.
+
+        Two masks, not one. `as_of_date <= t0` alone would hand the model a row that had not
+        been reported yet, which is precisely the information Mechanism G exists to withhold;
+        `_latest_inventory()` applies the same pair of masks for the same reason.
+        """
+        if df.empty:
+            return pd.DataFrame({"entity_id": []})
+        sub = df[(df["as_of_date"] <= t0) & (df["recorded_at"] <= t0)]
+        sub = (sub.sort_values([key, "as_of_date"], kind="stable")
+               .groupby(key, as_index=False).tail(1)
+               .rename(columns={key: "entity_id"})
+               .drop(columns=[c for c in drop if c in sub.columns]))
+        return sub
+
+    def _carrier_features(self, t0: pd.Timestamp) -> pd.DataFrame:
+        base = self.carriers[["id", "shipment_count_total", "lane_count",
+                              "inbound_share"]].rename(columns={"id": "entity_id"}).copy()
+        base["shipment_count_total"] = _zscore(base["shipment_count_total"].astype(float))
+        base["lane_count"] = _zscore(base["lane_count"].astype(float))
+        base = pd.concat([base, _one_hot(self.carriers["mode"], TRANSPORT_MODES, "mode")], axis=1)
+        return base.merge(self._asof_latest(self.ctf, "carrier_id", t0), on="entity_id", how="left")
+
+    def _port_features(self, t0: pd.Timestamp) -> pd.DataFrame:
+        base = self.ports[["id"]].rename(columns={"id": "entity_id"}).copy()
+        base["is_sea_gateway"] = (self.ports["is_sea_gateway"].astype(str) == "True").astype(float)
+        base = pd.concat([base,
+                          _one_hot(self.ports["port_type"], PORT_TYPES, "port_type"),
+                          _one_hot(self.ports["region"], REGIONS, "region")], axis=1)
+        return base.merge(self._asof_latest(self.port_cong, "port_id", t0), on="entity_id", how="left")
+
+    def _route_features(self, t0: pd.Timestamp) -> pd.DataFrame:
+        base = self.routes[["id"]].rename(columns={"id": "entity_id"}).copy()
+        base["typical_transit_days_z"] = _zscore(self.routes["typical_transit_days"].astype(float))
+        base["distance_km_z"] = _zscore(self.routes["distance_km"].astype(float))
+        base["shipment_count_z"] = _zscore(self.routes["shipment_count_total"].astype(float))
+        base["is_cross_region"] = (self.routes["is_cross_region"].astype(str) == "True").astype(float)
+        base = pd.concat([base, _one_hot(self.routes["mode"], TRANSPORT_MODES, "mode")], axis=1)
+        return base.merge(self._asof_latest(self.route_cond, "route_id", t0), on="entity_id", how="left")
+
+    def _warehouse_features_v3(self, t0: pd.Timestamp) -> pd.DataFrame:
+        """The V2 warehouse vector, plus its per-role traffic as of t0.
+
+        This is the "split Warehouse by role" request, implemented as features + two distinct
+        RELATIONS rather than as two node types -- every warehouse in this world plays both
+        roles at a near-identical mix (inbound share 0.42-0.43 across all eight), so a hard
+        node split would invent a partition the world does not have. `db/verify_enriched.py`
+        reports the measured spread that decision rests on. Warehouse is not a task entity,
+        so nothing here touches any task's P(Y|X) arm.
+        """
+        roles = self._asof_latest(self.wh_roles, "warehouse_id", t0)
+        return self.warehouse_features.merge(roles, on="entity_id", how="left")
+
+    def _v3_edges(self, t0: pd.Timestamp, id_maps: dict, pack, latest_inv: pd.DataFrame) -> dict:
+        """Every relation `db/enrich_schema.py` adds. `pack` is `_edges`'s own packer, passed
+        in so id-mapping, the drop-unmapped rule and edge_attr handling are literally the same
+        code the V2 relations go through."""
+        e = {}
+        ships = self.shipments[self.shipments["created_at"] <= t0]
+        live = set(ships["id"])
+
+        # HANDLED_BY / MOVES_ON: one row per shipment, gated on the shipment existing at t0.
+        sr = self.shipment_routes[self.shipment_routes["created_at"] <= t0]
+        sr = sr[sr["shipment_id"].isin(live)]
+        if not sr.empty:
+            # The one relation the three schemas disagree about. `MOVES_ON`, `PASSES_THROUGH`
+            # and every other V3 relation are identical in all three -- this fix targets
+            # Carrier only, because Port (19 nodes, in-degree 13) showed no comparable
+            # concentration and Route (112 nodes) is already an order of magnitude finer.
+            if self.v3_schema == "full":
+                e[("Shipment", "HANDLED_BY", "Carrier")] = pack(
+                    sr["shipment_id"].to_numpy(), sr["carrier_id"].to_numpy(),
+                    "Shipment", "Carrier")
+            elif self.v3_schema == "carrier_lane":
+                e[("Shipment", "HANDLED_BY", "CarrierLane")] = pack(
+                    sr["shipment_id"].to_numpy(),
+                    (sr["carrier_id"] + "|" + sr["route_id"]).to_numpy(),
+                    "Shipment", "CarrierLane")
+            # v3_schema == "no_carrier": neither emitted, and the node type is dropped below.
+            e[("Shipment", "MOVES_ON", "Route")] = pack(
+                sr["shipment_id"].to_numpy(), sr["route_id"].to_numpy(), "Shipment", "Route")
+
+        # PASSES_THROUGH: static lane topology, carrying the port's role and position.
+        rp = self.route_ports
+        if not rp.empty:
+            attrs = np.column_stack([
+                _one_hot(rp["role"], PORT_ROLES, "role").to_numpy(dtype=float),
+                rp["sequence"].to_numpy(dtype=float).reshape(-1, 1)])
+            e[("Route", "PASSES_THROUGH", "Port")] = pack(
+                rp["route_id"].to_numpy(), rp["port_id"].to_numpy(), "Route", "Port", attrs)
+
+        # DEPENDS_ON: the observable-infrastructure coupling that replaces the scalar hidden
+        # factors. Route-level; a shipment inherits it in one hop through MOVES_ON.
+        rd = self.route_deps
+        if not rd.empty:
+            attrs = np.column_stack([
+                _one_hot(rd["channel"], DEPENDS_CHANNELS, "channel").to_numpy(dtype=float),
+                rd["group_size"].to_numpy(dtype=float).reshape(-1, 1)])
+            e[("Route", "DEPENDS_ON", "Route")] = pack(
+                rd["route_id"].to_numpy(), rd["depends_on_route_id"].to_numpy(),
+                "Route", "Route", attrs)
+
+        # ORIGINATES_FROM: instance-level supplier link. Structurally this duplicates the
+        # existing SHIPS_FROM, but it carries what SHIPS_FROM never did -- this shipment's own
+        # lead-time position at t0, rather than the supplier's aggregated reliability history.
+        has_sup = ships[ships["supplier_id"].notna()]
+        if not has_sup.empty:
+            days_to_eta = ((has_sup["eta"] - t0).dt.total_seconds() / 86400).to_numpy()
+            since = ((t0 - has_sup["dispatched_at"]).dt.total_seconds() / 86400).to_numpy()
+            attrs = np.column_stack([days_to_eta,
+                                     np.where(has_sup["dispatched_at"] <= t0, since, 0.0),
+                                     (has_sup["dispatched_at"] <= t0).to_numpy(dtype=float)])
+            e[("Shipment", "ORIGINATES_FROM", "Supplier")] = pack(
+                has_sup["id"].to_numpy(), has_sup["supplier_id"].to_numpy(),
+                "Shipment", "Supplier", np.nan_to_num(attrs))
+
+        # The warehouse role split, as two relations partitioning the inbound/outbound traffic
+        # the single SHIPS_TO relation previously merged.
+        inb = ships[ships["supplier_id"].notna() & ships["warehouse_id"].notna()]
+        if not inb.empty:
+            e[("Shipment", "REPLENISHES", "Warehouse")] = pack(
+                inb["id"].to_numpy(), inb["warehouse_id"].to_numpy(), "Shipment", "Warehouse")
+        outb = ships[ships["supplier_id"].isna() & ships["warehouse_id"].notna()]
+        if not outb.empty:
+            e[("Shipment", "DELIVERS_TO", "Warehouse")] = pack(
+                outb["id"].to_numpy(), outb["warehouse_id"].to_numpy(), "Shipment", "Warehouse")
+
+        # REPLENISHED_BY -- the edge this whole experiment exists to test for `shortage`.
+        # "Current" means: ordered and REPORTED by t0, and not yet reported delivered. The
+        # latest such row per (product, warehouse) pair is that pair's live inbound resupply.
+        rep = self.replenish
+        if not rep.empty:
+            open_now = rep[(rep["ordered_at"] <= t0) & (rep["recorded_at"] <= t0)
+                           & (rep["closed_at"].isna() | (rep["closed_at"] > t0))]
+            open_now = (open_now.sort_values(["product_id", "warehouse_id", "ordered_at"],
+                                             kind="stable")
+                        .groupby(["product_id", "warehouse_id"], as_index=False).tail(1))
+            open_now = open_now[open_now["shipment_id"].isin(live)]
+            if not open_now.empty:
+                # Warehouse identity travels on the edge: the Product node is shared across
+                # that product's warehouses (`ml/models/heads.py` documents the coarsening),
+                # so without this the model could not tell two pairs' resupplies apart.
+                wh_idx = open_now["warehouse_id"].map(id_maps["Warehouse"]).fillna(-1)
+                attrs = np.column_stack([
+                    ((open_now["eta"] - t0).dt.total_seconds() / 86400).to_numpy(),
+                    ((t0 - open_now["ordered_at"]).dt.total_seconds() / 86400).to_numpy(),
+                    wh_idx.to_numpy(dtype=float)])
+                e[("Product", "REPLENISHED_BY", "Shipment")] = pack(
+                    open_now["product_id"].to_numpy(), open_now["shipment_id"].to_numpy(),
+                    "Product", "Shipment", np.nan_to_num(attrs))
+
+        # FULFILLS: warehouse -> customer, live once the first order between them was placed.
+        wc = self.wh_customers[self.wh_customers["first_seen_at"] <= t0]
+        if not wc.empty:
+            e[("Warehouse", "FULFILLS", "Customer")] = pack(
+                wc["warehouse_id"].to_numpy(), wc["customer_id"].to_numpy(),
+                "Warehouse", "Customer", wc[["order_count"]].astype(float).to_numpy())
+        return e
 
     # -- as-of preparation ------------------------------------------------
 
@@ -447,6 +777,12 @@ class VariantDataset:
                 e[("Supplier", "UPSTREAM_OF", "Supplier")] = pack(
                     act["upstream_supplier_id"].to_numpy(), act["supplier_id"].to_numpy(),
                     "Supplier", "Supplier")
+
+        # V3: strictly appended, so the enriched graph is a SUPERSET of the V2 graph -- every
+        # relation above is present and unchanged, which is what makes the old-vs-new
+        # comparison a test of what was added rather than of what was swapped.
+        if self.enriched:
+            e.update(self._v3_edges(t0, id_maps, pack, latest_inv))
         return e
 
     # -- assembly ----------------------------------------------------------
@@ -467,12 +803,31 @@ class VariantDataset:
             "Order": self._order_features(t0),
             "Customer": self.customer_features,
         }
+        node_types = list(NODE_TYPES)
+        if self.enriched:
+            # Warehouse picks up its per-role traffic columns; the three new node types are
+            # appended. No task entity's feature vector changes, so every task's P(Y|X)
+            # features-only arm is bit-identical to the pre-enrichment one.
+            frames["Warehouse"] = self._warehouse_features_v3(t0)
+            frames["Port"] = self._port_features(t0)
+            frames["Route"] = self._route_features(t0)
+            node_types += ["Port", "Route"]
+            if self.v3_schema == "full":
+                frames["Carrier"] = self._carrier_features(t0)
+                node_types.append("Carrier")
+            elif self.v3_schema == "carrier_lane":
+                frames["CarrierLane"] = self._carrier_lane_features(t0)
+                node_types.append("CarrierLane")
+            # "no_carrier" drops the node type as well as the relation: HANDLED_BY is the only
+            # relation touching Carrier, so keeping the type would leave it orphaned, and an
+            # isolated node type still costs the encoder a per-type input projection.
+
         id_maps = dict(self._id_maps_static)
         id_maps["Shipment"] = {v: i for i, v in enumerate(frames["Shipment"]["entity_id"])}
         id_maps["Order"] = {v: i for i, v in enumerate(frames["Order"]["entity_id"])}
 
         data = HeteroData()
-        for nt in NODE_TYPES:
+        for nt in node_types:
             data[nt].x = self._tensor(frames[nt])
             # Row index -> entity id, so a per-node diagnostic can join model output back
             # to the world that produced it (gate-disagreement analysis needs this; V1's
@@ -517,7 +872,8 @@ class SnapshotBundle:
 
 
 def load_bundles(path_dir: str, cache_dir: str | None = None, asof_clock: str = "recorded",
-                 verbose: bool = False) -> tuple[list[SnapshotBundle], dict]:
+                 verbose: bool = False, v3_schema: str = "full"
+                 ) -> tuple[list[SnapshotBundle], dict]:
     """Every snapshot of one variant-seed, as bundles, plus its resolved config.
 
     Assembly is the expensive part (minutes at spec scale) and is identical for
@@ -530,14 +886,23 @@ def load_bundles(path_dir: str, cache_dir: str | None = None, asof_clock: str = 
     # alone silently serves one configuration's bundles for the other's request. The
     # parent directory disambiguates them (db/csv_v1scale vs db/csv_mid vs db/csv).
     abs_dir = os.path.abspath(path_dir.rstrip("/"))
+    # An enriched world must never be served from a V2 cache entry (or vice versa): the two
+    # produce different node and relation sets from the same directory name.
+    enriched = os.path.exists(os.path.join(abs_dir, "carriers.csv.gz"))
+    spec = FEATURE_SPEC_VERSION_V3 if enriched else FEATURE_SPEC_VERSION
+    # The Carrier schema changes the node and relation sets built from the SAME directory, so it
+    # has to be part of the key. "full" is left out of the string so every entry cached before
+    # the schema switch existed still hits.
+    if enriched and v3_schema != "full":
+        spec = f"{spec}-{v3_schema}"
     key = (f"{os.path.basename(os.path.dirname(abs_dir))}__{os.path.basename(abs_dir)}_"
-           f"{FEATURE_SPEC_VERSION}_{asof_clock}_ids.pt")
+           f"{spec}_{asof_clock}_ids.pt")
     cache_path = os.path.join(cache_dir, key) if cache_dir else None
     if cache_path and os.path.exists(cache_path):
         blob = torch.load(cache_path, weights_only=False)
         return blob["bundles"], blob["manifest"]
 
-    ds = VariantDataset(path_dir, asof_clock=asof_clock)
+    ds = VariantDataset(path_dir, asof_clock=asof_clock, v3_schema=v3_schema)
     bundles = []
     for row in ds.snapshots.itertuples():
         data, id_maps = ds.build_snapshot(row.t0)

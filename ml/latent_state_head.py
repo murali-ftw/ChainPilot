@@ -230,10 +230,17 @@ def assert_backbone_frozen(model, head=None, optimizer=None) -> None:
 
 
 def train_head(Xtr, ytr, Xte, yte, init_seed: int, epochs: int = 120,
-               lr: float = 1e-3, model=None) -> float | None:
-    """Train one head at one init seed; return test AUC (None if a class is degenerate)."""
+               lr: float = 1e-3, model=None, return_preds: bool = False):
+    """Train one head at one init seed; return test AUC (None if a class is degenerate).
+
+    `return_preds=True` returns `(auc, p_test)` instead of `auc` alone -- the same training
+    run, nothing about it changed, just the probabilities handed back as well so a caller can
+    compute saturation diagnostics on the very predictions the reported AUC was scored on
+    (`ml/layer3_h0_diagnostic.py`). The default keeps the original scalar return, so every
+    existing caller is byte-for-byte unaffected.
+    """
     if len(np.unique(ytr)) < 2 or len(np.unique(yte)) < 2:
-        return None
+        return (None, None) if return_preds else None
     torch.manual_seed(init_seed)
     np.random.seed(init_seed)
 
@@ -262,7 +269,8 @@ def train_head(Xtr, ytr, Xte, yte, init_seed: int, epochs: int = 120,
         p = torch.sigmoid(head(xte)).numpy()
     if model is not None:
         assert_backbone_frozen(model, head=head, optimizer=opt)
-    return roc_auc(p, yte.astype(bool))
+    auc = roc_auc(p, yte.astype(bool))
+    return (auc, p) if return_preds else auc
 
 
 # ---------------------------------------------------------------------------

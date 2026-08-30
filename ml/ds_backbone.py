@@ -40,15 +40,21 @@ CFG = dict(hidden=128, num_bases=10)          # SHARE's matched-parameter budget
 EPOCHS = 100                                   # V1/V2 standard for this arm
 
 
-def ckpt_path(csv_dir: str, variant: str, dseed: int, mseed: int, epochs: int) -> str:
+def ckpt_path(csv_dir: str, variant: str, dseed: int, mseed: int, epochs: int,
+              v3_schema: str = "full") -> str:
     tag = f"{os.path.basename(csv_dir)}_v{variant}_d{dseed}_m{mseed}_e{epochs}"
+    # A non-default Carrier schema builds a different graph from the same directory and must
+    # not share a checkpoint with it. "full" adds no suffix, so every checkpoint trained before
+    # this parameter existed keeps its exact path.
+    if v3_schema != "full":
+        tag += f"_{v3_schema}"
     return os.path.join(CKPT_DIR, tag + ".pt")
 
 
-def load_world(csv_dir: str, device: str = "cpu"):
+def load_world(csv_dir: str, device: str = "cpu", v3_schema: str = "full"):
     """Snapshot bundles for one world, temporally split 40/20/40 -- the existing loader,
     the existing split, no changes."""
-    bundles, _ = load_bundles(csv_dir, cache_dir=CACHE_DIR)
+    bundles, _ = load_bundles(csv_dir, cache_dir=CACHE_DIR, v3_schema=v3_schema)
     tr, va, te = split_bundles(bundles)
     ref = bundles[0].data["Supplier"].node_id
     for b in bundles:
@@ -58,7 +64,8 @@ def load_world(csv_dir: str, device: str = "cpu"):
 
 
 def get_backbone(csv_dir: str, variant: str, dseed: int, mseed: int = 0,
-                 epochs: int = EPOCHS, device: str = "cpu", verbose: bool = True):
+                 epochs: int = EPOCHS, device: str = "cpu", verbose: bool = True,
+                 v3_schema: str = "full"):
     """Train-or-load one frozen backbone. Returns `(model, meta)`.
 
     Caching is by `(csv_dir, variant, dataset seed, model seed, epochs)`. Training is
@@ -67,8 +74,8 @@ def get_backbone(csv_dir: str, variant: str, dseed: int, mseed: int = 0,
     them.
     """
     os.makedirs(CKPT_DIR, exist_ok=True)
-    path = ckpt_path(csv_dir, variant, dseed, mseed, epochs)
-    tr, va, te, sup_ids = load_world(csv_dir, device)
+    path = ckpt_path(csv_dir, variant, dseed, mseed, epochs, v3_schema)
+    tr, va, te, sup_ids = load_world(csv_dir, device, v3_schema)
 
     if os.path.exists(path):
         blob = torch.load(path, map_location=device, weights_only=False)
@@ -85,6 +92,7 @@ def get_backbone(csv_dir: str, variant: str, dseed: int, mseed: int = 0,
         model = r["model"]
         meta = {"arch": ARCH, "variant": variant, "dataset_seed": dseed,
                 "model_seed": mseed, "epochs": epochs, "device": device,
+                "v3_schema": v3_schema,
                 "seconds": time.time() - t0, "params": model.parameter_count(),
                 "best_val_auc": r["best_val_auc"], "best_epoch": r["best_epoch"],
                 "auc": _test_auc(model, te)}

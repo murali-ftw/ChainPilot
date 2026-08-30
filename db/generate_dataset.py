@@ -175,6 +175,11 @@ def resolve_config(argv=None):
                          % "/".join(PRESETS))
     ap.add_argument("--out-dir", default="",
                     help="output directory (default: csv/<variant>_seed<seed>)")
+    # V3 schema enrichment (db/enrich_schema.py). Off by default: with the flag absent this
+    # generator emits exactly the tables every existing result was produced from, and the
+    # enriched build is a strictly additive superset rather than a replacement.
+    ap.add_argument("--enrich", action="store_true",
+                    help="additionally emit the V3 Carrier/Port/Route/replenishment tables")
     args = ap.parse_args(argv)
 
     overrides = dict(PRESETS.get(args.config, {}))
@@ -199,10 +204,10 @@ def resolve_config(argv=None):
                  f"phase(s) {sorted({MECHANISM_PHASE[m] for m in missing})}. "
                  f"Implemented so far: {sorted(IMPLEMENTED_PHASES) or 'none'}. Refusing to emit a "
                  f"dataset that would silently be Variant 0 under another name.")
-    return cfg, args.variant, mechs, args.out_dir
+    return cfg, args.variant, mechs, args.out_dir, args.enrich
 
 
-CFG, VARIANT, MECHS, _OUT_ARG = resolve_config()
+CFG, VARIANT, MECHS, _OUT_ARG, ENRICH = resolve_config()
 random.seed(CFG.seed)
 def J(t, spread=2700):
     """Sub-hour jitter (0..spread seconds, default <=45min) for OBSERVED/RECORDED event
@@ -1119,6 +1124,7 @@ inv_hist = []                          # observation rows
 shortage_events = {}                   # (prod,wh) -> [datetime of first sub-threshold obs per episode]
 arrivals = {}                          # (prod,wh) -> list[(when, qty)]
 pending = {}                           # (prod,wh) -> eta of open replenishment
+REPLENISH_LINKS = []                   # V3: (prod,wh) -> the inbound shipment resupplying it
 
 # outbound: one fulfilment shipment for ~80% of orders
 whs_by_prod = {}                       # product -> [warehouse ids], in inv_pairs order (same list random.choice saw before)
@@ -1249,6 +1255,17 @@ while week <= T_END:
             srow = sup_by_id[sup]
             got, _ = new_shipment(ship_idx, "in", J(week), sup=sup, wh=ip["warehouse_id"],
                                   origin=srow["country"], sea_ok=srow["sea"]); ship_idx += 1
+            # V3 schema enrichment: record WHICH (product, warehouse) pair this inbound
+            # shipment is replenishing. The simulation has always known this -- it is the
+            # loop variable -- but `shipments` carries only `warehouse_id`, so the link
+            # from a stock position to its own inbound resupply was unrecoverable from the
+            # emitted tables. That missing link is the `REPLENISHED_BY` edge.
+            #
+            # Consumes NO RNG draw and changes NO control flow: it appends to a list on a
+            # path that already ran. `shipments[-1]` is the row `new_shipment` just wrote.
+            # Byte-identity of every pre-existing table is asserted in db/verify_enriched.py.
+            REPLENISH_LINKS.append(dict(product_id=key[0], warehouse_id=key[1],
+                                        shipment_id=shipments[-1]["id"], ordered_at=week))
             eta_guess = week + timedelta(days=srow["lead_time_days"] + 2)
             when_in = got if got else eta_guess + timedelta(days=14)
             _qty = ip["thr"] * random.uniform(2.0, 2.8)
@@ -1478,16 +1495,49 @@ write("order_items.csv", ["id","order_id","product_id","quantity","created_at"],
 write("shipments.csv", ["id","supplier_id","factory_id","warehouse_id","order_id","carrier","status","eta","dispatched_at","delivered_at","origin_location","created_at","updated_at"],
       [[s["id"], s["supplier_id"], s["factory_id"], s["warehouse_id"], s["order_id"], s["carrier"], s["status"],
         fmt(s["eta"]), fmt(s["dispatched_at"]), fmt(s["delivered_at"]) if s["delivered_at"] else "", s["origin_location"], fmt(s["created_at"]), GJ()] for s in shipments])
+# The reported-delivery clock, materialised rather than left inline. The emitted
+# `recorded_at` is `max(rec, at + 5-45min write jitter)`, and on a variant without Mechanism G
+# (`report_delay()` returns 0, so `rec == at`) the jitter is the WHOLE of the gap. The V3
+# enrichment computes every as-of window against this clock, so it has to be the clock a
+# consumer of the CSVs actually sees -- reading the in-memory `rec` instead would make each
+# delivery visible up to 45 minutes early, on every row.
+#
+# Identical RNG consumption to the list comprehension this replaces: one `randint` per
+# transition, same iteration order, so every emitted table stays byte-identical.
+_SSH_ROWS, DELIVERED_REC = [], {}
+for (sid, stat, prev, at, rec) in transitions:
+    _r = max(rec, at + timedelta(minutes=random.randint(5, 45)))
+    if stat == "delivered":
+        DELIVERED_REC[sid] = _r
+    _SSH_ROWS.append([uid("sst", sid, stat, fmt(at)), sid, stat, prev, fmt(at), fmt(_r),
+                      "carrier_feed"])
 write("shipment_status_history.csv", ["id","shipment_id","status","previous_status","changed_at","recorded_at","source"],
-      [[uid("sst", sid, stat, fmt(at)), sid, stat, prev, fmt(at),
-        fmt(max(rec, at + timedelta(minutes=random.randint(5, 45)))), "carrier_feed"]
-       for (sid, stat, prev, at, rec) in transitions])
+      _SSH_ROWS)
 write("supplier_temporal_features.csv", ["id","supplier_id","as_of_date","on_time_rate_30d","on_time_rate_90d","on_time_rate_180d","trend_slope","lateness_variance","days_since_last_late","shipment_count_180d","computed_at","feature_spec_version"], stf_rows)
 write("carrier_performance_snapshots.csv", ["id","carrier","origin_location","destination_location","as_of_date","on_time_rate_90d","shipment_count_90d","computed_at"], carrier_rows)
 write("graph_snapshots.csv", ["id","t0","horizon_days","node_counts","edge_counts","label_counts","feature_spec_version","git_commit","construction_seconds","created_at"], snap_rows)
 write("training_labels.csv", ["id","snapshot_id","entity_type","entity_id","task","label","event_at","label_source","warehouse_id"], label_rows)
 write("risk_scores.csv", ["id","entity_type","entity_id","delay_probability","shortage_risk","impact_score","confidence","risk_category","scoring_method","model_version","snapshot_t0","horizon_days","scored_at"],
       [r for r in risk_rows if r[1] != "supplier" or r[2] in VISIBLE_SUP])
+
+# ---------------------------------------------------------------- V3 schema enrichment
+# Strictly additive, and deliberately placed AFTER every write above: no table emitted before
+# this point can be affected by it, and `db/enrich_schema.py` draws from its own RNG rather
+# than the simulation's stream, so `--enrich` cannot perturb the world it describes.
+# `db/verify_enriched.py` asserts that byte-for-byte.
+_ENRICH_COUNTS = {}
+if ENRICH:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from enrich_schema import emit as _emit_v3
+    _ENRICH_COUNTS = _emit_v3(
+        write=write, uid=uid, fmt=fmt, rng_seed=CFG.seed,
+        shipments=shipments, warehouses=warehouses, factories=factories,
+        suppliers=suppliers, customers=customers, orders=orders, order_items=order_items,
+        sup_by_id=sup_by_id, replenish_links=REPLENISH_LINKS,
+        delivered_rec=DELIVERED_REC,
+        carriers=CARRIERS, sea_carriers=SEA,
+        t_start=T_START, t_end=T_END, report_delay=report_delay)
+    print("V3 enrichment: " + "  ".join(f"{k}={v:,}" for k, v in _ENRICH_COUNTS.items()))
 
 # ---------------------------------------------------------------- resolved config
 # Every generated dataset is self-describing: the full resolved configuration is
@@ -1510,6 +1560,7 @@ _manifest = {
         "snapshot_count": len(T0S), "scale": SCALE,
     },
     "config": dataclasses.asdict(CFG),
+    "schema_enrichment": {"enabled": bool(ENRICH), "row_counts": _ENRICH_COUNTS},
     "label_counts": {
         t: {"n": sum(1 for r in label_rows if r[4] == t),
             "positives": sum(1 for r in label_rows if r[4] == t and r[5] == "true")}
