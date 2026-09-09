@@ -1,0 +1,50 @@
+loading gen_v6/seed_1001/
+  cpw 8,598,520  labels 992,142  channels 16,072
+
+=== FILL RATE (entity: po_line) ===
+  rows train 263,985 val 32,000 test 36,000
+    G2  global mean fill (empirical CDF)   crps=0.0633  mae=0.1198
+    G2  per-channel historical mean        crps=0.0616  mae=0.1079
+    G2  last observed value                crps=0.1055  mae=0.1101
+    G3  LightGBM tabular (no graph)        crps=0.0598  mae=0.1347
+    G4  h0 features only                   crps=0.0598
+    G4  h1 one hop                         crps=0.0593
+    G4  h4 four layers                     crps=0.0594
+
+=== ARRIVAL TIMING (entity: po_line) ===
+  rows train 263,985 val 32,000 test 36,000   censored 43.0%
+    G2  per-lane median lead time          cindex=0.5227  mae_obs=2.1611
+    G2  per-channel median                 cindex=0.5573  mae_obs=2.2551
+    G2  global median                      cindex=0.5000  mae_obs=2.1350
+    G3  LightGBM tabular (no graph)        cindex=0.6444  mae_obs=2.0385
+    G4  h0 features only                   cindex=0.6444
+    G4  h1 one hop                         cindex=0.6439
+    G4  h4 four layers                     cindex=0.6440
+
+=== PART SHORTAGE (entity: part_plant) ===
+  label rows 45,942; zero-valued rows 0; LABEL TABLE IS POSITIVE-ONLY: True
+  shortage positives derived from simulation state: 49,634 part-plant-snapshots
+  reconstructed universe 350,841 part-plant-snapshots, base rate 0.1415
+  rows train 277,989 val 33,696 test 37,908   positive rate 0.2073
+    G2  marginal base rate                 pr_auc=0.2073  brier=0.1698
+    G2  per-part-plant historical rate     pr_auc=0.5517  brier=0.1328
+    G3  LightGBM tabular (no graph)        pr_auc=0.5457  brier=0.1347
+    G4  h0 features only                   pr_auc=0.5457
+    G4  h1 one hop                         pr_auc=0.5400
+    G4  h4 four layers                     pr_auc=0.5385
+    G2  median log-qty (positives only)    mae=1.2770  pinball90=0.7009
+    G3  LightGBM log-qty (positives only)  mae=1.1187  pinball90=0.5886
+
+=== DEMAND DRIFT (entity: product_plant) ===
+    G2  naive seasonal (same week last year) mae=0.2136  pinball90=0.1045
+    G2  last value                         mae=0.1892  pinball90=0.0936
+    G2  global mean                        mae=0.1533  pinball90=0.0754
+    G3  LightGBM tabular (no graph)        mae=0.0986  pinball90=0.0532
+
+=== TOP FEATURE IMPORTANCES (leak check) ===
+  fill_rate: load_ratio=10.4%, si=10.3%, pi=9.3%, reporting_lag_days=8.9%, transport_distance_km=8.9%
+  arrival_week: load_ratio=10.0%, lead_time_actual_days=9.8%, lead_time_ratio=8.4%, reporting_lag_days=8.1%, contracted_lead_time_days=7.4%
+  shortage_qty: lead_time_ratio_mean=7.0%, lead_time_actual_days_mean=7.0%, load_ratio_mean=7.0%, lead_time_ratio_min=6.4%, lead_time_actual_days_min=6.4%
+  demand_drift: seasonal_naive=24.5%, woy=24.2%, last_value=23.6%, kc=22.9%, month=4.8%
+
+written -> /private/tmp/claude-501/-Users-muralik-Documents-Programs-HADES-v4/82aa9a46-b618-4962-a325-cadb52a32fb8/scratchpad/lrn_gen_v6_seed_1001.json

@@ -1,0 +1,678 @@
+
+====================================================================================================
+  EXTERNAL DATASET VALIDATION -- /Users/muralik/Documents/Programs/HADES_v4/db
+  spec: db/dataset_structure.md (columns)  +  db/schema.sql (types, nullability, FKs, enums)
+====================================================================================================
+
+TIER 1 -- structural conformance
+
+  TABLES
+    [----] extra tables (informational)                                         0   n/a           
+           no file under the root is outside the spec
+    [warn] duplicate table files                                                1   0             
+           inventory_transactions:
+           /Users/muralik/Documents/Programs/HADES_v4/db/outcomes/inventory_transactions.csv and
+           /Users/muralik/Documents/Programs/HADES_v4/db/inventory/inventory_transactions.csv
+    [ok ] all spec tables present                                          49/49   49/49         
+           every table named in the file index has a file
+    [FAIL] structurally clean tables                                        29/49   49/49         
+           clean = no missing column, no forbidden column, no type or enum violation, no NOT NULL
+           breach, no duplicate PK, no orphan FK
+
+  PER-TABLE
+    [ok ] alternate_sources                                           6,000 rows   clean         
+           conforms
+    [FAIL] asn                                                     1,077,077 rows   clean         
+           1 NOT NULL column(s) with nulls
+    [ok ] bom                                                        40,000 rows   clean         
+           conforms
+    [ok ] business_units                                                  5 rows   clean         
+           conforms
+    [FAIL] calendar                                                   25,536 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] channel_performance_weekly                              5,866,280 rows   clean         
+           PK: 165,014 duplicate, 0 null; (warning) ack_gap_ratio x5,218,852 over declared width,
+           fill_rate x537,832 over declared width, fill_rate_last13 x3,216,477 over declared
+           width
+    [ok ] customers                                                      60 rows   clean         
+           conforms
+    [FAIL] dataset_coverage                                               49 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] expedite_events                                            13,394 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] goods_receipts                                          1,077,077 rows   clean         
+           1 missing column(s)
+    [FAIL] grn_lines                                               1,077,077 rows   clean         
+           1 FK column(s) with orphans
+    [FAIL] inventory_position_weekly                               2,190,000 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] inventory_snapshots                                     2,190,332 rows   clean         
+           PK: 332 duplicate, 0 null
+    [ok ] inventory_transactions                                  1,000,000 rows   clean         
+           conforms
+    [FAIL] line_stop_events                                              142 rows   clean         
+           1 column(s) with type/enum violations
+    [ok ] logistics_lanes                                             2,000 rows   clean         
+           conforms
+    [ok ] model_outputs                                               1,000 rows   clean         
+           conforms
+    [ok ] part_costs                                                 12,000 rows   clean         
+           conforms
+    [ok ] part_demand_weekly                                      2,190,000 rows   clean         
+           conforms
+    [ok ] part_plant                                                  6,000 rows   clean         
+           conforms
+    [ok ] parts                                                       7,000 rows   clean         
+           conforms
+    [FAIL] plan_drift_features                                        80,000 rows   clean         
+           PK: 27,500 duplicate, 0 null; (warning) drift_ratio x70,127 over declared width,
+           plan_volatility x70,127 over declared width
+    [ok ] plants                                                          7 rows   clean         
+           conforms
+    [ok ] po_line_revisions                                          97,114 rows   clean         
+           conforms
+    [ok ] po_line_schedules                                       1,215,186 rows   clean         
+           conforms
+    [ok ] po_lines                                                  900,000 rows   clean         
+           conforms
+    [ok ] product_economics                                           2,500 rows   clean         
+           conforms
+    [FAIL] production_actual                                          30,000 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] production_plan                                            30,000 rows   clean         
+           2 column(s) with type/enum violations
+    [ok ] products                                                    2,500 rows   clean         
+           conforms
+    [ok ] purchase_orders                                           900,000 rows   clean         
+           conforms
+    [ok ] quality_inspections                                     1,077,077 rows   clean         
+           conforms
+    [ok ] revealed_capacity_monthly                               1,288,056 rows   clean         
+           conforms
+    [FAIL] shortage_events                                            13,394 rows   clean         
+           1 column(s) with type/enum violations
+    [warn] snapshots                                                   1,200 rows   clean         
+           (warning) code_commit x1,200 over declared width
+    [ok ] sourcing_channels                                          16,072 rows   clean         
+           conforms
+    [FAIL] supplier_acknowledgements                                 900,000 rows   clean         
+           1 column(s) with type/enum violations
+    [ok ] supplier_allocation                                        15,334 rows   clean         
+           conforms
+    [FAIL] supplier_audits                                             5,000 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] supplier_capacity                                       1,288,056 rows   clean         
+           1 column(s) with type/enum violations
+    [ok ] supplier_contracts                                         12,000 rows   clean         
+           conforms
+    [ok ] supplier_financials                                         5,250 rows   clean         
+           conforms
+    [warn] supplier_performance_weekly                               273,750 rows   clean         
+           (warning) fill_rate x269,977 over declared width, fill_rate_last13 x269,977 over
+           declared width, fill_rate_last4 x269,977 over declared width
+    [ok ] supplier_quality_ppm                                       84,000 rows   clean         
+           conforms
+    [ok ] supplier_sites                                                750 rows   clean         
+           conforms
+    [FAIL] supplier_upstream                                             250 rows   clean         
+           1 column(s) with type/enum violations
+    [FAIL] suppliers                                                     750 rows   clean         
+           1 column(s) with type/enum violations
+    [ok ] tooling                                                     5,000 rows   clean         
+           conforms
+    [FAIL] training_labels                                             6,000 rows   clean         
+           1 column(s) with type/enum violations; (warning) label_value x4,735 over declared
+           width
+
+  TABLES
+    [warn] declared-width breaches (warning)                           5 table(s)   0             
+           values that parse correctly but exceed the declared DECIMAL precision/scale or VARCHAR
+           length. Reported, not fatal: nothing downstream mis-reads them
+
+TIER 2 -- the as-of and leakage contract
+
+  GATING
+    [skip] asn: cleared Tier 1                                                 no                 
+           failed Tier 1 (1 NOT NULL column(s) with nulls) -- its Tier 2/3 checks below run on a
+           schema already known to be wrong and their results are advisory, not evidence
+    [skip] calendar: cleared Tier 1                                            no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] channel_performance_weekly: cleared Tier 1                          no                 
+           failed Tier 1 (PK: 165,014 duplicate, 0 null; (warning) ack_gap_ratio x5,218,852 over
+           declared width, fill_rate x537,832 over declared width, fill_rate_last13 x3,216,477
+           over declared width) -- its Tier 2/3 checks below run on a schema already known to be
+           wrong and their results are advisory, not evidence
+    [skip] dataset_coverage: cleared Tier 1                                    no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] expedite_events: cleared Tier 1                                     no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] goods_receipts: cleared Tier 1                                      no                 
+           failed Tier 1 (1 missing column(s)) -- its Tier 2/3 checks below run on a schema
+           already known to be wrong and their results are advisory, not evidence
+    [skip] grn_lines: cleared Tier 1                                           no                 
+           failed Tier 1 (1 FK column(s) with orphans) -- its Tier 2/3 checks below run on a
+           schema already known to be wrong and their results are advisory, not evidence
+    [skip] inventory_position_weekly: cleared Tier 1                           no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] inventory_snapshots: cleared Tier 1                                 no                 
+           failed Tier 1 (PK: 332 duplicate, 0 null) -- its Tier 2/3 checks below run on a schema
+           already known to be wrong and their results are advisory, not evidence
+    [skip] line_stop_events: cleared Tier 1                                    no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] plan_drift_features: cleared Tier 1                                 no                 
+           failed Tier 1 (PK: 27,500 duplicate, 0 null; (warning) drift_ratio x70,127 over
+           declared width, plan_volatility x70,127 over declared width) -- its Tier 2/3 checks
+           below run on a schema already known to be wrong and their results are advisory, not
+           evidence
+    [skip] production_actual: cleared Tier 1                                   no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] production_plan: cleared Tier 1                                     no                 
+           failed Tier 1 (2 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] shortage_events: cleared Tier 1                                     no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] supplier_acknowledgements: cleared Tier 1                           no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] supplier_audits: cleared Tier 1                                     no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] supplier_capacity: cleared Tier 1                                   no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] supplier_upstream: cleared Tier 1                                   no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] suppliers: cleared Tier 1                                           no                 
+           failed Tier 1 (1 column(s) with type/enum violations) -- its Tier 2/3 checks below run
+           on a schema already known to be wrong and their results are advisory, not evidence
+    [skip] training_labels: cleared Tier 1                                     no                 
+           failed Tier 1 (1 column(s) with type/enum violations; (warning) label_value x4,735
+           over declared width) -- its Tier 2/3 checks below run on a schema already known to be
+           wrong and their results are advisory, not evidence
+
+  AS-OF
+    [FAIL] asn: two timestamps differ                                        0.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.00d, P90 0.12d, max 3.38d, lag sd/|mean| 1.745 over 1,077,076 rows
+    [ok ] asn: lag is not constant                               sd/|mean|=1.745   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] asn: recorded_ts >= event                                            0   0             
+           no row is recorded before it happened
+    [ok ] expedite_events: two timestamps differ                           39.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           2.12d, P90 7.96d, max 88.61d, lag sd/|mean| 1.302 over 13,394 rows
+    [ok ] expedite_events: lag is not constant                   sd/|mean|=1.302   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [FAIL] expedite_events: recorded_ts >= event                              297   0             
+           row 9: event_ts=2019-08-22 09:00:00 > recorded_ts=2019-08-22 04:35:50; row 84:
+           event_ts=2019-09-22 09:00:00 > recorded_ts=2019-09-22 05:20:01; row 127:
+           event_ts=2019-03-04 09:00:00 > recorded_ts=2019-03-04 06:51:12
+    [ok ] goods_receipts: two timestamps differ                            14.6%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           1.00d, P90 3.37d, max 75.06d, lag sd/|mean| 1.208 over 1,077,077 rows
+    [ok ] goods_receipts: lag is not constant                    sd/|mean|=1.208   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] goods_receipts: recorded_ts >= event                                 0   0             
+           no row is recorded before it happened
+    [ok ] grn_lines: two timestamps differ                                 14.6%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           1.00d, P90 3.37d, max 75.06d, lag sd/|mean| 1.208 over 1,077,077 rows
+    [ok ] grn_lines: lag is not constant                         sd/|mean|=1.208   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] grn_lines: recorded_ts >= event                                      0   0             
+           no row is recorded before it happened
+    [skip] inventory_position_weekly: two timestamps differ       no event column                 
+           recorded_ts present but no event_ts / created_ts / released_ts / dispatch_ts /
+           receipt_ts to compare it against -- not gated
+    [FAIL] inventory_snapshots: two timestamps differ                        0.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.00d, P90 0.00d, max 0.00d, lag sd/|mean| 0.000 over 2,190,332 rows
+    [FAIL] inventory_snapshots: lag is not constant               sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] inventory_snapshots: recorded_ts >= event                            0   0             
+           no row is recorded before it happened
+    [ok ] inventory_transactions: two timestamps differ                    20.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           3.04d, P90 3.04d, max 3.04d, lag sd/|mean| 0.000 over 1,000,000 rows
+    [FAIL] inventory_transactions: lag is not constant            sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] inventory_transactions: recorded_ts >= event                         0   0             
+           no row is recorded before it happened
+    [ok ] line_stop_events: two timestamps differ                          39.4%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           2.56d, P90 9.80d, max 38.63d, lag sd/|mean| 1.318 over 142 rows
+    [ok ] line_stop_events: lag is not constant                  sd/|mean|=1.318   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [FAIL] line_stop_events: recorded_ts >= event                               2   0             
+           row 29: event_ts=2020-01-30 08:00:00 > recorded_ts=2020-01-30 07:36:28; row 129:
+           event_ts=2019-12-11 08:00:00 > recorded_ts=2019-12-11 03:24:06
+    [skip] plan_drift_features: two timestamps differ             no event column                 
+           recorded_ts present but no event_ts / created_ts / released_ts / dispatch_ts /
+           receipt_ts to compare it against -- not gated
+    [FAIL] po_line_revisions: two timestamps differ                          0.1%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.04d, P90 0.25d, max 3.58d, lag sd/|mean| 1.452 over 97,114 rows
+    [ok ] po_line_revisions: lag is not constant                 sd/|mean|=1.452   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] po_line_revisions: recorded_ts >= event                              0   0             
+           no row is recorded before it happened
+    [----] po_line_schedules: two timestamps differ                         14.3%   exempt        
+           system-generated: a schedule release IS the recorded action
+           (config.SYSTEM_GENERATED_TABLES). P50 1.00d, P90 1.00d, max 1.00d, lag sd/|mean| 0.000
+           over 1,215,186 rows
+    [ok ] po_line_schedules: recorded_ts >= event                              0   0             
+           no row is recorded before it happened
+    [FAIL] po_lines: two timestamps differ                                   0.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.04d, P90 0.21d, max 4.33d, lag sd/|mean| 1.540 over 900,000 rows
+    [ok ] po_lines: lag is not constant                          sd/|mean|=1.540   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] po_lines: recorded_ts >= event                                       0   0             
+           no row is recorded before it happened
+    [ok ] production_actual: two timestamps differ                         27.5%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           2.00d, P90 2.00d, max 2.00d, lag sd/|mean| 0.000 over 30,000 rows
+    [FAIL] production_actual: lag is not constant                 sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] production_actual: recorded_ts >= event                              0   0             
+           no row is recorded before it happened
+    [ok ] production_plan: two timestamps differ                           13.3%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           1.00d, P90 1.00d, max 1.00d, lag sd/|mean| 0.000 over 30,000 rows
+    [FAIL] production_plan: lag is not constant                   sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] production_plan: recorded_ts >= event                                0   0             
+           no row is recorded before it happened
+    [FAIL] purchase_orders: two timestamps differ                            0.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.04d, P90 0.21d, max 4.33d, lag sd/|mean| 1.540 over 900,000 rows
+    [ok ] purchase_orders: lag is not constant                   sd/|mean|=1.540   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] purchase_orders: recorded_ts >= event                                0   0             
+           no row is recorded before it happened
+    [ok ] quality_inspections: two timestamps differ                       23.6%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           1.50d, P90 5.06d, max 130.99d, lag sd/|mean| 1.205 over 1,077,077 rows
+    [ok ] quality_inspections: lag is not constant               sd/|mean|=1.205   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] quality_inspections: recorded_ts >= event                            0   0             
+           no row is recorded before it happened
+    [ok ] shortage_events: two timestamps differ                           38.7%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           2.16d, P90 8.02d, max 116.45d, lag sd/|mean| 1.319 over 13,394 rows
+    [ok ] shortage_events: lag is not constant                   sd/|mean|=1.319   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [FAIL] shortage_events: recorded_ts >= event                              180   0             
+           row 3: event_ts=2019-04-14 07:00:00 > recorded_ts=2019-04-14 06:45:36; row 83:
+           event_ts=2019-07-29 07:00:00 > recorded_ts=2019-07-29 05:57:47; row 188:
+           event_ts=2019-04-22 07:00:00 > recorded_ts=2019-04-22 06:37:29
+    [FAIL] supplier_acknowledgements: two timestamps differ                  0.1%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           0.08d, P90 0.25d, max 11.67d, lag sd/|mean| 1.450 over 900,000 rows
+    [ok ] supplier_acknowledgements: lag is not constant         sd/|mean|=1.450   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] supplier_acknowledgements: recorded_ts >= event                      0   0             
+           no row is recorded before it happened
+    [FAIL] supplier_allocation: two timestamps differ                        0.0%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           4.00d, P90 4.00d, max 4.00d, lag sd/|mean| 0.000 over 15,334 rows
+    [FAIL] supplier_allocation: lag is not constant               sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [----] supplier_allocation: recorded_ts >= event                            0   n/a           
+           not gated: the anchor is `effective_from`, a forward-dated validity-window start. A
+           capacity figure or an allocation split is agreed and entered before it takes effect,
+           so recorded_ts < effective_from is normal, not an inversion
+    [ok ] supplier_audits: two timestamps differ                            2.4%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           -150.00d, P90 -29.00d, max 2.00d, lag sd/|mean| 0.638 over 5,000 rows
+    [ok ] supplier_audits: lag is not constant                   sd/|mean|=0.638   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [FAIL] supplier_audits: recorded_ts >= event                            4,584   0             
+           row 1: audit_date=2020-02-01 > recorded_ts=2020-01-03 00:00:00; row 2:
+           audit_date=2021-03-01 > recorded_ts=2021-01-03 00:00:00; row 3: audit_date=2022-04-01
+           > recorded_ts=2022-01-03 00:00:00
+    [ok ] supplier_capacity: two timestamps differ                         27.4%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           2.00d, P90 2.00d, max 2.00d, lag sd/|mean| 0.000 over 1,288,056 rows
+    [FAIL] supplier_capacity: lag is not constant                 sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [----] supplier_capacity: recorded_ts >= event                              0   n/a           
+           not gated: the anchor is `effective_from`, a forward-dated validity-window start. A
+           capacity figure or an allocation split is agreed and entered before it takes effect,
+           so recorded_ts < effective_from is normal, not an inversion
+    [ok ] supplier_quality_ppm: two timestamps differ                      57.1%   >= 2%         
+           share of rows whose recorded_ts falls in a LATER WEEK than the event. At 0 the dataset
+           has no as-of structure and will train a model that cannot exist in production. P50
+           4.00d, P90 4.00d, max 4.00d, lag sd/|mean| 0.000 over 84,000 rows
+    [FAIL] supplier_quality_ppm: lag is not constant              sd/|mean|=0.000   >= 0.1        
+           a fixed lag (every row exactly +1 day) preserves event-time ordering exactly and
+           teaches a delay that does not exist
+    [ok ] supplier_quality_ppm: recorded_ts >= event                           0   0             
+           no row is recorded before it happened
+
+  CONSERVATION
+    [FAIL] channel store conserves ordered units               127,761,134 vs 113,893,014   exact         
+           source 113,893,014 vs emitted 127,761,134 (+12.1764%). A shortfall means rows are
+           being dropped; a surplus means they are double-counted. Span 2019-01-07 to 2025-12-29,
+           channels in master only, both sides filtered identically
+    [FAIL] channel store conserves received units              122,774,945 vs 118,923,111   exact         
+           source 118,923,111 vs emitted 122,774,945 (+3.2389%). A shortfall means rows are being
+           dropped; a surplus means they are double-counted. Span 2019-01-07 to 2025-12-29,
+           channels in master only, both sides filtered identically
+    [FAIL] derived store buckets on visible week                          neither   max(event,recorded)
+           on 256,262 channel-weeks where the two rules disagree: visible-week 12.3%, event-week
+           10.8%, neither 76.9%. Bucketing on the event week contradicts the store's own as-of
+           gate and makes every late-recorded row invisible at training time
+    [FAIL] supplier store conserves ordered units              129,998,532 vs 113,893,014   exact         
+           source 113,893,014 vs emitted 129,998,532 (+14.1409%). Rolling channels onto their
+           supplier must not lose or duplicate a unit either. Span 2019-01-07 to 2025-12-29
+    [FAIL] supplier store conserves received units             124,926,841 vs 118,923,111   exact         
+           source 118,923,111 vs emitted 124,926,841 (+5.0484%). Rolling channels onto their
+           supplier must not lose or duplicate a unit either. Span 2019-01-07 to 2025-12-29
+    [FAIL] part_demand_weekly horizon_days identity            2,190,000/2,190,000   0             
+           the spec defines horizon_days as the distance from as_of_date. row 1:
+           week_start-as_of_date=0 but horizon_days=90; row 2: week_start-as_of_date=0 but
+           horizon_days=90; row 3: week_start-as_of_date=0 but horizon_days=90
+    [ok ] part_demand_weekly p90 >= p50                              0/2,190,000   0             
+           a conservative case below the median is not a quantile pair
+    [FAIL] part_demand_weekly is strictly forward-looking      2,190,000/2,190,000   0             
+           a demand row for a week at or before its own as_of_date is not a forecast, it is a
+           reading of the past dressed as one
+    [----] part_demand_weekly unit conservation                      not asserted   n/a           
+           deliberately not gated: the store is a BOM explosion scaled by a drift quantile,
+           rounded, and thresholded at 0.5 units, so it is not unit-preserving by construction. A
+           tolerance band around it could not fail and was left out rather than written loose
+
+  LABELS
+    [ok ] label window opens after the snapshot                                0   0             
+           label_window_start must be strictly greater than snapshot_date -- the whole separation
+           between feature and label
+    [FAIL] arrival_timing: something is censored                             0.0%   1%-60%        
+           at exactly 0.0% nothing is being withheld and observability is untested; near 1.0
+           almost nothing is observed. n=1,200 uncensored=1,200 mean=53.7211 sd=21.1325
+           distinct=1,200
+    [ok ] arrival_timing: uncensored target varies            sd/|mean|=0.3934 over 1,200 values   > 0.01 and >= 5
+           the threshold is RELATIVE because the defect this catches had sd ~1e-5 across three
+           values all within 0.0007 of 1.0. n=1,200 uncensored=1,200 mean=53.7211 sd=21.1325
+           distinct=1,200
+    [ok ] arrival_timing: target is not a uniform random draw D=0.1160 p=1.47e-14   p < 0.01      
+           one-sample KS against Uniform(0,1) over 1,200 uncensored values rescaled to their
+           observed support [8.3740, 102.0749]. Failing means uniformity CANNOT be rejected: the
+           label carries no signal a model could learn. Rescaling means shifting the range is not
+           a fix
+    [FAIL] capacity_strain: something is censored                            0.0%   1%-60%        
+           at exactly 0.0% nothing is being withheld and observability is untested; near 1.0
+           almost nothing is observed. n=1,200 uncensored=1,200 mean=0.4442 sd=0.1880
+           distinct=1,196
+    [ok ] capacity_strain: uncensored target varies           sd/|mean|=0.4231 over 1,196 values   > 0.01 and >= 5
+           the threshold is RELATIVE because the defect this catches had sd ~1e-5 across three
+           values all within 0.0007 of 1.0. n=1,200 uncensored=1,200 mean=0.4442 sd=0.1880
+           distinct=1,196
+    [ok ] capacity_strain: target is not a uniform random drawD=0.2727 p=1.74e-78   p < 0.01      
+           one-sample KS against Uniform(0,1) over 1,200 uncensored values rescaled to their
+           observed support [0.0000, 1.0779]. Failing means uniformity CANNOT be rejected: the
+           label carries no signal a model could learn. Rescaling means shifting the range is not
+           a fix
+    [ok ] capacity_strain: entity_type matches the spec            0/1,200 wrong   0             
+           the spec's task table binds `capacity_strain` to entity `channel`. Seen: channel=1,200
+    [FAIL] demand_drift: something is censored                               0.0%   1%-60%        
+           at exactly 0.0% nothing is being withheld and observability is untested; near 1.0
+           almost nothing is observed. n=1,200 uncensored=1,200 mean=0.0885 sd=0.2253
+           distinct=1,199
+    [ok ] demand_drift: uncensored target varies              sd/|mean|=2.5456 over 1,199 values   > 0.01 and >= 5
+           the threshold is RELATIVE because the defect this catches had sd ~1e-5 across three
+           values all within 0.0007 of 1.0. n=1,200 uncensored=1,200 mean=0.0885 sd=0.2253
+           distinct=1,199
+    [ok ] demand_drift: target is not a uniform random draw   D=0.1145 p=3.54e-14   p < 0.01      
+           one-sample KS against Uniform(0,1) over 1,200 uncensored values rescaled to their
+           observed support [-0.4149, 0.5773]. Failing means uniformity CANNOT be rejected: the
+           label carries no signal a model could learn. Rescaling means shifting the range is not
+           a fix
+    [FAIL] demand_drift: entity_type matches the spec           1,200/1,200 wrong   0             
+           the spec's task table binds `demand_drift` to entity `product_plant`. Seen:
+           channel=1,200
+    [FAIL] fill_rate: something is censored                                  0.0%   1%-60%        
+           at exactly 0.0% nothing is being withheld and observability is untested; near 1.0
+           almost nothing is observed. n=1,200 uncensored=1,200 mean=0.7445 sd=0.1011
+           distinct=1,191
+    [ok ] fill_rate: uncensored target varies                 sd/|mean|=0.1358 over 1,191 values   > 0.01 and >= 5
+           the threshold is RELATIVE because the defect this catches had sd ~1e-5 across three
+           values all within 0.0007 of 1.0. n=1,200 uncensored=1,200 mean=0.7445 sd=0.1011
+           distinct=1,191
+    [ok ] fill_rate: target is not a uniform random draw      D=0.2542 p=2.93e-68   p < 0.01      
+           one-sample KS against Uniform(0,1) over 1,200 uncensored values rescaled to their
+           observed support [0.4116, 1.0000]. Failing means uniformity CANNOT be rejected: the
+           label carries no signal a model could learn. Rescaling means shifting the range is not
+           a fix
+    [FAIL] fill_rate: entity_type matches the spec              1,200/1,200 wrong   0             
+           the spec's task table binds `fill_rate` to entity `po_line`. Seen: channel=1,200
+    [FAIL] shortage_qty: something is censored                               0.0%   1%-60%        
+           at exactly 0.0% nothing is being withheld and observability is untested; near 1.0
+           almost nothing is observed. n=1,200 uncensored=1,200 mean=34.1000 sd=45.6367
+           distinct=151
+    [ok ] shortage_qty: uncensored target varies              sd/|mean|=1.3383 over 151 values   > 0.01 and >= 5
+           the threshold is RELATIVE because the defect this catches had sd ~1e-5 across three
+           values all within 0.0007 of 1.0. n=1,200 uncensored=1,200 mean=34.1000 sd=45.6367
+           distinct=151
+    [ok ] shortage_qty: target is not a uniform random draw         D=0.5558 p=0   p < 0.01      
+           one-sample KS against Uniform(0,1) over 1,200 uncensored values rescaled to their
+           observed support [0.0000, 200.0000]. Failing means uniformity CANNOT be rejected: the
+           label carries no signal a model could learn. Rescaling means shifting the range is not
+           a fix
+    [FAIL] shortage_qty: entity_type matches the spec           1,200/1,200 wrong   0             
+           the spec's task table binds `shortage_qty` to entity `part_plant`. Seen: channel=1,200
+    [ok ] entity_id resolves for entity_type=channel          0/1,200 unresolved   0             
+           every id resolves into sourcing_channels
+
+  SEPARATION
+    [ok ] channel_performance_weekly: no forward-looking column              none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] inventory_position_weekly: no forward-looking column              none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] part_demand_weekly: no forward-looking column                     none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] plan_drift_features: no forward-looking column                    none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] revealed_capacity_monthly: no forward-looking column              none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] supplier_performance_weekly: no forward-looking column              none   none          
+           a column that could only be known after the snapshot's as_of_ts is a prediction, and a
+           model that reads it trains on its own output
+    [ok ] model_outputs disjoint from feature tables          0 table(s) overlap   0             
+           no prediction-bearing column name appears on both sides (join keys and timestamps
+           excluded)
+
+  SNAPSHOTS
+    [ok ] snapshots: as_of_ts <= data_cutoff_ts                          0/1,200   0             
+           no row recorded after the cutoff may enter the snapshot
+    [ok ] snapshots: five version fields populated              0 field(s) blank   0             
+           the five identifiers are what make a training run reproducible. absent from the file:
+           model_version
+    [ok ] snapshots: code_commit is consistent                        1 distinct   1             
+           most common: 'f8975f6872afbbbedd8ccd28de2565e04498a34d'. One extract, one pipeline
+           commit
+    [ok ] snapshots: horizon_days matches the labels           labels reach +30d   snapshot 30d  
+           snapshot horizons [30]; no label may look further forward than the snapshot's own
+           horizon
+
+TIER 3 -- distributional adequacy
+
+  SHAPE
+    [FAIL] PO lines with fill < 1.0                                         43.9%   8%-15%        
+           Below ~3% the fill-rate head has nothing to learn. gated on 837,380 normal-regime
+           lines of 837,380; all regimes 43.9%
+    [FAIL] PO lines arriving late                                           61.9%   15%-25%       
+           Lateness is the arrival-timing head's signal. gated on 837,380 normal-regime lines of
+           837,380; all regimes 61.9%
+    [FAIL] fill-rate mass at exactly 1.0                                    56.1%   >= 60%        
+           a continuous haircut would put every line just below 1 -- the signature of a naively
+           generated set
+    [FAIL] fill-rate mass at exactly 0                                       0.0%   1%-3%         
+           total delivery failure is rare but real; at 0 the fill distribution has no lower point
+           mass
+    [FAIL] right-censored tail is the right size                            0.23x   0.3-1.2x      
+           38,248 lines (4.37%) promised inside the last 90 days of a 479-day span. Span alone
+           implies 18.79%. Normalised so the check is scale-invariant across a 3-year and a
+           15-year world
+    [FAIL] supplier-months constrained                                      49.0%   20%-30%       
+           The only months carrying capacity evidence -- measured on months with activity; empty
+           months are not evidence
+    [FAIL] capacity unobservable                                            51.0%   >= 70%        
+           delivered = min(K, ordered): unconstrained months carry no information about K at all
+    [FAIL] lead-time distribution is right-skewed                           +0.30   >= 0.5        
+           median 41d, P90 68d, P99 86d. A Gaussian lead time is a generator artefact, not a
+           supply chain
+    [FAIL] shortage events per year                                       10213.3   180-250       
+           1,500 recorded events over 7 years at 7 plants; scaled to this dataset's 7 plants.
+           13,394 events over 1.3 years (13,394 of them normal-regime)
+    [FAIL] line stops per year                                              108.3   15-25         
+           Matches Rane's stated 18/year at 7 plants; scaled to this dataset's 7 plants. 142
+           events over 1.3 years (142 of them normal-regime)
+    [FAIL] expedites per year                                             10213.3   100-150       
+           Matches their stated 120/year at 7 plants; scaled to this dataset's 7 plants. 13,394
+           events over 1.3 years (13,394 of them normal-regime)
+    [ok ] month-of-year seasonality in demand                  1.45x peak/trough   > 1.10        
+           source production_actual; peak month 3, trough 9. Indian auto has very strong calendar
+           effects; a flat year is a generator that forgot them
+
+  DENSITY
+    [ok ] zero-order channel-weeks                                         82.1%   60%-99%       
+           4,818,880 of 5,866,280 channel-weeks have qty_ordered = 0. Our `full` world is 90.1%.
+           A store far denser is not modelling a procurement calendar, it is emitting a row per
+           week whether or not anything was bought
+    [ok ] weekly store is a panel                                         100.0%   >= 90%        
+           share of the 15,621 channels whose store rows are an unbroken run of 7-day steps. A
+           rolling window cannot be computed over a scattered sample of channel-weeks; median 376
+           rows per channel
+    [----] staleness since last trade                          P50 28d / P90 77d / max 441d   reported      
+           days since the channel last ordered, measured on zero-order weeks. Reported, not
+           gated: the right band depends on the channel mix and any threshold here would be one
+           that cannot fail
+    [ok ] PO lines per channel per year                                    39.73   >= 3.0        
+           837,380 lines over 16,072 channels and 1.3 years. Below this a channel holds too few
+           observations for the temporal encoder to read a trajectory
+    [----] training rows per snapshot                                           5   reported      
+           6,000 labels over 1,200 snapshots. Reported rather than gated: the right count depends
+           on the entity population, which varies legitimately by two orders of magnitude between
+           presets
+
+  SHAPE
+    [FAIL] PO lines with fill < 1.0 [2019-2025]                             43.9%   8%-15%        
+           Below ~3% the fill-rate head has nothing to learn. gated on 837,380 normal-regime
+           lines of 837,380; all regimes 43.9%
+    [FAIL] PO lines arriving late [2019-2025]                               61.9%   15%-25%       
+           Lateness is the arrival-timing head's signal. gated on 837,380 normal-regime lines of
+           837,380; all regimes 61.9%
+    [FAIL] fill-rate mass at exactly 1.0 [2019-2025]                        56.1%   >= 60%        
+           a continuous haircut would put every line just below 1 -- the signature of a naively
+           generated set
+    [FAIL] fill-rate mass at exactly 0 [2019-2025]                           0.0%   1%-3%         
+           total delivery failure is rare but real; at 0 the fill distribution has no lower point
+           mass
+    [FAIL] right-censored tail is the right size [2019-2025]                0.23x   0.3-1.2x      
+           38,248 lines (4.37%) promised inside the last 90 days of a 479-day span. Span alone
+           implies 18.79%. Normalised so the check is scale-invariant across a 3-year and a
+           15-year world
+    [FAIL] supplier-months constrained [2019-2025]                          49.0%   20%-30%       
+           The only months carrying capacity evidence -- measured on months with activity; empty
+           months are not evidence
+    [FAIL] capacity unobservable [2019-2025]                                51.0%   >= 70%        
+           delivered = min(K, ordered): unconstrained months carry no information about K at all
+    [FAIL] lead-time distribution is right-skewed [2019-2025]               +0.30   >= 0.5        
+           median 41d, P90 68d, P99 86d. A Gaussian lead time is a generator artefact, not a
+           supply chain
+    [----] shortage events per year [2019-2025]                            1914.0   180-250 (not gated)
+           1,500 recorded events over 7 years at 7 plants; scaled to this dataset's 7 plants.
+           13,394 events over 7.0 years (13,394 of them normal-regime). Not gated in this window:
+           it deliberately contains COVID and the chip shortage, and the band describes normal
+           operation
+    [----] line stops per year [2019-2025]                                   20.3   15-25 (not gated)
+           Matches Rane's stated 18/year at 7 plants; scaled to this dataset's 7 plants. 142
+           events over 7.0 years (142 of them normal-regime). Not gated in this window: it
+           deliberately contains COVID and the chip shortage, and the band describes normal
+           operation
+    [----] expedites per year [2019-2025]                                  1914.0   100-150 (not gated)
+           Matches their stated 120/year at 7 plants; scaled to this dataset's 7 plants. 13,394
+           events over 7.0 years (13,394 of them normal-regime). Not gated in this window: it
+           deliberately contains COVID and the chip shortage, and the band describes normal
+           operation
+    [ok ] month-of-year seasonality in demand [2019-2025]      1.45x peak/trough   > 1.10        
+           source production_actual; peak month 3, trough 9. Indian auto has very strong calendar
+           effects; a flat year is a generator that forgot them
+
+  DENSITY
+    [ok ] zero-order channel-weeks [2019-2025]                             82.1%   60%-99%       
+           4,818,880 of 5,866,280 channel-weeks have qty_ordered = 0. Our `full` world is 90.1%.
+           A store far denser is not modelling a procurement calendar, it is emitting a row per
+           week whether or not anything was bought
+    [ok ] weekly store is a panel [2019-2025]                             100.0%   >= 90%        
+           share of the 15,621 channels whose store rows are an unbroken run of 7-day steps. A
+           rolling window cannot be computed over a scattered sample of channel-weeks; median 376
+           rows per channel
+    [----] staleness since last trade [2019-2025]              P50 28d / P90 77d / max 441d   reported      
+           days since the channel last ordered, measured on zero-order weeks. Reported, not
+           gated: the right band depends on the channel mix and any threshold here would be one
+           that cannot fail
+    [ok ] PO lines per channel per year [2019-2025]                         7.45   >= 3.0        
+           837,380 lines over 16,072 channels and 7.0 years. Below this a channel holds too few
+           observations for the temporal encoder to read a trajectory
+    [----] training rows per snapshot [2019-2025]                               5   reported      
+           6,000 labels over 1,200 snapshots. Reported rather than gated: the right count depends
+           on the entity population, which varies legitimately by two orders of magnitude between
+           presets
+
+----------------------------------------------------------------------------------------------------
+  99 passed, 73 FAILED, 22 skipped, 210 checks total
+  FAILED: PO lines arriving late, PO lines arriving late [2019-2025], PO lines with fill < 1.0, PO lines with fill < 1.0 [2019-2025], arrival_timing: something is censored, asn, asn: two timestamps differ, calendar, capacity unobservable, capacity unobservable [2019-2025], capacity_strain: something is censored, channel store conserves ordered units, channel store conserves received units, channel_performance_weekly, dataset_coverage, demand_drift: entity_type matches the spec, demand_drift: something is censored, derived store buckets on visible week, expedite_events, expedite_events: recorded_ts >= event, expedites per year, fill-rate mass at exactly 0, fill-rate mass at exactly 0 [2019-2025], fill-rate mass at exactly 1.0, fill-rate mass at exactly 1.0 [2019-2025], fill_rate: entity_type matches the spec, fill_rate: something is censored, goods_receipts, grn_lines, inventory_position_weekly, inventory_snapshots, inventory_snapshots: lag is not constant, inventory_snapshots: two timestamps differ, inventory_transactions: lag is not constant, lead-time distribution is right-skewed, lead-time distribution is right-skewed [2019-2025], line stops per year, line_stop_events, line_stop_events: recorded_ts >= event, part_demand_weekly horizon_days identity, part_demand_weekly is strictly forward-looking, plan_drift_features, po_line_revisions: two timestamps differ, po_lines: two timestamps differ, production_actual, production_actual: lag is not constant, production_plan, production_plan: lag is not constant, purchase_orders: two timestamps differ, right-censored tail is the right size, right-censored tail is the right size [2019-2025], shortage events per year, shortage_events, shortage_events: recorded_ts >= event, shortage_qty: entity_type matches the spec, shortage_qty: something is censored, structurally clean tables, supplier store conserves ordered units, supplier store conserves received units, supplier-months constrained, supplier-months constrained [2019-2025], supplier_acknowledgements, supplier_acknowledgements: two timestamps differ, supplier_allocation: lag is not constant, supplier_allocation: two timestamps differ, supplier_audits, supplier_audits: recorded_ts >= event, supplier_capacity, supplier_capacity: lag is not constant, supplier_quality_ppm: lag is not constant, supplier_upstream, suppliers, training_labels
+====================================================================================================
+
+  VERDICT: NOT USABLE -- there is no as-of structure: recorded_ts sits in the same week as the event on ~every row of asn, inventory_snapshots, po_line_revisions, po_lines and others -- any model trained on it reads facts before anyone knew them

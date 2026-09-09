@@ -1,0 +1,75 @@
+
+============================================================================================
+PROBE 1 (DECISIVE) -- each label vs its most predictive feature
+============================================================================================
+  fill_rate          vs fill_rate_last13     spearman r = +0.1948   n=348,000
+  arrival_week       vs otd_rate_last13      spearman r = -0.1409   n=348,000
+  capacity_strain    vs load_ratio           spearman r = +0.6652   n=217,500
+
+  VERDICT: near-zero would mean labels are detached from features.
+
+============================================================================================
+PROBE 2 -- capacity pressure UP -> fill DOWN, and -> lead time UP
+============================================================================================
+  load_ratio vs fill_rate        r = -0.3819  n=1,371,368   (expect NEGATIVE)
+  load_ratio vs lead_time_ratio  r = +0.1230  n=1,371,368   (expect POSITIVE)
+
+============================================================================================
+PROBE 3 -- late and short co-occur on the same PO lines
+============================================================================================
+  phi(short, late) = +0.0152  n=1,372,379
+  P(late | short) = 0.2387   P(late | full) = 0.2202
+
+============================================================================================
+PROBE 4 -- fill in constrained vs unconstrained supplier-months
+============================================================================================
+  mean fill, constrained   = 0.6262
+  mean fill, unconstrained = 0.7291
+  gap = +0.1029   (expect materially lower when constrained)
+
+============================================================================================
+PROBE 5 -- shortage events with an identifiable upstream cause
+============================================================================================
+  events = 2,165
+  with an identifiable upstream cause      =  89.88%   target ~100%
+  responsible_supplier_id resolves to master =  89.88%
+
+============================================================================================
+PROBE 6 -- shortage -> expedite / revision / alternate-sourcing probability UP
+============================================================================================
+  P(expedite | part-plant had a shortage) = 0.6600
+  P(expedite | no shortage)               = 0.0000
+  lift = 660000000.0x
+  resolution_action distribution:
+resolution_action
+expedite            0.404619
+transfer            0.240185
+alternate_source    0.226790
+reschedule          0.128406
+
+============================================================================================
+PROBE 7 -- alternate sourcing -> receiving supplier load UP -> its other channels degrade
+============================================================================================
+  supplier utilisation(m) vs its fill(m+1)  r = -0.8110  n=420   (expect NEGATIVE)
+  utilisation persistence m -> m+1          r = +0.3172  n=53,340
+
+============================================================================================
+PROBE 8 -- staleness UP -> lead-time variance UP across channels
+============================================================================================
+  median staleness vs sd(lead time)  r = +0.1383  n=15,334   (expect POSITIVE)
+
+============================================================================================
+PROBE 9 -- KS test of each label against Uniform(0,1); must reject at p < 0.01
+============================================================================================
+  fill_rate          D=0.8868  p=0.000e+00  n=348,000  mean=0.9185 sd=0.2469  REJECT (good)
+  arrival_week       D=1.0000  p=0.000e+00  n=348,000  mean=12.0110 sd=5.2185  REJECT (good)
+  capacity_strain    D=0.2727  p=0.000e+00  n=217,500  mean=0.7374 sd=0.3591  REJECT (good)
+  shortage_qty       D=1.0000  p=0.000e+00  n=84,637  mean=8.1122 sd=110.4421  REJECT (good)
+  demand_drift       D=0.6665  p=0.000e+00  n=78,300  mean=1.0189 sd=0.1906  REJECT (good)
+
+  censoring per task (§14: must be 1-60%):
+  fill_rate          censored  43.48%
+  arrival_week       censored  43.48%
+  capacity_strain    censored   4.03%
+  shortage_qty       censored   3.02%
+  demand_drift       censored   4.88%

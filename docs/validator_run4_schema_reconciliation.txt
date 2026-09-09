@@ -1,0 +1,16 @@
+### LIST 1 - in dataset_structure.md, ABSENT from schema.sql: 1
+   supplier_performance_weekly.(defined by reference - no column table in spec)
+
+### LIST 2 - in schema.sql, ABSENT from dataset_structure.md: 4
+   inventory_position_weekly.consumption_13w
+   inventory_position_weekly.consumption_4w
+   model_outputs.p10
+   model_outputs.p90
+
+### LIST 3 - CSV columns matching neither / spec columns missing from CSV: 4
+   goods_receipts.grn_id   [in dataset_structure.md, MISSING from CSV]
+   supplier_capacity.mo   [present in CSV, in NEITHER source]
+   supplier_capacity.month   [present in CSV, in NEITHER source]
+   supplier_capacity.s   [present in CSV, in NEITHER source]
+
+### TYPE disagreements md vs schema.sql on shared columns: 0

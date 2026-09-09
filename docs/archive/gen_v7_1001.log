@@ -1,0 +1,94 @@
+seed=1001  weeks=535  2016-01-04 -> 2026-03-30  channels=16072
+masters...
+  business_units.csv                             4 rows
+  plants.csv                                     7 rows
+  suppliers.csv                                420 rows
+  supplier_sites.csv                           420 rows
+  parts.csv                                    620 rows
+  products.csv                                 180 rows
+  customers.csv                                 20 rows
+channels...
+  sourcing_channels.csv                     16,072 rows
+latent state and disruption calendars...
+simulating world...
+  simulation loop done
+  PO lines: 982,585   expedited: 2,765 (0.28%)   still open at cut: 11,032
+  simulation state saved -> gen_v7/seed_1001/_sim.npz
+emitting transactional spine...
+  purchase_orders.csv                      982,585 rows
+  po_lines.csv                             982,585 rows
+  supplier_acknowledgements.csv            982,585 rows
+  asn.csv                                  953,123 rows
+  goods_receipts.csv                       953,123 rows
+  grn_lines.csv                            953,123 rows
+  quality_inspections.csv                  953,123 rows
+deriving weekly stores (visible-week bucketing, exact conservation)...
+  ordered units  source 265,126,832 == emitted 265,126,832  EXACT
+  received units source 209,163,226 == emitted 209,163,226  EXACT
+  writing channel_performance_weekly...
+  channel_performance_weekly.csv         8,598,520 rows
+  channel store conservation re-verified on the emitted CSV frame
+  supplier_performance_weekly.csv          224,700 rows
+  supplier store conservation exact
+inventory ledger...
+  inventory_transactions.csv            13,543,769 rows
+  inventory_snapshots.csv                  518,032 rows
+  ledger identity closing == opening + movements : True
+events and feedback arcs...
+  shortage conditions 74,974 -> escalated episodes 1,793 (2.39% of condition-weeks)
+  shortage_events.csv                        1,793 rows
+  expedite actions 1,397 raised over 2,790 accelerated PO lines
+  expedite_events.csv                        1,397 rows
+  line_stop_events.csv                         147 rows
+  po_line_revisions.csv                     53,171 rows
+labels (forward from the simulated future)...
+  training_labels.csv                    1,070,700 rows
+  snapshots.csv                                 83 rows
+  supplier_allocation.csv                    3,008 rows
+  alternate_sources.csv                     16,072 rows
+reference and derived tables...
+  supplier_capacity.csv                     51,660 rows
+  revealed_capacity_monthly.csv             51,660 rows
+  bom.csv                                    4,000 rows
+  part_plant.csv                             4,340 rows
+  supplier_upstream.csv                        260 rows
+  logistics_lanes.csv                       16,072 rows
+  calendar.csv                              26,201 rows
+  production_plan.csv                       15,120 rows
+  production_actual.csv                     15,120 rows
+  plan_drift_features.csv                   15,120 rows
+  part_demand_weekly.csv                    52,080 rows
+  inventory_position_weekly.csv             52,080 rows
+  part_costs.csv                             3,980 rows
+  product_economics.csv                        180 rows
+  supplier_contracts.csv                     3,000 rows
+  supplier_quality_ppm.csv                   3,360 rows
+  supplier_audits.csv                        2,000 rows
+  supplier_financials.csv                    3,360 rows
+  tooling.csv                                2,500 rows
+  po_line_schedules.csv                    400,000 rows
+    !! model_outputs.csv: NOT NULL columns left blank: ['model_name', 'model_version', 'entity_type', 'created_ts', 'snapshot_id', 'horizon_days', 'entity_id']
+  model_outputs.csv                              0 rows
+  dataset_coverage.csv                          48 rows
+
+GENERATION COMPLETE seed=1001 -> gen_v7/seed_1001
+  conservation ordered EXACT 265,126,832 | received EXACT 209,163,226 | ledger True
+  shortage events with identifiable upstream cause: 97.9%
+      169.44 real       165.55 user         3.32 sys
+         10913759232  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             2149159  page reclaims
+                  64  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 939  voluntary context switches
+                3866  involuntary context switches
+       4743775051702  instructions retired
+        697039606816  cycles elapsed
+         15852695672  peak memory footprint

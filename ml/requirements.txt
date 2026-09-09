@@ -1,0 +1,7 @@
+torch>=2.2              # TCN + SHARE; MPS backend on Apple Silicon
+torch-geometric>=2.5    # HeteroData, message passing
+numpy>=1.26
+pandas>=2.2             # loading only; not in the training loop
+lightgbm>=4.3           # baselines B5, and UC9
+scikit-learn>=1.4       # metrics, calibration
+# ortools>=9.9          # Phase 10 only, not needed for phases 0-3

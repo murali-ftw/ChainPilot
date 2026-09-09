@@ -1,0 +1,44 @@
+# datasets — never commit.
+# Scoped to the seed directories rather than the whole gen_v*/ tree, so that the
+# generator source living beside them stays under version control (synthetic_rules.md
+# §18: "the generator source, not only the CSVs -- the dataset is not reviewable
+# without it"). A blanket db/gen_v7/ rule silently excludes generator_v7.py.
+db/gen_v6/seed_*/
+db/gen_v7/seed_*/
+db/csv_*_seed*/
+*.csv
+*.csv.gz
+*.xlsx
+*.parquet
+*.zip
+*.tar.gz
+
+# simulation state emitted alongside the worlds
+*.npz
+
+# model artefacts
+ml/artifacts/          # derived snapshot cache; rebuilt by ml/data/cache.py in ~6s per world
+checkpoints/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+mlruns/
+wandb/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# large logs
+docs/gen_*.log
