@@ -17,7 +17,10 @@ db/csv_*_seed*/
 *.npz
 
 # model artefacts
-ml/artifacts/          # derived snapshot cache; rebuilt by ml/data/cache.py in ~6s per world
+# derived snapshot cache; rebuilt by ml/data/cache.py in ~6s per world.
+# NOTE: git has no trailing-comment syntax -- a comment must be on its own line,
+# or the whole line becomes the pattern and matches nothing.
+ml/artifacts/
 checkpoints/
 runs/
 *.pt
