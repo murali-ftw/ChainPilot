@@ -748,6 +748,9 @@ class TableReport:
         self.pk_nulls = 0
         self.pk_cols: list[str] = []
         self.orphans: dict[str, tuple] = {}   # col -> (count, samples, parent)
+        # amendment 02: columns holding exactly one distinct value over the whole
+        # table.  col -> (the value, bucket) with bucket in {"zero", "blank", "literal"}.
+        self.constant_cols: dict[str, tuple] = {}
         self.clean = False
         self.reasons: list[str] = []
 
@@ -825,6 +828,42 @@ def _numeric_validator(col):
     return chk
 
 
+# --- amendment 02: constant-column detection -------------------------------
+# A column holding one distinct value over a whole table carries zero information.
+# Three buckets, because they are three different findings:
+#
+#   "zero"    a NUMERIC/DECIMAL/INTEGER column that is 0 in every row. This is the
+#             signature of a generator placeholder that was declared and never
+#             written. It is a DEFECT -- gated FAIL.
+#   "blank"   every value is the empty string. Often the documented open-ended
+#             convention (`effective_to` empty means "still effective") rather
+#             than an omission, so it is reported at WARN, not gated.
+#   "literal" one non-zero, non-blank value. Frequently legitimate -- a
+#             single-country master, a single-currency ledger, one contract
+#             effective date. Reported at WARN, never fatal.
+#
+# Only "zero" is gated, and the narrowness is deliberate. A DECIMAL column that
+# is 0.0 in every one of eight million rows has no reading under which it is
+# correct; an empty nullable column and a uniform dimension both do. A gate that
+# fired on all three would be ignored, which is the failure mode this project
+# calls "a gate that cannot fail" run in reverse.
+_NUMERIC_BASES = ("DECIMAL", "INTEGER", "INT", "BIGINT", "SMALLINT", "NUMERIC",
+                  "REAL", "DOUBLE", "FLOAT")
+
+
+def _constant_bucket(base, value):
+    v = (value or "").strip()
+    if v == "":
+        return "blank"
+    if base.upper() in _NUMERIC_BASES:
+        try:
+            if float(v) == 0.0:
+                return "zero"
+        except ValueError:
+            pass
+    return "literal"
+
+
 def tier1(root, expected, found, res, max_rows=None):
     reports: dict[str, TableReport] = {}
     pk_index: dict[str, set] = {}          # table -> set of PK values (parents)
@@ -883,6 +922,11 @@ def tier1(root, expected, found, res, max_rows=None):
         pk_required = [c for c in pkcols if c in e.not_null]
         date_cols = [c for c in e.columns
                      if c in have and e.types[c].base in ("DATE", "TIMESTAMP")]
+        # amendment 02 -- distinct-value census, capped at 2 per column. Every
+        # DECLARED column that is present is tracked; extra columns are not, because
+        # the spec says nothing about them. Cost is O(1) per cell after a column has
+        # seen its second value, which for a real column is the second row.
+        distinct = {c: set() for c in e.columns if c in have}
         lo_d = hi_d = None
         n = 0
         for row in iter_rows(path):
@@ -946,6 +990,9 @@ def tier1(root, expected, found, res, max_rows=None):
                 v = row.get(c, "")
                 if v:
                     fk_values[name][c].add(v)
+            for c, seen_v in distinct.items():
+                if len(seen_v) < 2:
+                    seen_v.add(row.get(c, ""))
             for c in date_cols:
                 d = to_date(row.get(c, ""))
                 if d and 1990 < d.year < 2100:
@@ -962,6 +1009,14 @@ def tier1(root, expected, found, res, max_rows=None):
         rep.null_violations = dict(nulls)
         rep.date_only_ts = sorted(date_only)
         rep.first_date, rep.last_date = lo_d, hi_d
+        # amendment 02 -- classify. A one-row table has constant columns by
+        # arithmetic, not by defect, so it is exempt.
+        if n >= 2:
+            for c, seen_v in distinct.items():
+                if len(seen_v) != 1:
+                    continue
+                v = next(iter(seen_v))
+                rep.constant_cols[c] = (v, _constant_bucket(e.types[c].base, v))
 
     # --- pass B: FK resolution ---------------------------------------------
     for name in sorted(expected):
@@ -1053,6 +1108,55 @@ def tier1(root, expected, found, res, max_rows=None):
             "values that parse correctly but exceed the declared DECIMAL "
             "precision/scale or VARCHAR length. Reported, not fatal: nothing "
             "downstream mis-reads them")
+
+    # --- amendment 02: constant columns -------------------------------------
+    buckets = {"zero": [], "blank": [], "literal": []}
+    for name in sorted(reports):
+        rep = reports[name]
+        if not rep.present:
+            continue
+        for c, (v, bucket) in sorted(rep.constant_cols.items()):
+            buckets[bucket].append((name, c, v))
+    res.facts["constant_columns"] = {k: [(t, c) for t, c, _v in v]
+                                     for k, v in buckets.items()}
+    for name in sorted(reports):
+        rep = reports[name]
+        if not rep.present or not rep.constant_cols:
+            continue
+        per = {"zero": [], "blank": [], "literal": []}
+        for c, (_v, b) in sorted(rep.constant_cols.items()):
+            per[b].append(c)
+        bits = []
+        if per["zero"]:
+            bits.append("ALL-ZERO (unpopulated): " + ", ".join(per["zero"]))
+        if per["blank"]:
+            bits.append("all-blank: " + ", ".join(per["blank"]))
+        if per["literal"]:
+            bits.append("single literal: " + ", ".join(per["literal"]))
+        res.add(1, "constant columns", name, FAIL if per["zero"] else WARN,
+                f"{len(per['zero'])} all-zero, {len(per['blank'])} all-blank, "
+                f"{len(per['literal'])} literal",
+                "0 all-zero", "; ".join(bits))
+    zero = buckets["zero"]
+    res.gate(1, "tables", "no all-zero numeric column",
+             not zero,
+             f"{len(zero)} column(s) in {len({t for t, _c, _v in zero})} table(s)",
+             "0",
+             "amendment 02. A declared numeric column holding 0 in every row of "
+             "the table was never written. It carries no information, and any "
+             "feature built on it is built on a placeholder -- the four such "
+             "columns in channel_performance_weekly cost Phase 2 a day before "
+             "they were found by hand")
+    n_blank = len(buckets["blank"])
+    n_lit = len(buckets["literal"])
+    res.add(1, "tables", "other constant columns (warning)",
+            WARN if (n_blank or n_lit) else OK,
+            f"{n_blank} all-blank, {n_lit} single-literal", "0",
+            "amendment 02. All-blank is often the documented open-ended "
+            "convention (empty `effective_to` = still effective); a single "
+            "literal is often a genuinely uniform dimension (one country, one "
+            "currency). Zero information content either way, so reported -- but "
+            "not gated, because both have readings under which they are correct")
     return reports
 
 

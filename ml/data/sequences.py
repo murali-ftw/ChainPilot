@@ -39,6 +39,20 @@ def build_sequences(panel, miss, active, t0_weeks, chan_ids=None, w: int = WINDO
     A = np.zeros((B, w), np.float32)
     P = np.zeros((B, w), np.float32)          # 1 = real position, 0 = left padding
     t0_weeks = np.asarray(t0_weeks)
+    # Fast path -- every row shares one t0, which is the case for every snapshot-wide
+    # build. Same arithmetic as the loop below, one slice instead of B Python iterations.
+    if len(t0_weeks) and (t0_weeks == t0_weeks[0]).all():
+        lo, hi, pad = window_index(int(t0_weeks[0]), T, w)
+        n = hi - lo
+        pv = np.asarray(panel[:, lo:hi, :])[chan_ids]
+        mv = np.asarray(miss[:, lo:hi, :])[chan_ids]
+        av = np.asarray(active[:, lo:hi])[chan_ids]
+        X[:, pad:pad + n, :d] = pv
+        X[:, pad:pad + n, d:] = mv
+        M[:, pad:pad + n] = mv
+        A[:, pad:pad + n] = av
+        P[:, pad:pad + n] = 1.0
+        return X, M, A, P
     for i, (c, t0) in enumerate(zip(chan_ids, t0_weeks)):
         lo, hi, pad = window_index(int(t0), T, w)
         n = hi - lo

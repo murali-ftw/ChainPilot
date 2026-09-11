@@ -36,6 +36,7 @@ column name from a planning document without checking it against the file.
 - [Phase 8 — Evaluation](#phase-8--evaluation)
 - [Phase 9 — Simulation](#phase-9--simulation)
 - [Phase 10 — Optimisers](#phase-10--optimisers)
+- [Known deviations from spec](#known-deviations-from-spec) ← **read before trusting a §3.2 number**
 - [Troubleshooting](#troubleshooting)
 - [Glossary](#glossary)
 
@@ -502,9 +503,31 @@ db/gen_v7/seed_1001/calendar.csv
 
 **Implementation**
 
-Target shape per persistent node: `[52, 38]`, the trailing 52 weeks ending at t₀, plus a
-`[52]` `is_active_week` mask carried alongside. d = 38 is composed in
-[specification §3.3](benchmark_specification.md#33-per-timestep-feature-vector).
+Target shape per persistent node: `[52, d]`, the trailing 52 weeks ending at t₀, plus a
+`[52]` `is_active_week` mask carried alongside.
+
+**Derive `d`; do not hardcode it.** `specification §3.3` composes d = 38 for the store as it
+was designed. The store as generated is narrower, because four columns are constant and the
+calendar block is optional. Compute it from the data:
+
+```python
+value_cols  = [c for c in NUMERIC_COLS if df[c].nunique(dropna=True) > 1]   # drop constants
+ind_cols    = [c for c in NULLABLE     if c in value_cols]                  # one per surviving nullable
+d = len(value_cols) + len(ind_cols) + len(CALENDAR_COLS)                    # calendar block optional
+```
+
+On `gen_v6/seed_1001` and `gen_v7/seed_1001` this evaluates to:
+
+| term | spec §3.3 | measured here | why |
+|---|---|---|---|
+| numeric value channels | 18 | **14** | `revision_count`, `days_since_last_short`, `weeks_since_last_activity`, `weeks_since_last_receipt` are constant zero (deviation 4) |
+| missing-indicators | 13 | **10** | the three dropped nullables take their indicators with them |
+| calendar (sin/cos month, `is_shutdown`, 4-way regime one-hot) | 7 | 7, **not folded in** by `ml/data/cache.py` | joins on `calendar.csv` at plant grain; Phase 2 leaves it out and Phase 5 can add it |
+| **d** | **38** | **24** | 14 + 10 |
+
+Fold the calendar block in and `d` becomes 31. Either is correct; what is not correct is
+asserting 38 against a panel that cannot contain it. See
+[Known deviations from spec](#known-deviations-from-spec).
 
 > **Columns renamed in Phase C — `_Nw` → `_lastN`.** `fill_rate_13w` is now
 > `fill_rate_last13`, and so on. The rename is not cosmetic: these average the last N weeks
@@ -528,7 +551,7 @@ convolution in Phase 3 is causal, left padding cannot leak — a padded position
 **Verify**
 ```python
 X, mask = build_sequence("S0001-P00001-PL01", t0)
-assert X.shape == (52, 38)          # d_in = 38 since Phase C, not 31
+assert X.shape == (52, d)           # d derived above -- 24 without the calendar block
 assert mask.dtype == torch.bool and mask.sum() <= 52
 ```
 
@@ -546,28 +569,57 @@ assert mask.dtype == torch.bool and mask.sum() <= 52
 
 **Implementation**
 
-**A channel is idle in four weeks out of five.** Null rates are in
-[specification §3.2](benchmark_specification.md#32-the-sequence-is-sparse--this-dominates-the-implementation);
-`fill_rate` and `ack_gap_ratio` are 81.4% null, `load_ratio` 81.8%, the lead-time pair 72.6%.
+**A channel is idle in four weeks out of five — but that sparsity is not expressed as nulls.**
+[Specification §3.2](benchmark_specification.md#32-the-sequence-is-sparse--this-dominates-the-implementation)
+predicts `fill_rate` and `ack_gap_ratio` 81.4% null, `load_ratio` 81.8%, the lead-time pair
+72.6%. **Both generators forward-fill the level and rolling columns across idle weeks**
+(`fillw → ffill(axis=1)`), so on an idle week `fill_rate` carries the last observed value
+rather than a null. Measured on `channel_performance_weekly`, all 8,598,520 rows per world:
 
-Thirteen nullable columns → thirteen indicator channels. Fill the value channel with 0.0
-**and** set the indicator to 0, so the model can distinguish "no activity" from "activity,
-value zero".
+| column | spec §3.2 expects null | **v6 measured** | **v7 measured** |
+|---|---|---|---|
+| `fill_rate` | 81.4% | **5.52%** | **5.95%** |
+| `ack_gap_ratio` | 81.4% | **5.52%** | **5.95%** |
+| `load_ratio` | 81.8% | **0.00%** | **0.00%** |
+| `lead_time_actual_days` / `_ratio` | 72.6% | **5.52%** | **5.95%** |
+
+The sparsity is real, it just lives in a different column: **`qty_ordered == 0` on 86.3% of
+channel-weeks in v6 and 88.6% in v7**, with `is_active_week` true on only 13.7% and 11.4%.
+Do not size an imputation policy, a mask, or a loss weight off the §3.2 null rates.
+
+Two consequences:
+
+1. **The indicator channels are nearly vacuous.** Over the ten surviving nullables their mean
+   is **0.9503** (v6) and **0.9465** (v7), not the ≈ 0.181 §3.2 implies. They cannot tell the
+   model whether a week was idle.
+2. **The imputation this step warns against is already in the data**, upstream, and undoing
+   it would mean rewriting a protected dataset. Do not try. Instead **promote
+   `is_active_week` to an explicit value channel** — it is where the idle/active signal that
+   the nulls were supposed to carry actually lives.
+
+Thirteen nullable columns → thirteen indicator channels *in spec*; **ten here**, because
+three of the thirteen are constant zero and get dropped with their indicators (deviation 4).
+Fill the value channel with 0.0 **and** set the indicator to 0, so the model can distinguish
+"no activity" from "activity, value zero".
 
 ```python
+# spec's 13; the last three are constant zero in gen_v6 and gen_v7 and must be dropped
 NULLABLE = ["fill_rate", "fill_rate_last4", "fill_rate_last13", "fill_rate_last52",
             "lead_time_actual_days", "lead_time_ratio", "otd_rate_last13",
-            "ack_gap_ratio", "load_ratio", "days_since_last_short",
-            "reporting_lag_days", "weeks_since_last_activity",
-            "weeks_since_last_receipt"]
+            "ack_gap_ratio", "load_ratio", "reporting_lag_days",
+            # "days_since_last_short", "weeks_since_last_activity",
+            # "weeks_since_last_receipt",   <-- constant zero, never populated
+            ]
 ```
 
-**Mean-imputing `fill_rate` is the single most damaging thing you can do here** — it
-fabricates 82% of the activity in the sequence.
+**Mean-imputing `fill_rate` is still the single most damaging thing you can do here** — but
+note the forward-fill has already done something close to it, so the harm is a stale carried
+value rather than a fabricated one.
 
-**`weeks_since_last_receipt` NULL means *never received*, not "long ago".** Zero-filling it
-merges a channel that has never taken a delivery with one that took its last delivery this
-week — the two extremes of the same axis.
+**`weeks_since_last_receipt` NULL would mean *never received*, not "long ago"** — zero-filling
+it merges a channel that has never taken a delivery with one that took its last delivery this
+week. In these worlds the point is moot: the column **is** all zeros for every row, so the
+distinction was never generated at all. Drop it rather than reasoning about it.
 
 **Two masks, and they are not the same thing.** `is_active_week` marks a real row in which
 nothing was ordered; the padding mask marks positions before the channel's first week where
@@ -578,9 +630,35 @@ The rolling columns (`fill_rate_last4/13/52`, `otd_rate_last13`) are the dense s
 instantaneous ones are a sparse event stream. Expect the model to lean on the rolling ones —
 and remember they are long-run averages, not recent ones.
 
-**Verify** — for a known idle week, the `fill_rate` channel is 0.0 **and** its indicator is
-0, and `is_active_week` is 0 while the padding mask is 1. Across a full batch, indicator
-means should reproduce §3.2 (e.g. `fill_rate` indicator mean ≈ 0.181).
+**Verify** — the obvious check does **not** hold on this data and must not be used:
+
+> ~~for a known idle week, the `fill_rate` channel is 0.0~~ — **fails by design.** In a
+> 4,096-channel sample, **175,481 of 212,992 idle positions (82.4%) carry a non-zero
+> forward-filled `fill_rate`.** That is the store's behaviour, not a masking bug, and
+> ~~`fill_rate` indicator mean ≈ 0.181~~ fails with it.
+
+Use these instead. They hold on both worlds:
+
+```python
+# 1. the idle/active signal lives in is_active_week, and only there
+assert set(np.unique(active)) <= {0.0, 1.0}
+assert 0.10 < active.mean() < 0.15            # 0.137 v6, 0.114 v7 -- NOT ~0.19
+
+# 2. an idle week is an observation, not padding: both masks are set
+idle = (active == 0) & (pad_mask == 1)
+assert idle.any()                             # idle weeks are present and unpadded
+
+# 3. value/indicator pairing is coherent wherever a null does occur
+assert (X[..., d:][value_is_null] == 0).all() # indicator 0 => value zero-filled
+assert (X[..., :d][value_is_null] == 0).all()
+
+# 4. the indicators are vacuous here -- assert that, so nobody trusts them
+assert X[..., d:].mean() > 0.90               # 0.9503 v6, 0.9465 v7
+```
+
+**`is_active_week` is the channel that carries the idle/active signal.** No indicator does,
+and no forward-filled level column does. If a model needs to know a week was idle, it reads
+this channel or it does not know.
 
 ---
 
@@ -623,7 +701,7 @@ point.
 
 **Depends on** — 2.3
 
-**Inputs** — `[B, 52, 38]` tensors from Phase 2
+**Inputs** — `[B, 52, d]` tensors from Phase 2 (`d = 24` as built; see 2.1)
 
 **Implementation**
 
@@ -637,16 +715,33 @@ Full specification in
 | Layers | **6** (not 5 — see below) |
 | Receptive field | 64 weeks ≥ the 52-week window |
 | Hidden | 64 |
-| Parameters | ≈ 48,640 |
+| **Residual connection** | **required, 1×1 projection per layer — see below** |
+| Parameters | ≈ 48,640 conv + ≈ 1,600 residual projections |
 
 `model_plan.md` specifies 5 layers, giving a 32-week receptive field. **Use 6.** With 5, the
 earliest 20 weeks of the input window are unreachable by the top layer.
 
-Causality is enforced by **left-padding only**, then trimming the right:
+**Residual connections are required, not optional.** Every layer is
+`z ← ReLU(conv(pad(z))) + W₁ₓ₁ z`, with `W₁ₓ₁` a `Conv1d(c_in, hidden, 1)` (identity when the
+widths already match). Without them a 6-deep ReLU stack **destroys the signal and the encoder
+cannot learn** — this was built exactly as previously specified and measured at **C-index
+0.5000**, chance, while a ridge probe on the identical tensors scored **0.6464**. The stack,
+not the data path, was at fault; adding the projections took the same model to **0.6524**.
+The loss curve tells you immediately which one you have:
+
+```
+no residual:   1.0136  0.9995  0.9987  0.9978  0.9972  0.9978   <- flat at 1.0, R^2 ~ 0
+with residual: 0.9614  0.9229  0.9128  0.9057  0.9012  0.8979   <- learning
+```
+
+Causality is enforced by **left-padding only**, then trimming the right. The residual is
+added after the trim, so it cannot reintroduce a leak:
 ```python
-pad = (kernel - 1) * dilation
-z = F.pad(z, (pad, 0))          # left only
-z = conv(z)[:, :, :T]           # trim any overhang
+skip = self.res[l](z)                     # 1x1 projection, or Identity if c_in == hidden
+pad  = (kernel - 1) * dilation
+y    = F.pad(z, (pad, 0))                 # left only
+y    = F.relu(conv(y)[:, :, :T])          # trim any overhang
+z    = y + skip                           # REQUIRED
 ```
 A symmetric `padding=` argument in `nn.Conv1d` will silently make the model non-causal and
 leak the future. This is the most common bug in TCN implementations and it produces
@@ -660,6 +755,13 @@ every earlier position must be unchanged.
 x2 = x.clone(); x2[:, -1, :] += 100.0
 assert torch.allclose(model.all_positions(x)[:, :, :-1],
                       model.all_positions(x2)[:, :, :-1])
+```
+**And verify the encoder learns at all**, before wiring anything downstream of it. Fit a
+ridge probe on the flattened 52-week window and compare. If the TCN does not clear the probe,
+the stack is broken — check the residuals first, because that is the failure mode this
+geometry has:
+```python
+assert cindex(tcn_preds) > cindex(ridge_on_flat_window) - 0.01   # 0.6524 vs 0.6464
 ```
 
 ---
@@ -1359,6 +1461,75 @@ Solver: OR-Tools CP-SAT or HiGHS.
 **Verify** — a part whose tooling has `is_transferable = false` and `duplicate_exists =
 false` must return the incumbent split unchanged, whatever the cost difference. If the
 optimiser moves it, the tooling constraint is not bound.
+
+---
+
+## Known deviations from spec
+
+Five places where `benchmark_specification.md` and the earlier text of this guide describe the
+data **as designed** rather than **as generated**. All five are measured on
+`db/gen_v6/seed_1001` and `db/gen_v7/seed_1001`, all 8,598,520 `channel_performance_weekly`
+rows per world. Build against the measured column, not the specified one.
+
+| # | Spec says | Measured | Where |
+|---|---|---|---|
+| 1 | a 6-layer TCN of the given geometry trains | it does **not** without residual connections: C-index **0.5000** vs a ridge probe's 0.6464 on the same tensors | [3.1](#step-31--dilated-causal-tcn) |
+| 2 | `d_in = 38` | **24** as built (14 value + 10 indicator); 31 with the calendar block | [2.1](#step-21--per-node-t--d-tensors) |
+| 3 | `fill_rate`/`ack_gap_ratio` 81.4% null, `load_ratio` 81.8% | **5.52% / 5.52% / 0.00%** (v6), **5.95% / 5.95% / 0.00%** (v7) | [2.2](#step-22--missing-value-masking) |
+| 4 | 18 numeric columns, 13 nullable | **four columns are constant zero**, leaving 14 and 10 | below |
+| 5 | idle weeks are null and `is_active_week` mean ≈ 0.19 | idle weeks are **forward-filled**; `is_active_week` mean **0.137** (v6) / **0.114** (v7) | [2.2](#step-22--missing-value-masking) |
+
+### 1. The specified TCN cannot learn without residual connections
+
+The guide fixed dilation, depth and width and said nothing about skip connections. Built
+literally — six `Conv1d`+ReLU layers, nothing else — the encoder scored **C-index 0.5000**,
+exactly chance, on arrival timing, while a ridge probe on the identical input tensors scored
+**0.6464** and the LightGBM baseline scored 0.6510. The signal was fully present; a 6-deep
+ReLU stack with no path around it was destroying it. Adding a 1×1 residual projection per
+layer, and changing nothing else, took the same model to **0.6524**. Residuals are now listed
+as a required element of [3.1](#step-31--dilated-causal-tcn).
+
+### 2. `d = 38` does not describe this panel
+
+Derive `d`; see [2.1](#step-21--per-node-t--d-tensors) for the computation and the term-by-term
+reconciliation against §3.3.
+
+### 3. The null-sparsity figures are wrong, and the sparsity is real anyway
+
+Both generators forward-fill the level and rolling columns across idle weeks, so sparsity
+appears as **`qty_ordered == 0` on 86.3% (v6) / 88.6% (v7) of channel-weeks**, not as nulls.
+Sizing an imputation or masking policy off the §3.2 null rates will size it for a store that
+is roughly fourteen times sparser than this one.
+
+### 4. Four store columns are constant zero — known-unpopulated
+
+In `channel_performance_weekly`, in **both** worlds, at **1 distinct value** across all
+8,598,520 rows:
+
+| column | distinct values | value | spec role |
+|---|---|---|---|
+| `revision_count` | 1 | 0 | numeric feature |
+| `days_since_last_short` | 1 | 0 | nullable + indicator |
+| `weeks_since_last_activity` | 1 | 0 | nullable + indicator; §3.1 calls it the `staleness_days` replacement |
+| `weeks_since_last_receipt` | 1 | 0 | nullable + indicator |
+
+These are **generator placeholders that were never populated**. A constant column carries no
+information: exclude all four from the panel, and exclude the three nullables' indicators with
+them. **Do not build features on them** — in particular the §3.1 story that
+`weeks_since_last_activity` and `reporting_lag_days` jointly replace `staleness_days` only
+half holds, because only `reporting_lag_days` is actually populated. Any staleness gating
+([5.0](#step-50--staleness-gating-layer)) has `reporting_lag_days` and nothing else.
+
+`db/validator.py` gates this from run 8 onward — see
+[`validator_amendment_02.md`](validator_amendment_02.md).
+
+### 5. The idle/active signal lives in `is_active_week`
+
+The verify step *"for a known idle week the `fill_rate` channel is 0.0"* **fails by design**:
+175,481 of 212,992 idle positions in a 4,096-channel sample carry a non-zero forward-filled
+value. It is replaced in [2.2](#step-22--missing-value-masking) with checks that hold.
+`is_active_week` is the one channel that carries the idle/active distinction, and it must be
+promoted to an explicit value channel for the model to see it.
 
 ---
 

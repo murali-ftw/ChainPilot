@@ -1,5 +1,41 @@
 # Phase 3 — Temporal encoder, cross-world evaluation, h⁰/h¹/h⁴
 
+> ## ⚠ Annotation added at Phase 0–3 closeout — read before quoting any number below
+>
+> **The fit window was specified for this phase and never applied.** `ml/train/cross_world.py`
+> line 17 reads
+>
+> ```python
+> from config import WORLDS, CACHE, SPLIT
+> ```
+>
+> It imports `SPLIT` but **not `FIT_WINDOW`**, and nothing in the file filters `snapshot_date` to
+> the 2019–2025 modelling window. `labels_for()` therefore returns every label row from 2016
+> onward, so **this phase trained on 66 snapshots while every baseline it is compared against
+> used 44** — the baselines in `docs/learnability.py` and `ml/baselines/learnability_windowed.py`
+> apply the window, this trainer does not.
+>
+> **Consequences, in order of importance:**
+>
+> 1. **The absolute figures in this report and those in [`phase1_2.md`](phase1_2.md) are not
+>    measured on the same training fold.** They are not directly comparable to four decimals.
+> 2. **`phase1_2.md` carries the authoritative numbers wherever the two overlap** — it applies
+>    the window, trains all 16,072 channels to convergence with early stopping, and reports 95%
+>    bootstrap intervals. Where this report and that one disagree, that one is correct.
+> 3. **The direction and magnitude of this report's findings survive.** Phase 2 §2 measured the
+>    window's cost at ~0.15% on arrival for the GBM, and `phase1_2.md` §10 reproduces this
+>    report's arrival conclusion under the corrected protocol (+8.7% / +8.1% with SHARE against
+>    the +5.5–7.2% claimed here). **The headline is not in question; the decimals are.**
+>
+> **This phase was deliberately not re-run.** The effect is small, the conclusion reproduces, and
+> re-running would have cost more than it resolved. The annotation exists so that nobody
+> reconciling the two tables later has to rediscover why they differ.
+>
+> One further correction: this report's §3.2 describes `HeteroMP` as the graph encoder throughout.
+> That is accurate, but it is **not SHARE** — `phase1_2.md` §6 builds SHARE as specified and
+> reports both side by side. The "learned encoder" conclusion here is a HeteroMP result.
+
+
 Device **MPS**, torch 2.14.0. Sweep wall-clock **2,644 s** for 18 trainings × 2 evaluations
 (≈145 s per cell). Peak RSS 2.7 GB. Code: `ml/models/tcn.py`, `ml/train/cross_world.py`.
 
