@@ -161,9 +161,10 @@ class Net(nn.Module):
         self.arch, self.depth = arch, depth
         out = NBIN if task == "fill_rate" else 1
         wide = h
-        if depth > 0 and arch == "share":
+        if depth > 0 and arch in ("share", "lite"):
             self.enc = SHARE(h, HP["graph_hidden"], n_rel=6,
-                             n_layers=HP["share_layers"], n_bases=HP["bases"])
+                             n_layers=HP["share_layers"],
+                             n_bases=None if arch == "lite" else HP["bases"])
             wide = HP["graph_hidden"]
         elif depth > 0 and arch == "mp":
             self.enc = HeteroMP(h, 3, rounds=max(1, depth // 2))
@@ -175,7 +176,7 @@ class Net(nn.Module):
         h = self.tcn(X)
         if self.enc is None:
             return h
-        if self.arch == "share":
+        if self.arch in ("share", "lite"):
             src, dst, rel, n_nodes, offs = W["graph"]
             return self.enc(h, W["rel_t"], offs, n_nodes, src, dst, rel, depth=self.depth)
         return self.enc(h, W["rel_t"], W["rel_sizes"])

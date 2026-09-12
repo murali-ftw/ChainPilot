@@ -9,8 +9,8 @@ task and re-run to convergence.
 | ------------- | -------------------------------------------------------------------------------------------------------- |
 | Device        | **MPS**, Apple Silicon, `PYTORCH_ENABLE_MPS_FALLBACK=1`, float32, `num_workers=0`              |
 | torch         | 2.14.0                                                                                                   |
-| Wall-clock    | WALLCLOCK_PLACEHOLDER                                                                                    |
-| Peak RSS      | RSS_PLACEHOLDER                                                                                          |
+| Wall-clock | **23.1 h wall / ~4.8 h compute** — 1,256 epochs at a measured 13.9 s/epoch. Three cells ran while the machine was asleep and record 115, 333 and 687 s/epoch; the wall total is not compute and is not quoted as such. |
+| Peak RSS | **3.80 GB** — MPS throughout, no CPU fallback, 16,072 channels |
 | Arrival       | **not retuned, not re-run** — 14 cells carried forward from `phase1_2.md` unchanged             |
 | Changed files | `reports/phase-3.md` (annotation only), `ml/train/temporal_share.py`, `ml/train/run10_closeout.py` |
 | Not touched   | `db/gen_v6/`, `db/gen_v7/`, `validator.py`, `synthetic_rules.md`, `dataset_structure.md`       |
@@ -177,3 +177,175 @@ learned graph encoder", which is accurate but is **not SHARE**. The annotation s
 at `phase1_2.md` §6 where both are built and compared.
 
 ---
+
+## 3. Per-task learning rates, and the re-runs to convergence
+
+### 3.1 The two LR sweeps
+
+Same five-point protocol arrival got, on **v6 / SHARE / h⁴**, selected on the **validation** fold,
+under the final regime (cap 120, patience 8). **Arrival was not retuned and not re-run.**
+
+**fill_rate — chosen 5e-4**
+
+| lr | validation CRPS ↓ | test-v6 | best epoch | epochs | stop |
+|---|---|---|---|---|---|
+| 2e-3 | 0.0503 | 0.0593 | 12 | 21 | patience |
+| 1e-3 | 0.0507 | 0.0597 | 6 | 15 | patience |
+| **5e-4** | **0.0500** | 0.0591 | 23 | 32 | patience |
+| 2.5e-4 | 0.0501 | 0.0594 | 22 | 31 | patience |
+| 1.25e-4 | 0.0501 | 0.0594 | 26 | 35 | patience |
+
+Optimum **interior**, no extension needed. Selection was on validation: the rate not chosen,
+2.5e-4, tests at 0.0594 against the chosen rate's 0.0591, so discipline cost nothing here — but it
+was applied before the test scores were looked at.
+
+**shortage_qty — chosen 1.25e-4**
+
+| lr | validation PR-AUC ↑ | test-v6 | best epoch | epochs | stop |
+|---|---|---|---|---|---|
+| 2e-3 | 0.5764 | 0.6536 | 34 | 43 | patience |
+| 1e-3 | 0.5715 | 0.6485 | 18 | 27 | patience |
+| 5e-4 | 0.6114 | 0.6860 | 41 | 50 | patience |
+| 2.5e-4 | 0.6084 | 0.6831 | 45 | 54 | patience |
+| **1.25e-4** | **0.6151** | 0.6909 | **84** | 93 | patience |
+
+**Declared protocol deviation.** The optimum landed on the **bottom boundary** and the protocol
+says extend downward. **It was not extended, on cost** — each additional point costs ~35 min and
+the run was already far over budget. Consequence, stated plainly: **the shortage learning rate may
+not be optimal, and a lower rate could improve every shortage number below.** This is a declared
+deviation, not an oversight.
+
+The sweep also vindicates the item on its own: at the chosen rate the tuning cell found its best
+checkpoint at **epoch 84**, which a 40-epoch cap makes structurally impossible. Every shortage
+number in `phase1_2.md` was produced under that ceiling.
+
+### 3.2 Convergence, after
+
+| task | converged in `phase1_2` (cap 40) | **converged now** (cap 120) |
+|---|---|---|
+| **shortage** | **2 of 10** | **8 of 10** |
+| **fill** | 4 of 10 | **6 of 6 run** (4 cells cut, see below) |
+
+**The 14 capped cells are now 2.** Both survivors are shortage h⁰, at epoch 119 of 120 — still
+improving, still **floors**, and labelled as such wherever they appear.
+
+| world | task | arch | depth | epochs | best | stop |
+|---|---|---|---|---|---|---|
+| v6 | shortage | none | h⁰ | 120 | **119** | **CAP — floor** |
+| v7 | shortage | none | h⁰ | 120 | **119** | **CAP — floor** |
+| v6 | shortage | mp | h¹ | 95 | 86 | patience |
+| v6 | shortage | mp | h⁴ | 115 | 106 | patience |
+| v6 | shortage | share | h¹ | 68 | 59 | patience |
+| v6 | shortage | share | h⁴ | 63 | 54 | patience |
+| v7 | shortage | mp | h¹ | 93 | 84 | patience |
+| v7 | shortage | mp | h⁴ | 93 | 84 | patience |
+| v7 | shortage | share | h¹ | 64 | 55 | patience |
+| v7 | shortage | share | h⁴ | 40 | 31 | patience |
+| v6 | fill | none | h⁰ | 53 | 44 | patience |
+| v6 | fill | mp | h⁴ | 30 | 21 | patience |
+| v6 | fill | share | h⁴ | 28 | 19 | patience |
+| v7 | fill | none | h⁰ | 26 | 17 | patience |
+| v7 | fill | mp | h⁴ | 24 | 15 | patience |
+| v7 | fill | share | h⁴ | 27 | 18 | patience |
+
+**Cells cut, and why.** Four fill h¹ cells (v6+v7 × HeteroMP-h¹, SHARE-h¹) were dropped when the
+projection reached 9.7 h against a ~6 h budget. That is the sanctioned first cut from the brief.
+They were **subsequently re-run in Phase 4**, because step 4.2's depth derivation needs h⁰/h¹/h⁴
+per task; see [`reports/phase-4.md`](phase-4.md).
+
+### 3.3 Per-metric seed noise bands — the most consequential measurement here
+
+`phase1_2.md` measured a 0.0028 spread on **arrival C-index only** and correctly refused to
+transfer it. Measured now, one cell per task at three torch seeds:
+
+| task | cell | metric | seeds 7 / 17 / 27 | **spread** | sd |
+|---|---|---|---|---|---|
+| fill | v6 SHARE h⁴ | CRPS | 0.0588 / 0.0595 / 0.0597 | **0.0009** | 0.0005 |
+| **shortage** | v6 SHARE h⁴ | PR-AUC | 0.6831 / 0.7040 / 0.6789 | **0.0251** | 0.0134 |
+| *(arrival, from phase1_2)* | v6 SHARE h⁴ | C-index | — | *0.0028* | *0.0014* |
+
+**Shortage PR-AUC swings by 0.025 on seed alone — nine times arrival's band.** Every
+SHARE-vs-HeteroMP margin ever quoted on that task is smaller than this. Reading shortage margins
+against arrival's band, which is what one would do without this measurement, overstates their
+significance by roughly an order of magnitude.
+
+### 3.4 Restated scores
+
+Closeout (cap 120) beside `phase1_2`'s capped figures. 95% bootstrap intervals, 1,000 resamples.
+Baselines are unchanged and identical in both rows.
+
+**shortage — PR-AUC ↑**
+
+| world | run | naive | LightGBM | h⁰ | MP h¹ | MP h⁴ | SHARE h¹ | SHARE h⁴ |
+|---|---|---|---|---|---|---|---|---|
+| v6 | phase1_2 | 0.4896 | 0.5287 | 0.5722 | 0.6574 | 0.6651 | 0.6678 | **0.6968** |
+| **v6** | **closeout** | 0.4896 | 0.5287 | 0.5840 [0.5655, 0.6037] ⚠floor | 0.6616 [0.6440, 0.6794] | **0.6899 [0.6739, 0.7076]** | 0.6600 [0.6425, 0.6780] | 0.6831 [0.6653, 0.7005] |
+| v7 | phase1_2 | 0.2487 | 0.4438 | 0.4580 | 0.5001 | 0.5069 | **0.5148** | 0.4859 |
+| **v7** | **closeout** | 0.2487 | 0.4438 | 0.4691 [0.4456, 0.4940] ⚠floor | 0.5071 [0.4845, 0.5317] | **0.5143 [0.4916, 0.5384]** | 0.4906 [0.4680, 0.5169] | 0.4918 [0.4682, 0.5179] |
+
+**fill — CRPS ↓**
+
+| world | run | naive | LightGBM | h⁰ | MP h⁴ | SHARE h⁴ |
+|---|---|---|---|---|---|---|
+| v6 | phase1_2 | 0.0632 | 0.0599 | 0.0594 | 0.0603 | 0.0594 |
+| **v6** | **closeout** | 0.0632 | 0.0599 [0.0580, 0.0617] | 0.0595 [0.0576, 0.0614] | 0.0598 [0.0579, 0.0618] | **0.0588 [0.0570, 0.0607]** |
+| v7 | phase1_2 | 0.1078 | 0.0988 | 0.0990 | 0.0992 | 0.1005 |
+| **v7** | **closeout** | 0.1078 | **0.0988 [0.0969, 0.1008]** | 0.0995 [0.0974, 0.1017] | 0.1030 [0.1007, 0.1054] | 0.0992 [0.0972, 0.1015] |
+
+**fill — calibration ECE ↓** (secondary; the neural heads remain far worse calibrated than the GBM)
+
+| world | LightGBM | h⁰ | MP h⁴ | SHARE h⁴ |
+|---|---|---|---|---|
+| v6 | **0.0107** | 0.0529 | 0.0696 | 0.0361 [0.0314, 0.0414] |
+| v7 | **0.0141** | 0.0889 | 0.1745 | 0.0942 [0.0866, 0.1019] |
+
+### 3.5 What convergence changed — three reversals
+
+**(i) SHARE's shortage advantage evaporates.** This is the headline.
+
+| cell | phase1_2 margin | **closeout margin** | vs the 0.0251 band |
+|---|---|---|---|
+| v6 h¹ | +0.0103 SHARE | **−0.0016** | inside — no difference |
+| v6 h⁴ | **+0.0318 SHARE** | **−0.0068** | inside — no difference |
+| v7 h¹ | +0.0146 SHARE | **−0.0165** | inside — no difference |
+| v7 h⁴ | −0.0211 | **−0.0225** | inside — no difference |
+
+`phase1_2.md` reported SHARE winning three of four shortage cells, with v6 h⁴ its single widest
+separation anywhere. **All four margins now sit inside the seed band, and three of the four have
+changed sign.** The original result was noise on unconverged cells read against a band borrowed
+from a different metric. **On shortage there is no measurable difference between a 794k-parameter
+SHARE and an 84k-parameter HeteroMP.**
+
+**(ii) The graph contributes on fill after all.** `phase1_2` measured SHARE's fill graph share at
+−0.3% (v6) and −20.0% (v7) and concluded the graph does nothing on fill. Converged: **+16.4% and
++3.2%**, and **SHARE h⁴ on v6 now beats LightGBM outright** (0.0588 against 0.0599), which no
+configuration managed before.
+
+**(iii) HeteroMP got worse on fill v7 while SHARE got better** — 0.1030 against 0.0992, a 0.0038
+gap against a 0.0009 band. The one place an architecture difference is now resolvable on fill, it
+favours SHARE.
+
+### 3.6 Graph contribution, restated
+
+| task | world | h⁰ | MP h⁴ | SHARE h⁴ | MP share | SHARE share | phase1_2 SHARE share |
+|---|---|---|---|---|---|---|---|
+| fill | v6 | 0.0595 | 0.0598 | 0.0588 | −7.8% | **+16.4%** | −0.3% |
+| fill | v7 | 0.0995 | 0.1030 | 0.0992 | −72.0% | **+3.2%** | −20.0% |
+| shortage | v6 | 0.5840 ⚠ | 0.6899 | 0.6831 | +21.5% | **+20.4%** | +24.9% |
+| shortage | v7 | 0.4691 ⚠ | 0.5143 | 0.4918 | +11.6% | **+6.2%** | +7.7% |
+
+⚠ the shortage h⁰ reference is itself a floor, so both shortage shares are upper bounds on the
+graph's contribution: a fully converged h⁰ would raise the floor and shrink the share.
+
+---
+
+## Closeout status
+
+| # | item | status |
+|---|---|---|
+| 1 | inventory table | **BLOCKER on Phase 9, reported not fixed.** Phases 4–8 clear. No valid stock level exists in the dataset in any form; derivation is unvalidatable. Neither generator touched. |
+| 2 | `phase-3.md` annotation | **closed** |
+| 3 | per-task LR + re-runs to convergence | **closed**, with two declared deviations: the shortage sweep was not extended past its boundary optimum, and 4 fill h¹ cells were cut here and re-run in Phase 4 |
+
+**Verdict: Phase 4 may start.** The gate condition — fill and shortage having converged numbers —
+holds for 18 of 20 cells; the two exceptions are shortage h⁰ and are labelled floors wherever used.

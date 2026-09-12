@@ -798,9 +798,36 @@ and anything that assumes a fixed node set across snapshots (this graph churns �
 basis decomposition; the relation-blind attention has to be written by hand — it is not a
 standard PyG layer.
 
-**Verify** — parameter count within 5% of the ≈ 45,384 per layer computed in
-[specification §4](benchmark_specification.md#4-graph-encoder--share). A large discrepancy
-means the basis decomposition is not active and you have per-relation weights.
+**Verify** — **the 45,384 target is config-dependent and must be recomputed for the config you
+actually build.** Specification §4 derives it at **d = 64, R = 20, B = 10**. The per-layer count is
+
+```
+bases  B*d*d  +  mixing  R*B  +  self-loop  d*d (+d bias)  +  attention  2d
+```
+
+Built at the specification's own numbers this gives **45,448** against its stated 45,384 — a
+0.14% difference, which is the `W_0` bias term the specification omits. **The check passes.**
+
+Built at the config this repository actually uses — **d = 128, R = 6, B = 10**, per
+`model_plan.md` — the same formula gives **180,668 per layer**, which is 3.98× the §4 figure and
+is *correct*. Comparing a d=128 build against a d=64 target and concluding "the basis
+decomposition is not active" is the trap this check now warns about: **recompute the target, do
+not compare across configs.**
+
+| config | bases | mixing | W₀ | attn | per layer |
+|---|---|---|---|---|---|
+| spec §4: d=64, R=20 | 40,960 | 200 | 4,160 | 128 | **45,448** (§4 says 45,384) |
+| built: d=128, R=6 | 163,840 | 60 | 16,512 | 256 | **180,668** |
+
+**Schema divergences from the table above, all measured and all deliberate** — see
+[Known deviations from spec](#known-deviations-from-spec) items 6 and 7:
+
+| | 4.1 specifies | built |
+|---|---|---|
+| node types | 6 — `channel`, `supplier`, `part`, `plant`, `supplier_group`, `po_line` | **4** — `channel`, `supplier`, `part`, `plant` |
+| relations R | 20 (10 forward + 10 reverse) | **6** (3 undirected × 2) |
+| `po_line` input projection | 18 current-state features → ℝ^64 | **not built** — `po_line` nodes churn per snapshot; the Phase 1.5 cache stores one static graph per world |
+| hidden / layers | §4 table says 64 / 2 | **128 / 4**, per `model_plan.md` |
 
 ---
 
@@ -835,8 +862,23 @@ def forward(self, data):
 but its own Layer 3 work found h⁴ was the *worst* depth for both latent states that passed
 the gate. Sweep h¹…h³ per task on `mid` and record the result (**O6**).
 
-**Verify** — `len(states) == n_layers + 1`, and `states[0]` is identical to the input
-projection (no message passing has occurred).
+**Verify** — `len(states) == n_layers + 1`, and `states[0]` is identical to the input projection
+(no message passing has occurred). `ml/models/share.py` exposes both paths: `depth=k` returns one
+representation, which is what the training loop uses, and `return_all=True` returns the whole
+list, which is what this check needs.
+
+```python
+states = share(hc, rel, offs, n_nodes, src, dst, rel_ids, return_all=True)
+assert len(states) == share.n_layers + 1                 # 5
+assert torch.equal(states[0], share.inp(hc))             # h0 = input projection, exactly
+```
+
+Measured: `len(states) == 5`, and `states[0] - input_proj` has **max absolute difference 0.0**.
+
+**Use `allclose`, not `equal`, when comparing the two paths.** `depth=k` and `states[k]` agree to
+≈ 1e-7, not bitwise, because the scatter/`index_add` reductions this encoder uses are
+**non-deterministic on MPS** — two identical forward calls on identical inputs differ by ≈ 4.5e-8.
+That is the device, not the depth semantics.
 
 ---
 
@@ -1478,6 +1520,8 @@ rows per world. Build against the measured column, not the specified one.
 | 3 | `fill_rate`/`ack_gap_ratio` 81.4% null, `load_ratio` 81.8% | **5.52% / 5.52% / 0.00%** (v6), **5.95% / 5.95% / 0.00%** (v7) | [2.2](#step-22--missing-value-masking) |
 | 4 | 18 numeric columns, 13 nullable | **four columns are constant zero**, leaving 14 and 10 | below |
 | 5 | idle weeks are null and `is_active_week` mean ≈ 0.19 | idle weeks are **forward-filled**; `is_active_week` mean **0.137** (v6) / **0.114** (v7) | [2.2](#step-22--missing-value-masking) |
+| 6 | basis decomposition (B = 10) saves parameters | on this schema it **costs 1.67× more** than the per-relation weights it replaces, because R = 6 | below |
+| 7 | 6 node types, R = 20 relations | **4 node types, R = 6** — `supplier_group` and `po_line` are not in the graph | below |
 
 ### 1. The specified TCN cannot learn without residual connections
 
@@ -1530,6 +1574,61 @@ The verify step *"for a known idle week the `fill_rate` channel is 0.0"* **fails
 value. It is replaced in [2.2](#step-22--missing-value-masking) with checks that hold.
 `is_active_week` is the one channel that carries the idle/active distinction, and it must be
 promoted to an explicit value channel for the model to see it.
+
+### 6. Basis decomposition costs more than it saves on a 3-relation graph
+
+Specification §4 justifies `W_r = Σ_{b=1}^{B} a_rb V_b` this way: "With R = 20 relation types,
+per-relation weight matrices would be 20 × 64 × 64 = 81,920 parameters per layer, and the thin
+relations cannot support their own set." That arithmetic is correct **at R = 20**. This graph has
+**R = 6**, and the arithmetic reverses:
+
+```
+built config, d = 128, B = 10, R = 6
+
+  basis decomposition   B*d*d + R*B  =  10*128*128 +  6*10  =  163,900
+  free per-relation     R*d*d        =              6*128*128  =   98,304
+                                                                 --------
+  basis costs 1.67x the thing it exists to replace
+```
+
+**Break-even is at R = B.** Basis decomposition saves parameters only when there are more
+relation types than bases; at B = 10 that means R > 10. With six directed relation types
+(three undirected, doubled) it is pure overhead — 65,596 extra parameters per layer, 262,384
+across the four-layer stack, buying nothing.
+
+**B = 10 remains the specified default** and is unchanged in the code, because the specification
+fixes it and because a schema with the full 20 relations would benefit. But the measured
+consequence must be recorded: **on this graph, SHARE's advantage over a mean aggregator comes
+from the relation-blind attention, not from the basis trick.** Anything the basis decomposition
+is credited with here is mis-attributed.
+
+See [`reports/phase1_2.md`](../reports/phase1_2.md) §6 for the full parameter breakdown and §9
+for the measured SHARE-vs-HeteroMP margins.
+
+### 7. The graph has 4 node types and 6 relations, not 6 and 20
+
+Step 4.1's table names `channel`, `supplier`, `part`, `plant`, `supplier_group` and `po_line`,
+with R = 20. The graph built by `ml/data/cache.py` and `ml/models/share.py` has:
+
+| | |
+|---|---|
+| node types | **4** — channel, supplier, part, plant |
+| nodes | 17,119 = 16,072 channels + 420 suppliers + 620 parts + 7 plants |
+| relations | **6 directed** — channel ↔ {supplier, part, plant} |
+| directed edges | 96,432 |
+
+Two node types are absent, for different reasons:
+
+- **`supplier_group`** — `suppliers.supplier_group_id` exists and is populated, so this one is
+  buildable. It is simply not built. Adding it is a Phase 1.5 cache change, not a Phase 4 change.
+- **`po_line`** — these nodes **churn**: they appear and vanish per snapshot. The Phase 1.5 cache
+  stores **one static graph per world**, justified by the measurement that `sourcing_channels` is
+  time-invariant in both worlds. A churning node type is incompatible with that design, and the
+  18-feature `po_line` input projection 4.1 specifies is therefore also not built.
+
+This bounds what any graph result in this project can claim: **the measured graph contribution is
+the contribution of the channel↔supplier/part/plant structure alone.** A richer graph might
+contribute more; nothing here tests that.
 
 ---
 
