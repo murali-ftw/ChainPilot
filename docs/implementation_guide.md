@@ -895,6 +895,25 @@ That is the device, not the depth semantics.
 **Inputs** — `reporting_lag_days` from `channel_performance_weekly`; on the reference world `csv_full_seed1`
 **median 1.3 days, P90 5.7, P99 14, max 96**.
 
+> **Phase 5 measurement — the generated worlds differ, and the gate has one input.** On
+> `db/gen_v6/seed_1001` / `db/gen_v7/seed_1001`, all 16,072 channels × 535 weeks:
+>
+> | | v6 | v7 |
+> |---|---|---|
+> | `reporting_lag_days` observed | **94.6%** of channel-weeks | **94.2%** |
+> | observed on an idle week, equal to the previous week's value | **100%** | **100%** |
+> | P50 / P90 / P99 / max, days | 0.87 / **3.46** / 11.0 / **284** | 0.88 / **3.50** / 11.3 / **141** |
+>
+> The store **forward-fills the lag across idle weeks** like the rolling columns, so it is not
+> NULL on 53.5% of rows here; on an idle week it is the posting lag of the record whose values are
+> being carried, which is the record the gate is judging, and it is used as-is. The scale is
+> smaller at the centre and longer in the tail than the reference world's. And because
+> `weeks_since_last_activity` is constant zero (deviation 4), **the gate is built on
+> `reporting_lag_days` alone — degraded relative to specification §5**. The missing signal is
+> reconstructed causally from `is_active_week` (`ml/models/staleness.py`,
+> `weeks_since_last_activity`, as-of asserted by brute force and by future perturbation) and fed
+> as a plain feature, never into the gate. Measured effect: [`reports/phase-5.md`](../reports/phase-5.md) §4.
+
 > **This step used to read `staleness_days`, and that column is gone.** It conflated posting
 > lag with channel inactivity: 90% of its rows were empty weeks, so its "median 12, P90 838"
 > described how long channels had been *idle*, not how late records were posted. (The "never
@@ -941,6 +960,18 @@ and leave `x` untouched where it is missing — an absent lag is not a lag of ze
 learned prior. Initialising `w = 0` makes the layer start as a no-op, so it cannot hurt early
 training.
 
+> **The snippet above cannot learn and cannot pass this check — measured, Phase 5.**
+> - **`w = b = 0` is a dead initialisation, not a no-op.** Every unit sits exactly on relu's kink,
+>   where torch's gradient is zero: on the first backward pass `w.grad` and `b.grad` are
+>   **exactly 0.0**, so they never move and the gate stays the identity because it is stuck.
+> - **`b` is unconstrained**, so a learned `b > 0` decays a record posted with zero lag, and
+>   "at `dt = 0`, `g == 1`" stops holding.
+>
+> `ml/models/staleness.py` uses `w = softplus(·) ≥ 0` and `b = −softplus(·) ≤ 0`, which makes
+> "identity at zero lag" and "trust never rises with lag" structural, reads Δt as
+> `log1p(dt) / log1p(P90)`, and initialises so `g = 0.90` at the P90 lag — close to a no-op, with
+> live gradients. Verified: identity at `dt = 0` and wherever Δt is missing, **bitwise**.
+
 ---
 
 ### Step 5.1 — Quantile head (capacity strain)
@@ -954,6 +985,18 @@ training.
 **Inputs** — `db/gen_v7/seed_1001/training_labels.csv` filtered to
 `task = 'capacity_strain'` — **1,005,609 rows**, `entity_type = 'channel'`, `label_value` ∈
 [0.000, 1.000], median 1.000, **31.7% censored**
+
+> **Phase 5 measurement, gen_v6 / gen_v7 — this label is utilisation, and O3 below is resolved.**
+> **207,500** rows per world, **152,500** in the 2019–2025 fit window, 2,500 channels per
+> snapshot. The generator writes the supplier's **mean utilisation over the forward months,
+> clipped at 3.0** (`generator_v6.py` §14 labels): median **0.596 (v6) / 0.749 (v7)**, **12.3% /
+> 29.3% of rows above 1.0**, and constant within supplier × snapshot. So `model_plan.md` §5's
+> ">1 means trouble" reading holds on these worlds; "fill rate capped at 1" describes the reference
+> world. `label_censored` is an **independent 4.0% coin flip** with the value present on every
+> row — it carries no censoring information and is not used. `horizon_days` is **90 on every
+> row**: the 30- and 60-day targets are not in the table, so Phase 5 builds the head with the
+> horizon count as an argument and trains **H = 1**. Days-to-exceed needs at least two horizons and
+> is **not derivable** until those targets exist.
 
 **Implementation**
 
@@ -986,6 +1029,13 @@ from inside the 91-day window (specification §11.5).
 **Verify** — zero quantile crossings on held-out data (gate G6). Pinball loss at q=0.5 should
 be lower than at q=0.1 and q=0.9 on a well-fit model.
 
+> **The second check is backwards — measured, Phase 5.** For a calibrated forecaster the expected
+> pinball loss is *largest* at the median: for a Gaussian it is σ·φ(z_q), which peaks at q = 0.5.
+> On v6 test every forecaster agrees: global quantiles 0.040 / **0.113** / 0.066 at q = 0.1 / 0.5 /
+> 0.9, per-supplier 0.030 / **0.080** / 0.045, LightGBM 0.028 / **0.081** / 0.048. Check instead
+> that P10–P90 covers ≈80% on held-out rows, and compare pinball per quantile against a floor —
+> never across quantiles.
+
 ---
 
 ### Step 5.2 — Binned CDF head (fill rate)
@@ -1003,9 +1053,27 @@ be lower than at q=0.1 and q=0.9 on a well-fit model.
 
 Bins: `b0 = {0}`, `b1 = (0, 0.05]`, …, `b18 = (0.95, 1)`, `b19 = {1}`.
 
+> **This bin list does not add up, and the code does not follow it.** Two point masses plus
+> width-0.05 bins over (0, 1) is **22** cells, not 20 — `b1 … b18` at width 0.05 reach only 0.90.
+> `ml/models/heads.py` builds **22 outputs**: `{0}`, twenty interior bins `[k/20, (k+1)/20) ∩ (0, 1)`,
+> `{1}`. The interior bins are **left-closed**, so the partition refines the Phases 2–4 legacy
+> 20-bin head exactly — legacy bin 0 = cells {0, 1}, legacy bin 19 = cells {20, 21}, verified on all
+> 244,000 labels in each world — which is what lets the old head, the new head and LightGBM be
+> scored on one partition. `model_plan.md` §6 carries the same list and the same arithmetic slip.
+
 Measured label distribution over the **uncensored** population (1,127,491 rows): **91.5% at
 exactly 1.0**, **1.8% at exactly 0.0**, 6.7% interior. Bins 0 and 19 exist to hold those point masses; a Gaussian head is confidently
 wrong at both ends, which are the two outcomes a planner cares about.
+
+> **Phase 5 measurement, gen_v6 / gen_v7, fit window, 244,000 rows per world:** exactly 0
+> **1.9% / 1.9%**, interior **7.5% / 14.9%**, exactly 1 **90.7% / 83.1%**. **43.6% / 46.2%** are
+> censored, not 12.3%, because `label_censored` here means *not arrived by the horizon* — and on
+> those rows `label_value` is the generator's **eventual** fill (`fv = received / ordered`,
+> `cen = arrival > t1`), not the fill observed to date. The interval-censoring treatment below
+> therefore has nothing to act on: there is no observed-so-far value in the table. Phases 2–5 train
+> and score on every row as emitted, so every model compared shares one population. That a
+> censored row's target is unknowable at the horizon in production is recorded as open in
+> [`reports/phase-5.md`](../reports/phase-5.md).
 
 ```python
 def crps_loss(logits, y_bin_index):
@@ -1066,6 +1134,14 @@ Then, on held-out data, predicted P(bin 19) ≈ the observed rate of `fill_rate 
 **settled** rows. Band coverage: the P10–P90 interval contains 80% ± 5pp of outcomes
 (gate G5).
 
+> **Do not use the band-coverage check.** On this label it cannot fail: the empirical CDF jumps from
+> ≈0.08 to 1.0 at the top bin, every nominal level from 0.1 to 0.9 maps to the same threshold, and
+> coverage error pins at exactly 0.5 for any forecaster, LightGBM included
+> ([`reports/phase1_2.md`](../reports/phase1_2.md) §7). Use ECE by bin reliability,
+> `Σ_b |mean P(b) − freq(b)|`, on the 22-cell partition, with the legacy 20-bin figure beside it for
+> continuity. That ECE is *marginal* — a forecaster emitting the training marginal on every row
+> scores near zero — so report a conditional reliability of P(fill = 1) alongside it.
+
 ---
 
 ### Step 5.3 — Discrete-time hazard head (arrival timing)
@@ -1079,6 +1155,17 @@ Then, on held-out data, predicted P(bin 19) ≈ the observed rate of `fill_rate 
 **Inputs** — `training_labels` where `task = 'arrival_week'` — **1,310,934 rows**,
 `entity_type = 'po_line'`, `label_value` ∈ 1…13, **8.4% censored**, `censor_time` carries
 weeks observed so far
+
+> **Phase 5 measurement, gen_v6 / gen_v7 — none of these figures hold.** 244,000 fit-window rows
+> per world. `label_value` is the week of first receipt counted **from the snapshot** (`pa − t0`),
+> not from the promise date, and the sampled PO lines are created *after* the snapshot, so week 1
+> never occurs: observed arrivals run **2–12**, rising to a peak at week 12. **43.6% / 46.2% are
+> censored**, and censoring is administrative at the 12-week horizon — every censored row carries
+> `label_value` **13–92**, the generator's eventual week, a value from beyond the horizon. It must
+> not enter the likelihood: the code clamps `T` to 13, so a censored row contributes exactly its 12
+> survived weeks. `censor_time` is **90 on every censored row and 0 on every observed row** — a
+> constant in days, not weeks observed so far. The measured distribution and the G4 "always predict
+> w = 1" baseline below describe the reference world; on these worlds that baseline is vacuous.
 
 **Implementation**
 
@@ -1522,6 +1609,10 @@ rows per world. Build against the measured column, not the specified one.
 | 5 | idle weeks are null and `is_active_week` mean ≈ 0.19 | idle weeks are **forward-filled**; `is_active_week` mean **0.137** (v6) / **0.114** (v7) | [2.2](#step-22--missing-value-masking) |
 | 6 | basis decomposition (B = 10) saves parameters | on this schema it **costs 1.67× more** than the per-relation weights it replaces, because R = 6 | below |
 | 7 | 6 node types, R = 20 relations | **4 node types, R = 6** — `supplier_group` and `po_line` are not in the graph | below |
+| 8 | the staleness gate has two inputs; lag NULL on idle weeks; the guide's `w = b = 0` init | **one input**; lag **forward-filled** (94.6% observed); that init receives **zero gradient** | [5.0](#step-50--staleness-gating-layer) |
+| 9 | capacity label is fill capped at 1, three horizons | **supplier utilisation clipped at 3.0**, one horizon (90 d), censor flag is noise | [5.1](#step-51--quantile-head-capacity-strain) |
+| 10 | 20 fill bins including two point masses | **22 cells** — the 20-bin list is arithmetically short; censored labels are eventual values | [5.2](#step-52--binned-cdf-head-fill-rate) |
+| 11 | arrival 1–13 from promise, 8.4% censored | **2–12 from the snapshot, 43.6–46.2% censored**, censored labels are eventual weeks | [5.3](#step-53--discrete-time-hazard-head-arrival-timing) |
 
 ### 1. The specified TCN cannot learn without residual connections
 

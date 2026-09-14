@@ -349,3 +349,20 @@ graph's contribution: a fully converged h⁰ would raise the floor and shrink th
 
 **Verdict: Phase 4 may start.** The gate condition — fill and shortage having converged numbers —
 holds for 18 of 20 cells; the two exceptions are shortage h⁰ and are labelled floors wherever used.
+
+---
+
+## Addendum — Phase 5 Stage 0 (2026-09-14)
+
+The Phase 5 brief described this file as stopping after item 2 with a `WALLCLOCK_PLACEHOLDER` in
+its header. **That was no longer true when Phase 5 started**: the header, both sweeps, the
+convergence table, the noise bands and the status table above were completed during Phase 4
+(commit `a55168d`). No placeholder remains. What the brief asked for, and what actually applies:
+
+| half | brief | what exists | Phase 5 decision |
+|---|---|---|---|
+| **shortage** | sweep LR, re-run 10 cells at cap 120 / patience 8, report | **done** — §3.1 sweep, §3.2 10 cells, §3.4 scores | **stands.** Its head is not changed by Phase 5. Two declared deviations stay open and were **not** run: the sweep optimum on its bottom boundary (1.25e-4) was not extended, and both h⁰ cells are floors at epoch 119/120. Cost ≈ 2.3 GPU-hours; the Phase 5 brief cuts the shortage diagnostic first when the budget is tight, and it was. |
+| **fill** | abandon — retuning a head Phase 5 replaces is wasted | **already run** — §3.1 sweep (5e-4), 6 cells converged, 4 h¹ cells in Phase 4 | **cannot be abandoned retroactively; superseded instead.** Every fill number above describes the Phases 2–4 plain cross-entropy head over 20 uniform bins. Phase 5 replaces that head, gives the new head its own sweep at h⁰, and reports old against new in [`reports/phase-5.md`](phase-5.md). The fill rows above remain valid as the old head's record and are not re-run. |
+
+**Status of item 3 after Phase 5: closed for fill (superseded by Phase 5), closed with two open
+deviations for shortage.**
