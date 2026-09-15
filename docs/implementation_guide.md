@@ -1372,6 +1372,27 @@ training_labels.csv                      task, label_value, label_censored
 **Verify** — B3 achieves C-index ≈ 0.5 by construction (no discrimination) but a strong
 Brier score. If the neural head cannot beat it on C-index, gate G4 fails.
 
+> **Phase 7 measurement — three of these four definitions do not fit the generated worlds.**
+> - **B3 is vacuous.** "Always predict w = 1" assumes week 1 carries 82.2% of arrivals. On `gen_v6` / `gen_v7`
+>   week 1 **never occurs**: observed arrivals run 2–12 weeks from the snapshot (step 5.3), because the sampled PO
+>   lines are created after it. Phase 7 replaces B3 with two floors that do exist here: the **training-fold marginal
+>   arrival-week distribution** (C-index 0.5 by construction, the calibration floor), and **promise-date-only**. The
+>   second is what a planner already holds without any model, and Phase 5 §7 showed it carries most of the lateness
+>   ROC-AUC on its own.
+> - **B2 does not fit capacity.** On these worlds `capacity_strain` is supplier **utilisation** clipped at 3.0, not a
+>   fill rate (step 5.1). `fill_rate_last13` is not its point prediction. Capacity's non-learned floors are empirical
+>   P10 / P50 / P90 per global, per supplier and per channel (Phase 5); the last two are identity-keyed and not
+>   deployable.
+> - **B2 for fill is read as-of, from active weeks.** `fill_rate` in the weekly store is forward-filled across idle
+>   weeks (step 2.2), so "the last 52 weekly values" are mostly repeats. The floor built here is the empirical
+>   22-cell distribution of the channel's own **active-week** `fill_rate` values in the 52 weeks ending at t₀.
+> - **B4 is out of scope.** No demand-drift head is in the shipped configuration (`ml/configs/shipped.json`).
+>
+> **Two rules this step predates (Phases 5–6):** a baseline compared against a recalibrated head goes through the
+> **same validation-fitted recalibration protocol** — LightGBM-22 *worsens* under it (Phase 5 Addendum A) — and every
+> baseline is scored by **the bundle scorer on row-identical test rows**, asserted, with 1,000-resample intervals.
+> Measured in `reports/phase-7.md`.
+
 ---
 
 ### Step 7.2 — LightGBM on flat features (B5)
@@ -1399,6 +1420,21 @@ multiclass proxy for CRPS — so the comparison measures the same thing.
 **Verify** — trains in under two minutes on `mid`. If it takes much longer, the feature
 matrix is being rebuilt per fold instead of cached.
 
+> **Phase 7 measurement.**
+> - **The graph statistics are not the ones quoted.** On `gen_v6` / `gen_v7`: channels per supplier median **38**,
+>   P90 **46**, max **55** (not 12 / 56 / 168); channels per part median **26** (not 2); suppliers per group median
+>   **5** (not 4); **9.4%** of part × plant pairs are sole-sourced. `supplier_upstream.is_sole_source` exists.
+> - **The LightGBM baselines Phases 2–5 compared against were not this baseline.** They used supplier / part / plant
+>   **integer codes** as features — identity keys, not flattened structure — which a model shipped to an unseen Rane
+>   entity cannot use. Phase 7 builds B5 as specified: as-of channel features, static channel attributes and
+>   flattened graph counts, **no identity keys**. The identity-keyed LightGBM-22 is kept, labelled non-deployable,
+>   because it is the model Phase 5's fill-calibration claims were made against.
+> - **"Same losses"** holds for fill (22-class multiclass) and capacity (quantile objective at 0.1 / 0.5 / 0.9).
+>   **Arrival's LightGBM is a point regressor on observed rows**; it has no distribution to score for calibration and
+>   no censored rows in its loss, unlike the hazard head. That asymmetry is labelled wherever it is compared.
+> - **LightGBM and torch cannot share a process on this machine** (Phase 5: whichever runs second segfaults). Baselines
+>   are fitted in a torch-free process (`ml/baselines/phase7_fit.py`) and scored in a separate one.
+
 ---
 
 ### Step 7.3 — h⁰ ablation (B6) — mandatory
@@ -1425,6 +1461,11 @@ by a wide margin.
 **Verify** — h⁰ must be strictly worse than the full model on at least one task, or the
 graph layers are not connected. Gate **G7** requires this number published per task; there is
 no minimum value.
+
+> **Phase 7: this ablation already exists and is not re-trained.** Every task has h⁰ cells at the shipped rate from
+> Phase 5 Addendum B and Phase 6 bundles. The ratio is computed from them. `random` is 0.5 for C-index, the test base
+> rate for PR-AUC, and — for loss metrics, where "random" is undefined — the global naive floor. **Fill ships at h⁰**,
+> so its full model *is* h⁰ and the ratio is zero by construction; its graph variants are reported beside it.
 
 ---
 
@@ -1668,6 +1709,9 @@ rows per world. Build against the measured column, not the specified one.
 | 12 | 115 snapshots at 28 days; regime flag available; covid excluded | **83 at 6-week spacing**; regime only in `calendar`; covid (5 of 44 training snapshots) **not** excluded, to keep Phases 2–6 on one population | [6.1](#step-61--time-based-folds) |
 | 13 | bit-for-bit reproduction with deterministic algorithms | **strict mode raises on MPS**; identical forwards differ by 3e-8; reproduction is `allclose` and within the seed band | [6.2](#step-62--seeding-and-determinism) |
 | 14 | a checkpoint stamped with five identifiers | stamps differ from the guide's values; the shippable unit is a **bundle** with recalibration and drift baseline | [6.3](#step-63--loop-and-checkpointing) |
+| 15 | B3 "always predict w = 1" covers 82.2% of arrivals | **week 1 never occurs**; B3 replaced by the training marginal and promise-date-only | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
+| 16 | B5 flattens graph structure; channels per supplier median 12 | earlier LightGBMs used **identity codes**; median is **38**; B5 built without identity keys | [7.2](#step-72--lightgbm-on-flat-features-b5) |
+| 17 | baselines compared directly against models | baselines go through the **same recalibration protocol** and **the bundle scorer on asserted-identical rows** | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
