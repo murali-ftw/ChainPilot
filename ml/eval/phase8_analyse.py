@@ -86,6 +86,9 @@ def compare(a, b, lower_better):
     A, B = band(a), band(b)
     if not A or not B:
         return dict(verdict="missing", a=A, b=B)
+    if A["n"] < 2 or B["n"] < 2:
+        # one value has no spread: "disjoint" would be trivially true. No band, no comparison (brief rule).
+        return dict(verdict="band not measured", a=A, b=B, margin=A["mean"] - B["mean"])
     margin = A["mean"] - B["mean"]
     if A["max"] < B["min"]:
         better = "a" if lower_better else "b"
@@ -104,7 +107,8 @@ def dist(xs):
 
 
 def tally(verdicts):
-    return {v: sum(1 for x in verdicts if x == v) for v in ("a better", "not distinguishable", "b better", "missing")}
+    return {v: sum(1 for x in verdicts if x == v)
+            for v in ("a better", "not distinguishable", "b better", "band not measured", "missing")}
 
 
 def status(excess, B):
