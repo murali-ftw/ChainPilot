@@ -360,11 +360,41 @@ def run_world(w, log, only=None):
              dict(identity_keyed=True, diagnostic_only=True))
 
 
+# ================================================================== Phase 8.2: capacity B5 on every rolling origin
+def run_capacity_origins(w, origins, log):
+    """Guide B5 quantile LightGBM, flat graph, no identity keys -- Phase 7's capacity fit, re-fitted per origin with
+    early stopping on that origin's own validation slice. Files go to the backtest directory for the single scorer."""
+    global OUT
+    OUT = os.path.join(ARTIFACTS, "backtest", "preds")
+    Wd = World(w)
+    lb = labels(w, "capacity_strain")
+    y = lb.label_value.to_numpy(float)
+    Xflat = Wd.channel_features(lb, with_ids=False, flat=True)
+    for k in origins:
+        tr, va, te = FO.rolling_split(lb.snapshot_date, k)
+        FO.assert_no_leak(lb.snapshot_date, tr, va, te)
+        for s in SEEDS:
+            ms = [lgbm_fit("quantile", Xflat, y, tr, va, s, alpha=a) for a in QS]
+            emit(w, "capacity_strain", f"o{k}_b5flat_q_s{s}", lb, va, te,
+                 lambda o: (np.stack([m.predict(Xflat.iloc[o]) for m in ms], 1), None), log,
+                 dict(best_iters=[int(m.best_iteration_ or 400) for m in ms], seed=s, origin=k))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--worlds", default="v6,v7")
     ap.add_argument("--only", default=None, help="comma list of fill,arrival,capacity,shortage")
+    ap.add_argument("--origins", default=None, help="Phase 8.2: comma list of rolling origins -> capacity B5 per origin")
     a = ap.parse_args()
+    if a.origins:
+        LOG = os.path.join(ARTIFACTS, "backtest", "phase8_b5_fit.json"); os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        blog = json.load(open(LOG)) if os.path.exists(LOG) else {}
+        for w in a.worlds.split(","):
+            t = time.time(); run_capacity_origins(w, [int(x) for x in a.origins.split(",")], blog)
+            print(f"{w} capacity B5 origins {a.origins} done in {time.time() - t:.0f}s", flush=True)
+            json.dump(blog, open(LOG, "w"), indent=1)
+        assert "torch" not in sys.modules
+        sys.exit(0)
     log = json.load(open(LOG)) if os.path.exists(LOG) else {}
     t_all = time.time()
     for w in a.worlds.split(","):

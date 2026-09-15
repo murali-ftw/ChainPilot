@@ -42,6 +42,7 @@ from device import DTYPE, peak_rss_gb
 DEV = P5.DEV
 W12 = P5.HORIZON_WEEKS
 BUNDLES = os.path.join(ARTIFACTS, "bundles")
+BACKTEST_BUNDLES = os.path.join(ARTIFACTS, "backtest", "bundles")     # Phase 8.2 rolling-origin bundles
 ENTITY = {"arrival_week": "po_line", "fill_rate": "po_line", "capacity_strain": "channel", "shortage_qty": "part_plant"}
 MODEL_NAME = {t: f"hades-{t}" for t in ENTITY}          # model_outputs has no task column: model_name carries it
 NONDET_OPS = set()
@@ -88,7 +89,24 @@ def snapshot_ids(world):
 
 
 def bundle_dir(cfg):
-    return os.path.join(BUNDLES, cfg["task"], f"{cfg['world']}_{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}")
+    name = f"{cfg['world']}_{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
+    if cfg.get("origin"):
+        return os.path.join(BACKTEST_BUNDLES, cfg["task"], f"o{cfg['origin']}", name)
+    return os.path.join(BUNDLES, cfg["task"], name)
+
+
+def split_of(cfg, dates):
+    """The fixed split, or a Phase 8.2 rolling origin when cfg carries one. No-leak asserted on both."""
+    if cfg.get("origin"):
+        tr, va, te = FO.rolling_split(dates, cfg["origin"])
+    else:
+        tr, va, te = FO.fixed_split(dates)
+    FO.assert_no_leak(dates, tr, va, te)
+    return tr, va, te
+
+
+def val_name(cfg):
+    return f"validation slice of rolling origin {cfg['origin']}" if cfg.get("origin") else "validation (2024)"
 
 
 # ================================================================== config
@@ -104,6 +122,8 @@ def resolve(args):
                drift_statistic=t.get("drift_statistic", DEFAULT_STAT[args.task]),
                config_file=args.config, config_version=base.get("version"), tag=args.tag or "")
     assert not cfg["gate"] and not cfg["wsla"], "shipped configuration: staleness gate and reconstructed feature are OFF"
+    if getattr(args, "origin", None):
+        cfg["origin"] = int(args.origin)                   # only present on backtest cells: fixed-split configs unchanged
     return cfg
 
 
@@ -115,8 +135,7 @@ def train(cfg, verbose=False):
     task, w = cfg["task"], cfg["world"]
     seed_all(cfg["seed"])
     lb = P5.labels(w, task)
-    tr, va, te = FO.fixed_split(lb.snapshot_date)
-    FO.assert_no_leak(lb.snapshot_date, tr, va, te)
+    tr, va, te = split_of(cfg, lb.snapshot_date)
     D = P5.device_inputs(w, np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
     ymu, ysd = 0.0, 1.0
     if task == "capacity_strain":
@@ -324,15 +343,19 @@ def finish_bundle(cfg, model, D, lb, split, log, trained_by):
     np.savez_compressed(os.path.join(out, "preds_test.npz"), **{k: v for k, v in pt.items() if not k.startswith("_")})
     # 5-6
     rec = fit_recalibration(task, pv)
+    if cfg.get("origin"):
+        rec["fitted_on"] = val_name(cfg)                   # refitted on this origin's own validation slice, never carried
     json.dump(rec, open(os.path.join(out, "recalibration.json"), "w"), indent=1)
     rv, rt = apply_recalibration(rec, task, pv), apply_recalibration(rec, task, pt)
     # 7
-    base = dict(statistic=cfg["drift_statistic"], fold="validation (2024)", n_rows=int(len(pv["Y"])),
+    base = dict(statistic=cfg["drift_statistic"], fold=val_name(cfg), n_rows=int(len(pv["Y"])),
                 snapshots=sorted(str(d.date()) for d in pd.to_datetime(lb.snapshot_date[va].unique())),
                 values=drift_stats(task, pv, rv), label_free=True)
     json.dump(base, open(os.path.join(out, "drift_baseline.json"), "w"), indent=1)
     # 8
     mo = model_outputs(cfg, lb, te, pt, rt, stmp)
+    if cfg.get("origin"):
+        mo["confidence_basis"] = mo.confidence_basis.str.replace("the 2024 validation fold", val_name(cfg), regex=False)
     mo.to_csv(os.path.join(out, "model_outputs.csv.gz"), index=False)
     metrics = dict(test=test_metrics(task, pt, rt), invariants=invariants(task, pt, lb),
                    test_drift_values_label_free=drift_stats(task, pt, rt))
@@ -340,7 +363,7 @@ def finish_bundle(cfg, model, D, lb, split, log, trained_by):
               default=lambda o: o.item() if hasattr(o, "item") else str(o))
     json.dump({**log, "trained_by": trained_by, "nondeterministic_ops_warned": sorted(NONDET_OPS),
                "peak_rss_gb": peak_rss_gb()}, open(os.path.join(out, "train_log.json"), "w"), indent=1)
-    json.dump({**cfg, "stamps": stmp, "split": FO.describe_fixed(), "HP": TS.HP,
+    json.dump({**cfg, "stamps": stmp, "split": FO.describe_origin(cfg["origin"]) if cfg.get("origin") else FO.describe_fixed(), "HP": TS.HP,
                "files": ["checkpoint.pt", "normaliser.npz", "preds_val.npz", "preds_test.npz", "recalibration.json",
                          "drift_baseline.json", "model_outputs.csv.gz", "metrics.json", "train_log.json"],
                "complete": True}, open(os.path.join(out, "config.json"), "w"), indent=1)
@@ -429,7 +452,7 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
     B = load_bundle(bundle); cfg = B["cfg"]; task = cfg["task"]
     H = load_bundle(h0_bundle) if h0_bundle else None
     lb = P5.labels(cfg["world"], task)
-    tr, va, te = FO.fixed_split(lb.snapshot_date)
+    tr, va, te = split_of(cfg, lb.snapshot_date)
     mask = {"test": te, "val": va}[fold]
     D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
     assert np.allclose(D["norm_mu"], B["norm"]["mu"]) and np.allclose(D["norm_sd"], B["norm"]["sd"]), \
@@ -512,6 +535,7 @@ if __name__ == "__main__":
     ap.add_argument("--task"); ap.add_argument("--world"); ap.add_argument("--seed", default=7)
     ap.add_argument("--arch", default=None); ap.add_argument("--depth", type=int, default=None); ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--origin", type=int, default=None, help="Phase 8.2 rolling origin 1-8; omit for the fixed split")
     ap.add_argument("--from-preds", default=None)
     ap.add_argument("--bundle", default=None); ap.add_argument("--h0-bundle", default=None); ap.add_argument("--fold", default="test")
     ap.add_argument("--max-epochs", type=int, default=None, help="smoke runs only; shipped runs use the config's cap")

@@ -80,6 +80,51 @@ def assert_rolling_origins(dates):
     return out
 
 
+# ================================================================== Phase 8.2 — the origins, run
+# Specification §9.2 gives each origin a training cut and an evaluation window, but no validation slice. The loop needs
+# one (early stopping, recalibration, drift baseline), so the 12 months before the cut are carved out of training as
+# validation — the same length as the fixed split's 2024, so recalibration sees a full seasonal cycle. Evaluation is
+# the specified window, untouched.
+VAL_MONTHS = 12
+
+
+def origin_windows(k):
+    _, through, lo, hi = ROLLING_ORIGINS[k - 1]
+    through = pd.Timestamp(through)
+    val_from = through - pd.DateOffset(months=VAL_MONTHS)
+    return dict(origin=k, train=(FIT_LO, val_from), validation=(val_from, through), test=(pd.Timestamp(lo), pd.Timestamp(hi)))
+
+
+def rolling_split(dates, k):
+    """-> tr, va, te masks. train: FIT_LO <= d <= val_from; validation: val_from < d <= cut; test: the origin's window."""
+    o = origin_windows(k)
+    d = pd.to_datetime(pd.Series(dates))
+    tr = ((d >= o["train"][0]) & (d <= o["train"][1])).to_numpy()
+    va = ((d > o["validation"][0]) & (d <= o["validation"][1])).to_numpy()
+    te = ((d >= o["test"][0]) & (d <= o["test"][1])).to_numpy()
+    return tr, va, te
+
+
+def describe_origin(k):
+    o = origin_windows(k)
+    f = lambda a, b, lo_open=False: f"{a.date()} {'<' if lo_open else '<='} d <= {b.date()}"
+    return dict(kind="rolling_origin", origin=k, train=f(*o["train"]), validation=f(*o["validation"], lo_open=True),
+                test=f(*o["test"]), fit_window=list(FIT_WINDOW), covid_excluded=False, validation_months=VAL_MONTHS)
+
+
+def label_window_overlap(snapshot_dates, window_end, tr, va, te):
+    """Diagnostic, not an assertion: training / validation rows whose label window ends on or after the first evaluation
+    date. The fixed split every prior phase used has the same property (a 2023-12 training row's outcome lands in 2024),
+    so asserting it would exclude the shipped split as well; it is measured and reported instead."""
+    end = pd.to_datetime(pd.Series(window_end)).to_numpy()
+    d = pd.to_datetime(pd.Series(snapshot_dates)).to_numpy()
+    ev0, va0 = d[te].min(), d[va].min()
+    return dict(train_rows_label_end_in_or_after_validation=int((tr & (end >= va0)).sum()),
+                train_rows_label_end_in_or_after_test=int((tr & (end >= ev0)).sum()),
+                validation_rows_label_end_in_or_after_test=int((va & (end >= ev0)).sum()),
+                max_label_window_days=int(((end - d).astype("timedelta64[D]").astype(int)).max()))
+
+
 def covid_snapshots(world):
     """Snapshot dates on which any plant is flagged covid. Implemented for specification §9.4; not applied."""
     cal = pd.read_csv(os.path.join(WORLDS[world], "calendar.csv"), usecols=["date", "regime_flag"])

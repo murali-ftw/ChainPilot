@@ -247,10 +247,70 @@ def ablation(S, MOD):
     return rows
 
 
+# ================================================================== Phase 8.2 backtest -- the same scorer, other files
+BT_PREDS = os.path.join(ARTIFACTS, "backtest", "preds")
+BT_OUT = os.path.join(ARTIFACTS, "backtest", "phase8_scores.json")
+BT_NAME = re.compile(r"^(RECAL_|PROMISE_)?(v6|v7)_(arrival_week|fill_rate|capacity_strain|shortage_qty)_(o\d)_(.+)_(val|test)\.npz$")
+
+
+def backtest_assert_rows():
+    """Every prediction file for one (world, task, origin, fold) must carry identical labels, censoring, promise offset
+    and -- where recorded -- entity order. Model bundles and torch-free LightGBM files are checked against each other."""
+    groups = {}
+    for f in sorted(glob.glob(os.path.join(BT_PREDS, "*.npz"))):
+        m = BT_NAME.match(os.path.basename(f))
+        assert m, f"unparseable backtest file {f}"
+        groups.setdefault((m.group(2), m.group(3), m.group(4), m.group(6)), []).append(f)
+    checks = []
+    for key, files in sorted(groups.items()):
+        ref = np.load(files[0])
+        ent_ref = next((np.load(f)["entity"] for f in files if "entity" in np.load(f).files), None)
+        for f in files:
+            z = np.load(f)
+            assert np.array_equal(z["Y"], ref["Y"]), f"labels differ: {f} vs {files[0]}"
+            if key[1] == "arrival_week":
+                assert np.array_equal(z["EV"].astype(bool), ref["EV"].astype(bool)), f"censoring differs: {f}"
+                assert np.allclose(z["AUX"], ref["AUX"], equal_nan=True), f"promise offset differs: {f}"
+            if "entity" in z.files and ent_ref is not None:
+                assert np.array_equal(z["entity"].astype(str), ent_ref.astype(str)), f"entity order differs: {f}"
+        checks.append(dict(group="|".join(key), files=len(files), rows=int(len(ref["Y"])), entity_checked=ent_ref is not None))
+    return checks
+
+
+def backtest_main(workers):
+    t0 = time.time()
+    R = {"row_identity": backtest_assert_rows()}
+    print(f"backtest row identity asserted on {sum(c['files'] for c in R['row_identity'])} files in {len(R['row_identity'])} groups", flush=True)
+    specs = []
+    for f in sorted(glob.glob(os.path.join(BT_PREDS, "*_test.npz"))):
+        pre, w, task, o, name, _ = BT_NAME.match(os.path.basename(f)).groups()
+        pre = pre or ""
+        kind = ("arrival_promise" if pre == "PROMISE_" else "arrival_dist") if task == "arrival_week" else \
+               {"fill_rate": "cells22", "capacity_strain": "quantile", "shortage_qty": "binary"}[task]
+        spec = dict(kind=kind, path=f, label=f"{w}|{task}|{pre}{o}_{name}")
+        if kind == "arrival_promise":
+            spec["const"] = 1.0                                           # a constant: lateness ranks on -promise alone
+        specs.append(spec)
+    S = {}
+    with ProcessPoolExecutor(workers) as ex:
+        for i, (lab, out) in enumerate(ex.map(score_job, specs), 1):
+            S[lab] = out
+            if i % 25 == 0:
+                print(f"  scored {i}/{len(specs)} ({time.time() - t0:.0f}s)", flush=True)
+    R["scores"] = S
+    R["bands"] = bands(S)
+    assert R["bands"], "bands() returned nothing -- see ml/tests/test_phase7_bands.py"
+    json.dump(R, open(BT_OUT, "w"), default=lambda o: o.item() if hasattr(o, "item") else str(o))
+    print(f"DONE: {len(S)} backtest score sets, {len(R['bands'])} bands in {time.time() - t0:.0f}s -> {BT_OUT}", flush=True)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--backtest", action="store_true", help="Phase 8.2: score ml/artifacts/backtest/preds instead")
     a = ap.parse_args()
+    if a.backtest:
+        backtest_main(a.workers); sys.exit(0)
     t0 = time.time()
     R = {"row_identity": assert_rows()}
     print(f"row identity asserted on {len(R['row_identity'])} files", flush=True)

@@ -175,6 +175,10 @@ def capacity_scores(Q, y, n_boot=1000, seed=11):
     out["pinball_mean"] = (float(mean_rows.mean()),) + bootstrap_ci(lambda i: mean_rows[i].mean(), n, n_boot, seed)
     cov = ((y >= Q[:, 0]) & (y <= Q[:, 2])).astype(float)
     out["coverage80"] = (float(cov.mean()),) + bootstrap_ci(lambda i: cov[i].mean(), n, n_boot, seed)
+    # empirical exceedance (Phase 8): nominal 10% above P90 and 10% below P10; additive keys, no existing number changes
+    above = (y > Q[:, 2]).astype(float); below = (y < Q[:, 0]).astype(float)
+    out["exceed_p90"] = (float(above.mean()),) + bootstrap_ci(lambda i: above[i].mean(), n, n_boot, seed)
+    out["below_p10"] = (float(below.mean()),) + bootstrap_ci(lambda i: below[i].mean(), n, n_boot, seed)
     cross = ((Q[:, 0] > Q[:, 1]) | (Q[:, 1] > Q[:, 2])).astype(float)
     out["crossing_rate"] = (float(cross.mean()),) + bootstrap_ci(lambda i: cross[i].mean(), n, n_boot, seed)
     out["mae_p50"] = (float(np.abs(y - Q[:, 1]).mean()),)
