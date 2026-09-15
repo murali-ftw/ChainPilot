@@ -310,7 +310,8 @@ def train_cell(world, task, lr, seed=7, arch="none", depth=0, gate=False, wsla=F
     return model, D, lb, info
 
 
-def run(world, task, lr, seed, arch, depth, gate, wsla, tag, grid, max_epochs, patience, fill_loss="rps"):
+def run(world, task, lr, seed, arch, depth, gate, wsla, tag, grid, max_epochs, patience, fill_loss="rps",
+        pred_dir=PRED):
     rows = json.load(open(grid)) if os.path.exists(grid) else []
     key = dict(world=world, task=task, head=HEAD_OF[task], arch=arch, depth=depth, seed=seed,
                lr=lr, gate=int(gate), wsla=int(wsla))
@@ -334,10 +335,15 @@ def run(world, task, lr, seed, arch, depth, gate, wsla, tag, grid, max_epochs, p
         info["gate_diag"] = dict(test=pr.pop("_gate"), w=[float(x) for x in w_], b=[float(x) for x in b_],
                             prior=[float(x) for x in model.gate.prior],
                             features=[D["names"][i] for i in D["gate_cols"]])
-    os.makedirs(PRED, exist_ok=True)
-    f = os.path.join(PRED, f"{world}_{task}_{HEAD_OF[task]}_{arch}_h{depth}_s{seed}_lr{lr:g}"
+    os.makedirs(pred_dir, exist_ok=True)
+    f = os.path.join(pred_dir, f"{world}_{task}_{HEAD_OF[task]}_{arch}_h{depth}_s{seed}_lr{lr:g}"
                            f"_g{int(gate)}_w{int(wsla)}{'' if fill_loss == 'rps' else '_' + fill_loss.replace('+', '')}.npz")
     np.savez_compressed(f, **{k: v for k, v in pr.items() if not k.startswith("_")})
+    # validation predictions and the restored best weights, so post-hoc steps fitted on the validation
+    # fold (recalibration, Phase 5 §6.6) never need test data and never need a re-train
+    pv = predict(model, D, lb, va, info["ymu"], info["ysd"])
+    np.savez_compressed(f.replace(".npz", "_val.npz"), **{k: v for k, v in pv.items() if not k.startswith("_")})
+    torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, f.replace(".npz", ".pt"))
     rows = json.load(open(grid)) if os.path.exists(grid) else []
     rows.append(dict(**key, tag=tag, preds=f, wall=time.time() - t0, rss=peak_rss_gb(),
                      **{k: v for k, v in info.items() if k != "losses"}))
@@ -365,6 +371,7 @@ if __name__ == "__main__":
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--time-epochs", type=int, default=0, help="train this many epochs, print timing, exit")
     ap.add_argument("--fill-loss", default="rps", choices=["rps", "ce", "rps+ce"])
+    ap.add_argument("--pred-dir", default=PRED, help="a separate directory keeps re-trains from overwriting earlier predictions")
     a = ap.parse_args()
     if a.time_epochs:
         for task in a.tasks.split(","):
@@ -381,5 +388,5 @@ if __name__ == "__main__":
             for task in a.tasks.split(","):
                 for lr in [float(x) for x in a.lrs.split(",")]:
                     run(w, task, lr, seed, a.arch, a.depth, bool(a.gate), bool(a.wsla), a.tag,
-                        a.grid, a.max_epochs, a.patience, a.fill_loss)
+                        a.grid, a.max_epochs, a.patience, a.fill_loss, a.pred_dir)
     print("DONE", flush=True)
