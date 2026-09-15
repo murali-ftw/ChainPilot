@@ -254,6 +254,7 @@ BT_NAME = re.compile(r"^(RECAL_|PROMISE_)?(v6|v7)_(arrival_week|fill_rate|capaci
 
 
 def backtest_assert_rows():
+    global BT_PREDS
     """Every prediction file for one (world, task, origin, fold) must carry identical labels, censoring, promise offset
     and -- where recorded -- entity order. Model bundles and torch-free LightGBM files are checked against each other."""
     groups = {}
@@ -277,17 +278,22 @@ def backtest_assert_rows():
     return checks
 
 
-def backtest_main(workers):
+def backtest_main(workers, preds=None, out=None):
+    global BT_PREDS, BT_OUT
+    BT_PREDS = preds or BT_PREDS; BT_OUT = out or BT_OUT
     t0 = time.time()
     R = {"row_identity": backtest_assert_rows()}
     print(f"backtest row identity asserted on {sum(c['files'] for c in R['row_identity'])} files in {len(R['row_identity'])} groups", flush=True)
     specs = []
-    for f in sorted(glob.glob(os.path.join(BT_PREDS, "*_test.npz"))):
-        pre, w, task, o, name, _ = BT_NAME.match(os.path.basename(f)).groups()
+    # test AND validation: 3a asks whether validation would have chosen the depth the evaluation window prefers
+    for f in sorted(glob.glob(os.path.join(BT_PREDS, "*.npz"))):
+        pre, w, task, o, name, fold = BT_NAME.match(os.path.basename(f)).groups()
         pre = pre or ""
+        if fold == "val" and pre == "PROMISE_":
+            continue
         kind = ("arrival_promise" if pre == "PROMISE_" else "arrival_dist") if task == "arrival_week" else \
                {"fill_rate": "cells22", "capacity_strain": "quantile", "shortage_qty": "binary"}[task]
-        spec = dict(kind=kind, path=f, label=f"{w}|{task}|{pre}{o}_{name}")
+        spec = dict(kind=kind, path=f, label=f"{w}|{task}|{'VAL_' if fold == 'val' else ''}{pre}{o}_{name}")
         if kind == "arrival_promise":
             spec["const"] = 1.0                                           # a constant: lateness ranks on -promise alone
         specs.append(spec)
@@ -308,9 +314,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--backtest", action="store_true", help="Phase 8.2: score ml/artifacts/backtest/preds instead")
+    ap.add_argument("--backtest-preds", default=None); ap.add_argument("--backtest-out", default=None)
     a = ap.parse_args()
     if a.backtest:
-        backtest_main(a.workers); sys.exit(0)
+        backtest_main(a.workers, a.backtest_preds, a.backtest_out); sys.exit(0)
     t0 = time.time()
     R = {"row_identity": assert_rows()}
     print(f"row identity asserted on {len(R['row_identity'])} files", flush=True)

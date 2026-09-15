@@ -168,10 +168,11 @@ def projection(queues):
                 total_wall_hours=float((rem + sum(s * train_snapshots(c[6]) for c, s in done)) / 3600 / max(1, queues)))
 
 
-def queue(q, queues, allow_over_budget=False):
+def queue(q, queues, allow_over_budget=False, only_origins=None):
     import loop as L
     ks = surviving_origins()
-    mine = [c for i, c in enumerate(cells(ks)) if i % queues == q]
+    run_ks = [k for k in ks if only_origins is None or k in only_origins]  # the ETA decision is taken before origin 2 starts
+    mine = [c for i, c in enumerate(cells(run_ks)) if i % queues == q]
     first = ks[0]
     for c in mine:
         if os.path.exists(STOP) and not allow_over_budget:
@@ -191,8 +192,10 @@ def queue(q, queues, allow_over_budget=False):
 
 
 # ================================================================== export -> the single scorer
-def export(bundle_root=None):
+def export(bundle_root=None, preds=None, index_path=None):
     import loop as L
+    global PREDS, INDEX
+    PREDS = preds or PREDS; INDEX = index_path or INDEX
     root = bundle_root or L.BACKTEST_BUNDLES
     os.makedirs(PREDS, exist_ok=True)
     index = {}
@@ -264,15 +267,17 @@ if __name__ == "__main__":
     ap.add_argument("--queue", type=int, default=0); ap.add_argument("--queues", type=int, default=2)
     ap.add_argument("--allow-over-budget", action="store_true")
     ap.add_argument("--root", default=None)
+    ap.add_argument("--origins", default=None, help="queue only these origins (comma list); projection still covers all")
+    ap.add_argument("--preds", default=None); ap.add_argument("--index", default=None)
     a = ap.parse_args()
     if a.mode == "plan":
         plan()
     elif a.mode == "smoke":
         smoke(a.root or os.path.join(BT, "smoke_bundles"))
     elif a.mode == "queue":
-        queue(a.queue, a.queues, a.allow_over_budget)
+        queue(a.queue, a.queues, a.allow_over_budget, [int(x) for x in a.origins.split(",")] if a.origins else None)
     elif a.mode == "project":
         print(json.dumps(projection(a.queues), indent=1))
     else:
-        export(a.root)
+        export(a.root, a.preds, a.index)
     print("DONE", flush=True)
