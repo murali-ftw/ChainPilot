@@ -108,6 +108,8 @@ def device_inputs(w, snaps_train, wsla):
     del X
     lag = cols.index("reporting_lag_days")
     D = dict(X=Xt, names=names, W=W,
+             # the normaliser travels with a trained model (Phase 6 bundle); additive, changes no number
+             norm_mu=nz.mu.astype(np.float32), norm_sd=nz.sd.astype(np.float32), norm_log1p_idx=list(log1p),
              dt=torch.from_numpy(np.ascontiguousarray(W["panel"][..., lag])).to(DEV),
              obs=torch.from_numpy(np.ascontiguousarray(W["miss"][..., null.index("reporting_lag_days")] > 0)).to(DEV),
              gate_cols=[i for i, c in enumerate(cols) if c != "reporting_lag_days"])

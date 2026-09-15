@@ -1,0 +1,85 @@
+{
+ "_about": "Phase 6 shipped configuration, fixed by reports/phase-5.md Addendum B. Edit THIS FILE, not ml/train/loop.py, when a seed triple moves a choice. Learning rates are frozen from Phase 5 / Addendum B and are not retuned here.",
+ "version": "phase6-shipped-1",
+ "common": {
+  "gate": false,
+  "wsla": false,
+  "fill_loss": "rps",
+  "max_epochs": 120,
+  "patience": 8,
+  "seeds": [
+   7,
+   17,
+   27
+  ],
+  "worlds": [
+   "v6",
+   "v7"
+  ],
+  "split": "fixed",
+  "fit_window": [
+   "2019-01-01",
+   "2025-12-31"
+  ]
+ },
+ "tasks": {
+  "arrival_week": {
+   "arch": "lite",
+   "depth": 4,
+   "lr": 0.00025,
+   "recalibration": "arrival13_mm",
+   "drift_statistic": "p_late_raw",
+   "h0_reference": {
+    "arch": "none",
+    "depth": 0,
+    "lr": 0.00025
+   },
+   "fallback": {
+    "rule": "if |drift - h0 drift| > threshold, feed the Monte Carlo h0's recalibrated distribution and keep this model for ranking",
+    "threshold_pp": 1.0
+   },
+   "drift_bands_apply": true
+  },
+  "fill_rate": {
+   "arch": "none",
+   "depth": 0,
+   "lr": 0.000125,
+   "recalibration": "fill22_mm_vs_select_val_logscore",
+   "drift_statistic": "p_complete_raw",
+   "h0_reference": null,
+   "fallback": null,
+   "drift_bands_apply": false
+  },
+  "capacity_strain": {
+   "arch": "mp",
+   "depth": 4,
+   "lr": 0.00025,
+   "recalibration": null,
+   "drift_statistic": "q50_mean",
+   "h0_reference": {
+    "arch": "none",
+    "depth": 0,
+    "lr": 0.00025
+   },
+   "fallback": null,
+   "drift_bands_apply": false
+  },
+  "shortage_qty": {
+   "arch": "mp",
+   "depth": 1,
+   "lr": 0.000125,
+   "recalibration": null,
+   "drift_statistic": "p_mean",
+   "h0_reference": null,
+   "fallback": null,
+   "diagnostic_only": true,
+   "drift_bands_apply": false
+  }
+ },
+ "drift_bands_pp": {
+  "_about": "Excess drift = |model drift - h0 drift| under the same incoming inputs, in percentage points of the task's drift statistic. Bands from Addendum B's arrival table (week-ECE after recalibration): <=0.5 -> 0.015-0.022; 1.5-2.0 -> 0.043-0.054; 4.5-5.2 -> 0.105-0.124. The 0.5-1.0 'watch' band is interpolation, not measured. Applied ONLY to tasks with drift_bands_apply = true (arrival): the bands were measured on arrival's P(T > 12), a probability. Capacity's statistic is mean P50 utilisation, so its 'pp' are hundredths of a utilisation unit and these thresholds do not transfer; fill ships as h0 and has no reference to exceed.",
+  "usable": 0.5,
+  "watch": 1.0,
+  "degraded": 4.5
+ }
+}

@@ -1228,6 +1228,19 @@ Two exclusions:
 **Verify** — for every fold, `max(train.snapshot_date) < min(test.snapshot_date)`. Assert it;
 do not eyeball it.
 
+> **Phase 6 measurement — the inputs this step names are not the ones generated.**
+> - `snapshots.csv` in `gen_v6` / `gen_v7` holds **83 snapshots, 2016-07-04 → 2025-12-08, at 6-week spacing**
+>   (61 inside 2019–2025) — not 83 from 2016-12-26, and not specification §9.2's 115 at 28 days.
+> - **It carries no `regime_flag`.** Regime lives in `calendar`, per plant-day: `covid` covers
+>   2020-03-01 → 2020-09-30 at every plant, which is **5 of the 44 training snapshots** (2020-03-09 … 2020-08-24)
+>   in both worlds.
+>
+> **What runs.** Phases 2–6 use one fixed split — train ≤ 2023, validation 2024, test 2025 — and **do not exclude
+> covid**: excluding it changes the training population behind every Phase 2–5 number, which the Phase 6
+> reproduction gate must match. `ml/train/folds.py` implements the fixed split with this verify asserted, the eight
+> rolling origins with the same assert, and the covid mask — the last two **defined, not run**. The rolling origins
+> are Phase 8.2's backtest; regime robustness stays open (`reports/phase-6.md`).
+
 ---
 
 ### Step 6.2 — Seeding and determinism
@@ -1251,6 +1264,18 @@ than it is not an improvement.
 
 **Verify** — the same seed and fold reproduce the metric bit-for-bit. If not, find the
 nondeterminism before measuring anything.
+
+> **On MPS this verify cannot pass, and the nondeterminism is found — it is the device.** Measured in Phase 6:
+> `torch.use_deterministic_algorithms(True)` **raises** on the graph encoders —
+> `index_put_with_accumulate_mps does not have a deterministic implementation`. With `warn_only=True` training runs.
+> The same seed gives **bitwise-identical initial weights**, but **two identical forward passes differ by up to
+> 3.0e-8**, so bit-for-bit reproduction is unattainable on this hardware. `ml/train/loop.py` seeds torch, numpy and
+> python, requests deterministic algorithms with `warn_only=True`, records the ops that warned in each bundle, and
+> reproduction is checked with **`allclose` on predictions and within the per-metric seed band on metrics — never
+> with `equal`**.
+>
+> The ≥ 5 seeds × 8 folds floor is **not** what Phases 5–6 run: they measure **3 seeds on the fixed split**. That band
+> is narrower in what it covers — it has no year-to-year component — and is labelled so wherever it is used.
 
 ---
 
@@ -1283,6 +1308,33 @@ slice.
 **Verify** — `model_outputs` joined to `training_labels` on
 `(snapshot_id, entity_id, task)` returns one row per prediction with its actual. This join is
 the backtest, and it is only safe because predictions were kept out of the feature store.
+
+> **Phase 6 measurement.**
+> - **The stamps in `snapshots.csv` are not the values above:** `dataset_version = rane-v5-seed1001` (both worlds),
+>   `feature_spec_version = v5.0`, `label_version = labels-v5`, and `code_commit` is the **generator's** commit —
+>   `5dc6e19aca40` (v6), `4139d85c5798` (v7). A bundle stamps what the file carries, plus the repository commit and a
+>   dirty flag.
+> - **`model_outputs` has no `task` column.** The join key is `(snapshot_id, entity_id, model_name → task)`;
+>   `ml/train/loop.py` names models `hades-<task>` and asserts the join one-to-one with an actual on every row.
+> - The table is written **per bundle** under `ml/artifacts/bundles/`, never into `db/` — the generated worlds are not
+>   modified.
+>
+> **Three requirements this step predates, established in Phase 5 — code changed to meet them:**
+>
+> 1. **Recalibration is part of the model, not post-processing.** Arrival (13-cell moment matching) and fill (22-cell
+>    moment matching or vector scaling, selected on validation log score) ship with a correction fitted on the
+>    **validation fold of that training run**. It is refitted on every retraining: the fitted temperature differs
+>    across seeds (1.008 / 1.089 / 1.030 on three fill seeds), so it cannot be carried forward.
+> 2. **Validation predictions and restored-best checkpoints are saved by default.** Phase 5 saved neither, so its
+>    recalibration fix needed four cells retrained purely to run a correction that was already designed.
+> 3. **The label-free drift baseline is a shipped artifact.** The mean predicted P(T > 12) / P(complete) / P50 on
+>    validation inputs is saved at training time; `predict()` compares it against incoming inputs and emits the
+>    difference with every batch. For arrival, excess drift beyond h⁰'s above 1pp switches the Monte Carlo's
+>    distribution to h⁰'s.
+>
+> **The unit is a bundle**: `checkpoint.pt` + `normaliser.npz` + `recalibration.json` + `drift_baseline.json` +
+> `config.json` (seed, stamps) + validation and test predictions + `model_outputs.csv.gz` + `metrics.json`. A checkpoint
+> alone is incomplete — the uncalibrated fill head is 2–5× worse on calibration than the calibrated one.
 
 ---
 
@@ -1613,6 +1665,9 @@ rows per world. Build against the measured column, not the specified one.
 | 9 | capacity label is fill capped at 1, three horizons | **supplier utilisation clipped at 3.0**, one horizon (90 d), censor flag is noise | [5.1](#step-51--quantile-head-capacity-strain) |
 | 10 | 20 fill bins including two point masses | **22 cells** — the 20-bin list is arithmetically short; censored labels are eventual values | [5.2](#step-52--binned-cdf-head-fill-rate) |
 | 11 | arrival 1–13 from promise, 8.4% censored | **2–12 from the snapshot, 43.6–46.2% censored**, censored labels are eventual weeks | [5.3](#step-53--discrete-time-hazard-head-arrival-timing) |
+| 12 | 115 snapshots at 28 days; regime flag available; covid excluded | **83 at 6-week spacing**; regime only in `calendar`; covid (5 of 44 training snapshots) **not** excluded, to keep Phases 2–6 on one population | [6.1](#step-61--time-based-folds) |
+| 13 | bit-for-bit reproduction with deterministic algorithms | **strict mode raises on MPS**; identical forwards differ by 3e-8; reproduction is `allclose` and within the seed band | [6.2](#step-62--seeding-and-determinism) |
+| 14 | a checkpoint stamped with five identifiers | stamps differ from the guide's values; the shippable unit is a **bundle** with recalibration and drift baseline | [6.3](#step-63--loop-and-checkpointing) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
