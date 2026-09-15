@@ -62,7 +62,7 @@ def plan():
             out["fixed_split_label_overlap"][f"{w}|{t}"] = FO.label_window_overlap(s.snapshot_date, s.label_window_end, tr, va, te)
         for k, *_ in FO.ROLLING_ORIGINS:
             o = FO.origin_windows(k)
-            row = dict(world=w, origin=k, **FO.describe_origin(k), assertions={}, rows={}, snapshots={}, label_overlap={})
+            row = dict(world=w, **FO.describe_origin(k), assertions={}, rows={}, snapshots={}, label_overlap={})
             for t in TASKS:
                 s = lb[lb.task == t].reset_index(drop=True)
                 d = s.snapshot_date
