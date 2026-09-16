@@ -9,7 +9,177 @@ questions are settled. The full `reports/phase-8.md` stays open until they are.
 Every standing rule held: selection on validation only, bands per metric per configuration per world and never
 borrowed, no learning rate retuned, no protected file touched, `inventory_position_weekly` never read.
 
-<!-- P8I_S1 -->
+## 1. Capacity depth (3a) — does it depend on the sign of the drift?
+
+### 8B.1 — the stratifying variable, recorded before any 8B score existed
+
+Mean `capacity_strain` utilisation per fold, per origin, in hundredths of a utilisation unit
+(`ml/artifacts/backtest/phase8b_label_shift.json`, written before the capacity queues finished):
+
+| world | origin | train mean | test mean | **train → test** | validation → test | regime (brief's definition: train → test) |
+|---|---|---|---|---|---|---|
+| v6 | 1 | 0.6509 | 0.6668 | **+1.59** | -2.89 | **rising** |
+| v6 | 2 | 0.6508 | 0.6875 | **+3.66** | -1.21 | **rising** |
+| v6 | 3 | 0.6647 | 0.5875 | **-7.72** | -8.85 | **falling** |
+| v6 | 4 | 0.6650 | 0.6298 | **-3.52** | -0.77 | **falling** |
+| v6 | 5 | 0.6676 | 0.6050 | **-6.25** | -0.59 | **falling** |
+| v6 | 6 | 0.6593 | 0.7035 | **+4.42** | +8.48 | **rising** |
+| v6 | 7 | 0.6560 | 0.6944 | **+3.84** | +4.01 | **rising** |
+| v6 | 8 | 0.6517 | 0.7717 | **+12.00** | +7.32 | **rising** |
+| v7 | 1 | 0.8319 | 0.8577 | **+2.57** | -4.21 | **rising** |
+| v7 | 2 | 0.8264 | 0.9568 | **+13.04** | +3.66 | **rising** |
+| v7 | 3 | 0.8528 | 0.7102 | **-14.26** | -19.15 | **falling** |
+| v7 | 4 | 0.8536 | 0.8117 | **-4.19** | -2.18 | **falling** |
+| v7 | 5 | 0.8654 | 0.7447 | **-12.07** | -2.18 | **falling** |
+| v7 | 6 | 0.8495 | 0.9819 | **+13.24** | +20.00 | **rising** |
+| v7 | 7 | 0.8452 | 0.9134 | **+6.82** | +5.00 | **rising** |
+| v7 | 8 | 0.8368 | 1.0601 | **+22.33** | +11.63 | **rising** |
+
+**Split: 10 rising, 6 falling.** Falling windows are origins **3, 4 and 5** in both worlds (evaluating 2023 H1,
+2023 H2 and 2024 H1); the other five origins rise in both worlds.
+
+**A correction to what I reported from origin 1.** The sign depends on which window you measure from, and origin 1
+is the case where the two disagree: **+1.59 / +2.57 train → test (rising)** against **−2.89 / −4.21 validation →
+test (falling)**. My earlier note called origin 1 "2022 falling" — that was the validation→test figure, which is what
+the drift monitor compares against, not the brief's 8B.1 definition. Both columns are above; the stratification below
+uses **train → test**, as the brief specifies, and origin 1 therefore counts as a **rising** window.
+
+This also weakens the tidy story that Phase 7 and origin 1 straddle a regime boundary. On the brief's definition
+**both** the 2025 fixed split and origin 1 are rising windows, and they still disagreed about depth — so if the
+effect is sign-dependent, the sign alone does not explain Phase 7's result.
+
+### 8B.2 — h⁴ against h⁰ against B5, per origin, per world, 3-seed bands
+
+Mean pinball (spread in brackets); h⁴ and h⁰ are 3 seeds, B5 LightGBM 5 fits. A verdict is given only when the seed
+ranges are **disjoint** — a margin inside either band is "not dist.". Validation is shown beside the evaluation
+window because selection is a validation-only decision.
+
+| world | origin | regime | label shift train→test | h⁴ | h⁰ | B5 | evaluation: h⁴ vs h⁰ | validation: h⁴ vs h⁰ | h⁴ vs B5 |
+|---|---|---|---|---|---|---|---|---|---|
+| v6 | 1 | rising | +1.59 | 0.0426 (0.0005) | 0.0452 (0.0008) | 0.0472 (0.0001) | **h⁴** | **h⁴** | **h⁴** |
+| v6 | 2 | rising | +3.66 | 0.0454 (0.0007) | 0.0499 (0.0005) | 0.0518 (0.0002) | **h⁴** | **h⁴** | **h⁴** |
+| v6 | 3 | falling | -7.72 | 0.0389 (0.0020) | 0.0397 (0.0004) | 0.0444 (0.0003) | not dist. | not dist. | **h⁴** |
+| v6 | 4 | falling | -3.52 | 0.0399 (0.0021) | 0.0411 (0.0003) | 0.0453 (0.0001) | **h⁴** | **h⁴** | **h⁴** |
+| v6 | 5 | falling | -6.25 | 0.0427 (0.0008) | 0.0415 (0.0004) | 0.0463 (0.0001) | **h⁰** | **h⁰** | **h⁴** |
+| v6 | 6 | rising | +4.42 | 0.0429 (0.0022) | 0.0471 (0.0004) | 0.0493 (0.0001) | **h⁴** | not dist. | **h⁴** |
+| v6 | 7 | rising | +3.84 | 0.0496 (0.0038) | 0.0471 (0.0007) | 0.0501 (0.0002) | **h⁰** | **h⁴** | not dist. |
+| v6 | 8 | rising | +12.00 | 0.0553 (0.0033) | 0.0506 (0.0005) | 0.0523 (0.0002) | **h⁰** | **h⁰** | **h⁰** |
+| v7 | 1 | rising | +2.57 | 0.0661 (0.0007) | 0.0683 (0.0010) | 0.0704 (0.0002) | **h⁴** | **h⁴** | **h⁴** |
+| v7 | 2 | rising | +13.04 | 0.0715 (0.0023) | 0.0799 (0.0005) | 0.0818 (0.0002) | **h⁴** | **h⁴** | **h⁴** |
+| v7 | 3 | falling | -14.26 | 0.0609 (0.0033) | 0.0617 (0.0007) | 0.0621 (0.0003) | not dist. | **h⁴** | not dist. |
+| v7 | 4 | falling | -4.19 | 0.0632 (0.0035) | 0.0668 (0.0005) | 0.0733 (0.0001) | **h⁴** | **h⁴** | **h⁴** |
+| v7 | 5 | falling | -12.07 | 0.0584 (0.0006) | 0.0630 (0.0001) | 0.0670 (0.0002) | **h⁴** | **h⁴** | **h⁴** |
+| v7 | 6 | rising | +13.24 | 0.0738 (0.0044) | 0.0795 (0.0009) | 0.0835 (0.0004) | **h⁴** | not dist. | **h⁴** |
+| v7 | 7 | rising | +6.82 | 0.0758 (0.0022) | 0.0816 (0.0009) | 0.0773 (0.0003) | **h⁴** | **h⁴** | **h⁴** |
+| v7 | 8 | rising | +22.33 | 0.0949 (0.0042) | 0.0812 (0.0010) | 0.0791 (0.0003) | **h⁰** | **h⁰** | **h⁰** |
+
+**Stratified counts — the headline, never a median across all eight:**
+
+| stratum | evaluation window: h⁴ wins / ties / h⁰ wins | validation: same | h⁴ vs B5 |
+|---|---|---|---|
+| **rising** (10 cells: origins 1, 2, 6, 7, 8 in both worlds) | **h⁴ 7 / tie 0 / h⁰ 3** | h⁴ 6 / tie 2 / h⁰ 2 | h⁴ 7 / tie 1 / B5 2 |
+| **falling** (6 cells: origins 3, 4, 5 in both worlds) | **h⁴ 3 / tie 2 / h⁰ 1** | h⁴ 4 / tie 1 / h⁰ 1 | h⁴ 5 / tie 1 / B5 0 |
+| all 16 | h⁴ 10 / tie 2 / h⁰ 4 | | |
+
+### The verdict on 3a: **no — capacity depth does not depend on the sign of the drift**
+
+**h⁴ wins in both regimes and loses in both.** 7 of 10 rising, 3 of 6 falling; it loses 3 rising and 1 falling. The
+brief's conditional — *if h⁴ wins only in falling windows* — **does not hold**, so that particular warning is not the
+one to give. A different conditionality is in the data, and it is sharper:
+
+**The four cells where h⁰ beats h⁴ are v6 o5, v6 o7, v6 o8 and v7 o8. Three of the four evaluate 2025.** Split by
+evaluation period rather than by drift sign:
+
+| evaluation period | cells | h⁴ wins | ties | h⁰ wins |
+|---|---|---|---|---|
+| origins 1–6 (2022 H1 → 2024 H2) | 12 | **10** | 1 | **1** (v6 o5) |
+| **origins 7–8 (2025)** | 4 | **1** (v7 o7) | 0 | **3** |
+
+**That is the regime that matters, and it is time, not sign.** Origins 7 and 8 are also the windows where h⁴'s
+advantage over the strongest deployable baseline disappears: v6 o7 is *not distinguishable* from B5 and v6 o8 and v7 o8
+**lose** to it, while across origins 1–6 h⁴ beats B5 in 10 of 12 cells.
+
+**Phase 7 binding statement (3)** — *capacity v6's shipped depth is not distinguishable from the strongest deployable
+baseline* — **holds where it was measured (2025) and is contradicted everywhere else.** Origin 1 contradicted it; so do
+origins 2–6. It was a true statement about 2025 generalised to a claim about the configuration.
+
+**Selection on validation only, which is the rule that governs shipping:** validation and the evaluation window agree
+in **12 of 16** cells. A validation-only rule would ship **h⁰ on v6 o5, v6 o8 and v7 o8** and keep h⁴ everywhere else —
+including **v6 o7, where validation prefers h⁴ and the evaluation window prefers h⁰**. That is Phase 6 §8's
+validation/test disagreement reproducing on a second window, four years later.
+
+**Recommendation: do not demote capacity to h⁰, and do not change the shipped configuration in this phase.** The
+evidence does not support a global demotion — h⁴ wins 10 of 16 overall and 10 of 12 before 2025. It does support a
+restriction on what may be claimed: **the shipped capacity depth is defensible on 2022–2024 windows and fails on 2025
+windows in three of four cells. It is not safe to quote to a client as a settled configuration without saying which
+period the claim rests on.** Whether 2025 is a permanent change or one bad year cannot be answered from this dataset:
+origin 8's evaluation window is the last two snapshots in the fit window.
+
+### 8B.3 — the mechanism, per seed: does the shipped head's median move with the label shift or against it?
+
+Phase 7 found the shipped head moving **against** the shift on 6 of 6 seeds in 2025 and read it as the mechanism.
+Across all 16 windows (validation→test, the comparison the monitor makes):
+
+| world | origin | regime | label shift val→test | h⁴ seeds moving against | h⁰ seeds moving against | h⁴ median drift, 3 seeds (pp) |
+|---|---|---|---|---|---|---|
+| v6 | 1 | rising | -2.89 | **0/3** | 0/3 | -3.38, -1.38, -3.44 |
+| v6 | 2 | rising | -1.21 | **0/3** | 3/3 | -2.89, -2.98, -2.64 |
+| v6 | 3 | falling | -8.85 | **0/3** | 0/3 | -3.09, -3.76, -5.04 |
+| v6 | 4 | falling | -0.77 | **3/3** | 1/3 | +3.49, +2.99, +5.53 |
+| v6 | 5 | falling | -0.59 | **0/3** | 0/3 | -1.92, -2.15, -1.87 |
+| v6 | 6 | rising | +8.48 | **0/3** | 0/3 | +3.33, +3.40, +4.09 |
+| v6 | 7 | rising | +4.01 | **3/3** | 0/3 | -3.92, -3.96, -4.88 |
+| v6 | 8 | rising | +7.32 | **0/3** | 0/3 | +5.69, +4.79, +5.68 |
+| v7 | 1 | rising | -4.21 | **0/3** | 0/3 | -3.97, -5.23, -4.61 |
+| v7 | 2 | rising | +3.66 | **2/3** | 0/3 | -1.49, -0.31, +0.93 |
+| v7 | 3 | falling | -19.15 | **0/3** | 0/3 | -10.85, -11.36, -10.87 |
+| v7 | 4 | falling | -2.18 | **3/3** | 3/3 | +10.61, +7.85, +6.91 |
+| v7 | 5 | falling | -2.18 | **0/3** | 0/3 | -6.76, -7.11, -5.44 |
+| v7 | 6 | rising | +20.00 | **0/3** | 0/3 | +7.64, +10.09, +11.22 |
+| v7 | 7 | rising | +5.00 | **3/3** | 1/3 | -5.16, -4.36, -6.87 |
+| v7 | 8 | rising | +11.63 | **0/3** | 0/3 | +10.76, +10.42, +8.68 |
+
+**Totals: h⁴ moves against the shift on 14 of 48 seed-windows, h⁰ on 8 of 48.** All three h⁴ seeds move against in exactly four windows: **v6 o4, v6 o7, v7 o4, v7 o7**.
+
+**The mechanism does not explain the outcome.** Origin 7 (2025 H1) is all-against in both worlds — and h⁴ *wins* on
+v7 o7 while losing on v6 o7. Origin 8 (2025 H2) is **0/3 against in both worlds** — every seed moves with the shift —
+and h⁴ loses in both. So the windows where h⁴ is beaten are not the windows where it anchors against the drift.
+**Phase 6 §7 and Phase 7 §8 proposed anchoring as the cause of capacity v6's 2025 disagreement; across eight origins
+that story does not hold up.** The drift direction remains worth logging, but it is not predictive of which depth wins.
+
+### 8B.4 — empirical P90 exceedance (nominal 10%)
+
+Open item 3 (bands too narrow: 17–25% exceedance in 2025) across every window for the first time:
+
+| world | origin | regime | h⁴ exceed P90 | h⁰ | B5 | h⁴ 80% coverage (nominal 0.80) |
+|---|---|---|---|---|---|---|
+| v6 | 1 | rising | 0.0814 (0.0178) | 0.0549 (0.0035) | 0.1065 (0.0062) | 0.8073 (0.0067) |
+| v6 | 2 | rising | 0.1151 (0.0256) | 0.0738 (0.0029) | 0.1089 (0.0024) | 0.7995 (0.0213) |
+| v6 | 3 | falling | 0.0642 (0.0259) | 0.0658 (0.0028) | 0.0751 (0.0046) | 0.7937 (0.0762) |
+| v6 | 4 | falling | 0.0631 (0.0188) | 0.0689 (0.0058) | 0.0833 (0.0084) | 0.7677 (0.0450) |
+| v6 | 5 | falling | 0.0752 (0.0046) | 0.1236 (0.0068) | 0.1083 (0.0006) | 0.7177 (0.0154) |
+| v6 | 6 | rising | 0.1148 (0.0153) | 0.1684 (0.0116) | 0.1188 (0.0020) | 0.8057 (0.0336) |
+| v6 | 7 | rising | 0.2209 (0.0590) | 0.1681 (0.0181) | 0.1457 (0.0078) | 0.7601 (0.0467) |
+| v6 | 8 | rising | 0.2157 (0.0516) | 0.1732 (0.0116) | 0.1467 (0.0096) | 0.7698 (0.0490) |
+| v7 | 1 | rising | 0.1173 (0.0157) | 0.0755 (0.0066) | 0.1042 (0.0144) | 0.8036 (0.0124) |
+| v7 | 2 | rising | 0.1460 (0.0532) | 0.0722 (0.0014) | 0.1254 (0.0059) | 0.7976 (0.0227) |
+| v7 | 3 | falling | 0.0533 (0.0149) | 0.0630 (0.0012) | 0.0600 (0.0035) | 0.7505 (0.0343) |
+| v7 | 4 | falling | 0.0414 (0.0095) | 0.0501 (0.0050) | 0.0888 (0.0035) | 0.7354 (0.0435) |
+| v7 | 5 | falling | 0.1107 (0.0322) | 0.1095 (0.0083) | 0.1122 (0.0048) | 0.7998 (0.0231) |
+| v7 | 6 | rising | 0.1269 (0.0192) | 0.1702 (0.0062) | 0.1430 (0.0172) | 0.8083 (0.0384) |
+| v7 | 7 | rising | 0.2196 (0.0286) | 0.2035 (0.0055) | 0.1422 (0.0078) | 0.7437 (0.0186) |
+| v7 | 8 | rising | 0.2043 (0.0126) | 0.1717 (0.0104) | 0.1319 (0.0044) | 0.7825 (0.0108) |
+
+**The narrow-band problem is real, it is period-dependent, and it is not caused by depth.**
+
+- **Origins 1–5 (2022–2024 H1): exceedance 4–12%**, straddling nominal. The problem does not exist there.
+- **Origins 6–8 (2024 H2 and 2025): 11–22% for h⁴, 17–20% for h⁰, 13–15% for B5.** Every model class exceeds,
+  including the LightGBM baseline that shares none of the neural architecture, so this is a property of the label's
+  late-period behaviour, not of the graph encoder.
+- **80% coverage runs 0.72–0.81 for h⁴**, below nominal in 13 of 16 windows — the interval is too narrow on both
+  tails in the later windows, not merely at P90.
+- Phase 7 measured 17–25% on the 2025 fixed split; origins 7–8 reproduce it at 20–22%. **Open item 3 stays open**, and
+  it now has a shape: it appears from origin 6 onward and affects every forecaster tested.
 
 ## 2. Stage 8A — the label-free drift pre-pass, and whether 3b can be refitted at all
 
