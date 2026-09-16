@@ -1497,6 +1497,19 @@ computed until it is defined with Rane. Do not invent a threshold.
 depends on where the truth sits: **3.325 averaged over all 20 bins**, 6.175 when the truth is
 bin 19. Assert against the bin-specific value, not a single constant.
 
+> **Phase 8 measurement.**
+> - **The metric suite is `ml/eval/phase5_metrics.py`,** not a new `metrics.py`. It is what `loop.test_metrics` scored
+>   every Phase 6 bundle with and what Phase 7's scorer calls, so a second implementation would be a second scoring path.
+>   Fill: legacy and exact CRPS, marginal ECE over 20 bins and 22 cells, conditional reliability of P(f = 1). Arrival:
+>   C-index, lateness ROC-AUC ranked on prediction − promise, 13-cell week-ECE, reliability of P(arrive ≤ 12). Capacity:
+>   pinball at P10 / P50 / P90, 80% coverage and — added in Phase 8 — empirical exceedance above P90 and below P10.
+>   Shortage (diagnostic): PR-AUC and ROC-AUC.
+> - **Verify, measured:** a perfect forecast scores **0.0**; a uniform 20-bin forecast scores **3.325** averaged over
+>   truths and **6.175** with the truth in bin 19 (and in bin 0), in bin units. `crps_legacy_rows` returns label units,
+>   1/20 of those (0.16625, 0.30875).
+> - **No accuracy figure is reported for any task.** O4 is still undefined, so event recall with lead time is not
+>   computed. Demand WMAPE and shortage MAE are not computed: no demand head ships, and shortage is diagnostic.
+
 ---
 
 ### Step 8.2 — Rolling-origin backtest
@@ -1520,6 +1533,24 @@ Calibration fitted on earlier folds, evaluated only on later ones.
 
 **Verify** — the output table has a row per (fold, seed), and the summary reports min /
 median / max. A summary with only a mean fails gate G8.
+
+> **Phase 8 measurement — the origins, run.**
+> - **Specification §9.2 gives each origin a training cut and an evaluation window, and no validation slice.** The loop
+>   needs one (early stopping, recalibration, drift baseline), so the **12 months before each cut** are carved out of
+>   training as validation — the fixed split's validation length. The evaluation window is untouched, and train +
+>   validation is asserted equal to the specification's training cut. **All 8 origins, both worlds, all four tasks pass
+>   every assertion** (`ml/eval/backtest.py plan`).
+> - **"Calibration fitted on earlier folds"** is met in its strict form: each origin's recalibration and drift baseline
+>   are fitted on **that origin's own validation slice**, which precedes its evaluation window, and are never carried to
+>   another origin.
+> - **Outcome windows cross every fold boundary.** Labels look 90 days ahead, so at each origin the last two validation
+>   snapshots' outcomes land inside the evaluation window (8,000 arrival rows). The fixed split every earlier phase used
+>   has exactly the same overlap. It is measured and reported, not asserted: asserting it would exclude the shipped split.
+> - **Seeds: 3 per configuration** (the Phase 6 triple), not ≥ 5.
+> - **One scorer:** `ml/eval/phase7_score.py --backtest`, the Phase 7 scorer, with row identity asserted per (world, task,
+>   origin, fold); `bands()` is guarded by `ml/tests/test_phase7_bands.py`, which fails when the Phase 7 bug is restored.
+> - **Selection evidence uses origins 1–6.** Origins 7 and 8 evaluate inside 2025, the fixed split's test year.
+<!-- P8_GUIDE_RESULT -->
 
 ---
 
@@ -1712,6 +1743,9 @@ rows per world. Build against the measured column, not the specified one.
 | 15 | B3 "always predict w = 1" covers 82.2% of arrivals | **week 1 never occurs**; B3 replaced by the training marginal and promise-date-only | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
 | 16 | B5 flattens graph structure; channels per supplier median 12 | earlier LightGBMs used **identity codes**; median is **38**; B5 built without identity keys | [7.2](#step-72--lightgbm-on-flat-features-b5) |
 | 17 | baselines compared directly against models | baselines go through the **same recalibration protocol** and **the bundle scorer on asserted-identical rows** | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
+| 18 | a rolling origin is a training cut plus an evaluation window | the loop needs validation: the **12 months before each cut** are carved from training | [8.2](#step-82--rolling-origin-backtest) |
+| 19 | ≥ 5 seeds × 8 folds; calibration fitted on earlier folds | **3 seeds**; recalibration refitted on **each origin's own validation slice** | [8.2](#step-82--rolling-origin-backtest) |
+| 20 | a fold is leak-free when max(train) < min(evaluate) | 90-day outcome windows cross every fold boundary, in the fixed split as in the origins; **measured, not asserted** | [8.2](#step-82--rolling-origin-backtest) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
