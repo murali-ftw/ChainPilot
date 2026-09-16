@@ -1746,6 +1746,9 @@ rows per world. Build against the measured column, not the specified one.
 | 18 | a rolling origin is a training cut plus an evaluation window | the loop needs validation: the **12 months before each cut** are carved from training | [8.2](#step-82--rolling-origin-backtest) |
 | 19 | ≥ 5 seeds × 8 folds; calibration fitted on earlier folds | **3 seeds**; recalibration refitted on **each origin's own validation slice** | [8.2](#step-82--rolling-origin-backtest) |
 | 20 | a fold is leak-free when max(train) < min(evaluate) | 90-day outcome windows cross every fold boundary, in the fixed split as in the origins; **measured, not asserted** | [8.2](#step-82--rolling-origin-backtest) |
+| 21 | the backtest runs every fold for every task | measured cost **51.5 h**; run under a budget stop — **capacity origins 1–8, arrival and fill origin 1 only; fill deferred and unscheduled** | [8.2](#step-82--rolling-origin-backtest) |
+| 22 | the 120-epoch cap is slack | arrival h⁰ at 2.5e-4 needs **77–116 epochs**; one cell stopped at the cap (`stop: "CAP (floor)"`). If arrival is re-run the cap goes to **200** — not a learning-rate change | [8.2](#step-82--rolling-origin-backtest) |
+| 23 | the drift thresholds can be calibrated from the backtest | **0 of 48** arrival and **0 of 48** fill observations exceed 4.5 pp across all eight windows (largest 3.93 / 3.90); the `watch` band keeps **9** observations. Arrival's thresholds stay **interpolated** | [8.2](#step-82--rolling-origin-backtest) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
