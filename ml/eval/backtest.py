@@ -116,7 +116,7 @@ def surviving_origins():
 
 
 # ================================================================== cells
-def cells(origins, worlds=("v6", "v7")):
+def cells(origins, worlds=("v6", "v7"), tasks=None):
     """Origin order first, so the first origin completes before any other starts (the ETA is taken there)."""
     out = []
     for k in origins:
@@ -125,7 +125,7 @@ def cells(origins, worlds=("v6", "v7")):
                 out += [("arrival_week", w, s, None, None, None, k), ("arrival_week", w, s, "none", 0, 2.5e-4, k),
                         ("capacity_strain", w, s, None, None, None, k), ("capacity_strain", w, s, "none", 0, 2.5e-4, k),
                         ("fill_rate", w, s, None, None, None, k)]
-    return out
+    return [c for c in out if tasks is None or c[0] in tasks]
 
 
 def cfg_of(c, tag="phase8"):
@@ -147,12 +147,12 @@ def train_snapshots(k):
     return next(r["snapshots"]["arrival_week"]["train"] for r in P["origins"] if r["origin"] == k and r["world"] == "v6")
 
 
-def projection(queues):
+def projection(queues, tasks=None):
     """Mean measured seconds per (task, arch) cell on completed origins, scaled by training snapshots, / queues."""
     import loop as L
     ks = surviving_origins()
     done, todo = [], []
-    for c in cells(ks):
+    for c in cells(ks, tasks=tasks):
         cfg = cfg_of(c)
         if complete(cfg):
             tl = json.load(open(os.path.join(L.bundle_dir(cfg), "train_log.json")))
@@ -168,12 +168,12 @@ def projection(queues):
                 total_wall_hours=float((rem + sum(s * train_snapshots(c[6]) for c, s in done)) / 3600 / max(1, queues)))
 
 
-def queue(q, queues, allow_over_budget=False, only_origins=None):
+def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None):
     import loop as L
     ks = surviving_origins()
     run_ks = [k for k in ks if only_origins is None or k in only_origins]  # the ETA decision is taken before origin 2 starts
-    mine = [c for i, c in enumerate(cells(run_ks)) if i % queues == q]
-    first = ks[0]
+    mine = [c for i, c in enumerate(cells(run_ks, tasks=only_tasks)) if i % queues == q]
+    first = run_ks[0]
     for c in mine:
         if os.path.exists(STOP) and not allow_over_budget:
             print(f"[queue {q}] STOP file present ({STOP}); exiting before {c}", flush=True); return
@@ -181,14 +181,83 @@ def queue(q, queues, allow_over_budget=False, only_origins=None):
         if complete(cfg):
             continue
         L.run_train(cfg)
-        first_done = all(complete(cfg_of(x)) for x in cells([first]))
+        first_done = all(complete(cfg_of(x)) for x in cells([first], tasks=only_tasks))
         if first_done:
-            p = projection(queues)
+            p = projection(queues, only_tasks)
             print(f"[queue {q}] ETA after origin {first}: {json.dumps(p)}", flush=True)
             if p["total_wall_hours"] > BUDGET_H and not allow_over_budget:
                 json.dump(dict(projection=p, budget_hours=BUDGET_H, written=time.ctime()), open(STOP, "w"), indent=1)
                 print(f"[queue {q}] projected total {p['total_wall_hours']:.1f} h > {BUDGET_H} h: STOP", flush=True)
                 return
+
+
+# ================================================================== 8A: drift pre-pass, inference only
+PREPASS = os.path.join(BT, "phase8a_drift_prepass.json")
+
+
+def drift_prepass(source_origin=1, out=None):
+    """Stage 8A. ONE origin's trained checkpoints, run over EVERY origin's evaluation-window inputs.
+
+    No training, no refitting, no label value on the prediction path: each model's own label-free statistic against its
+    own validation baseline, exactly as `loop.predict` computes it, and -- where an h0 twin of the same world and seed
+    exists -- the excess the drift bands are defined on.
+
+    This bounds the INPUT drift the eight windows contain. It is not Stage 3b: 3b needs each origin's own model, and a
+    model run on a window far from its training period drifts for a reason 3b would not see.
+    """
+    import torch, loop as L, phase5_heads as P5
+    ks = surviving_origins()
+    rows = []
+    for w in ("v6", "v7"):
+        D, lbs = None, {}
+        for cfgp in sorted(glob_bundles(L.BACKTEST_BUNDLES)):
+            d = os.path.dirname(cfgp); cfg = json.load(open(cfgp))
+            if cfg.get("origin") != source_origin or not cfg.get("complete") or cfg["world"] != w:
+                continue
+            task = cfg["task"]
+            B = L.load_bundle(d)
+            lb = lbs.setdefault(task, P5.labels(w, task))
+            tr, _, _ = FO.rolling_split(lb.snapshot_date, source_origin)
+            if D is None:
+                D = P5.device_inputs(w, np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+            assert np.allclose(D["norm_mu"], B["norm"]["mu"]) and np.allclose(D["norm_sd"], B["norm"]["sd"]), \
+                "rebuilt normaliser does not match the bundle's"
+            model = L._materialise(B, D)
+            ymu, ysd = 0.0, 1.0
+            if task == "capacity_strain":
+                tl = json.load(open(os.path.join(d, "train_log.json"))); ymu, ysd = tl["ymu"], tl["ysd"]
+            stat = cfg["drift_statistic"]
+            for k in ks:
+                mask = FO.rolling_split(lb.snapshot_date, k)[2]
+                order = P5.ordered(lb, mask); dates = lb.snapshot_date.values[order]
+                keymap = D["W"]["pp_uniq"] if task == "shortage_qty" else D["W"]["cidx"]
+                vals, ns = [], []
+                with torch.no_grad():
+                    for sdate in np.unique(dates):
+                        ii = order[dates == sdate]
+                        idx = torch.from_numpy(lb.key.iloc[ii].map(keymap).to_numpy(np.int64)).to(L.DEV)
+                        pr = L._head_outputs(task, P5.forward(model, D, P5.t0_of(D["W"], sdate), idx), ymu, ysd)
+                        vals.append(L.drift_stats(task, pr, L.apply_recalibration(B["rec"], task, pr))[stat]); ns.append(len(ii))
+                n = np.array(ns, float); value = float((n * np.array(vals)).sum() / n.sum())
+                rows.append(dict(world=w, task=task, arch=cfg["arch"], depth=cfg["depth"], seed=cfg["seed"], origin=k,
+                                 statistic=stat, baseline=B["base"]["values"][stat], value=value,
+                                 drift_pp=100 * (value - B["base"]["values"][stat]), rows=int(n.sum()),
+                                 source_origin=source_origin, source_bundle=os.path.relpath(d, L.BACKTEST_BUNDLES)))
+            del model
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+        D = None
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+    # excess against the h0 twin of the same world, task, seed and window -- what the bands are defined on
+    by = {(r["world"], r["task"], r["seed"], r["origin"], r["depth"]): r for r in rows}
+    for r in rows:
+        h0 = by.get((r["world"], r["task"], r["seed"], r["origin"], 0))
+        r["h0_drift_pp"] = None if h0 is None else h0["drift_pp"]
+        r["excess_pp"] = None if (h0 is None or r["depth"] == 0) else abs(r["drift_pp"] - h0["drift_pp"])
+    json.dump(dict(source_origin=source_origin, note=drift_prepass.__doc__, rows=rows), open(out or PREPASS, "w"), indent=1)
+    print(f"pre-pass: {len(rows)} (bundle x origin) inferences -> {out or PREPASS}", flush=True)
+    return rows
 
 
 # ================================================================== export -> the single scorer
@@ -264,21 +333,25 @@ def smoke(root, max_epochs=2):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["plan", "smoke", "queue", "export", "project"])
+    ap.add_argument("mode", choices=["plan", "smoke", "queue", "export", "project", "prepass"])
     ap.add_argument("--queue", type=int, default=0); ap.add_argument("--queues", type=int, default=2)
     ap.add_argument("--allow-over-budget", action="store_true")
     ap.add_argument("--root", default=None)
     ap.add_argument("--origins", default=None, help="queue only these origins (comma list); projection still covers all")
     ap.add_argument("--preds", default=None); ap.add_argument("--index", default=None)
+    ap.add_argument("--tasks", default=None, help="queue only these tasks (comma list), e.g. capacity_strain")
     a = ap.parse_args()
     if a.mode == "plan":
         plan()
     elif a.mode == "smoke":
         smoke(a.root or os.path.join(BT, "smoke_bundles"))
     elif a.mode == "queue":
-        queue(a.queue, a.queues, a.allow_over_budget, [int(x) for x in a.origins.split(",")] if a.origins else None)
+        queue(a.queue, a.queues, a.allow_over_budget, [int(x) for x in a.origins.split(",")] if a.origins else None,
+              a.tasks.split(",") if a.tasks else None)
     elif a.mode == "project":
-        print(json.dumps(projection(a.queues), indent=1))
+        print(json.dumps(projection(a.queues, a.tasks.split(",") if a.tasks else None), indent=1))
+    elif a.mode == "prepass":
+        drift_prepass()
     else:
         export(a.root, a.preds, a.index)
     print("DONE", flush=True)
