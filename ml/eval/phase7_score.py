@@ -291,7 +291,8 @@ def backtest_main(workers, preds=None, out=None):
         pre = pre or ""
         if fold == "val" and pre == "PROMISE_":
             continue
-        kind = ("arrival_promise" if pre == "PROMISE_" else "arrival_dist") if task == "arrival_week" else \
+        kind = ("arrival_promise" if pre == "PROMISE_" else "arrival_point" if "b5flat_reg" in name else "arrival_dist") \
+            if task == "arrival_week" else \
                {"fill_rate": "cells22", "capacity_strain": "quantile", "shortage_qty": "binary"}[task]
         spec = dict(kind=kind, path=f, label=f"{w}|{task}|{'VAL_' if fold == 'val' else ''}{pre}{o}_{name}")
         if kind == "arrival_promise":

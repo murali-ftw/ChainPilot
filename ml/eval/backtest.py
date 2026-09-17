@@ -128,11 +128,13 @@ def cells(origins, worlds=("v6", "v7"), tasks=None):
     return [c for c in out if tasks is None or c[0] in tasks]
 
 
-def cfg_of(c, tag="phase8"):
+def cfg_of(c, tag="phase8", arrival_max_epochs=None):
+    """arrival_max_epochs: Stage 8E raises arrival's cap from the shipped 120 (deviation 22). Not a learning-rate change;
+    it is written into each bundle's config, and bundle paths do not depend on it."""
     import loop as L
     task, w, s, arch, depth, lr, k = c
     ns = argparse.Namespace(config=SHIPPED, task=task, world=w, seed=s, arch=arch, depth=depth, lr=lr, tag=tag,
-                            max_epochs=None, origin=k)
+                            max_epochs=arrival_max_epochs if task == "arrival_week" else None, origin=k)
     return L.resolve(ns)
 
 
@@ -168,7 +170,7 @@ def projection(queues, tasks=None):
                 total_wall_hours=float((rem + sum(s * train_snapshots(c[6]) for c, s in done)) / 3600 / max(1, queues)))
 
 
-def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None):
+def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None, arrival_max_epochs=None):
     import loop as L
     ks = surviving_origins()
     run_ks = [k for k in ks if only_origins is None or k in only_origins]  # the ETA decision is taken before origin 2 starts
@@ -177,7 +179,7 @@ def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None
     for c in mine:
         if os.path.exists(STOP) and not allow_over_budget:
             print(f"[queue {q}] STOP file present ({STOP}); exiting before {c}", flush=True); return
-        cfg = cfg_of(c)
+        cfg = cfg_of(c, arrival_max_epochs=arrival_max_epochs)
         if complete(cfg):
             continue
         L.run_train(cfg)
@@ -340,6 +342,7 @@ if __name__ == "__main__":
     ap.add_argument("--origins", default=None, help="queue only these origins (comma list); projection still covers all")
     ap.add_argument("--preds", default=None); ap.add_argument("--index", default=None)
     ap.add_argument("--tasks", default=None, help="queue only these tasks (comma list), e.g. capacity_strain")
+    ap.add_argument("--arrival-max-epochs", type=int, default=None, help="Stage 8E: arrival epoch cap (deviation 22)")
     a = ap.parse_args()
     if a.mode == "plan":
         plan()
@@ -347,7 +350,7 @@ if __name__ == "__main__":
         smoke(a.root or os.path.join(BT, "smoke_bundles"))
     elif a.mode == "queue":
         queue(a.queue, a.queues, a.allow_over_budget, [int(x) for x in a.origins.split(",")] if a.origins else None,
-              a.tasks.split(",") if a.tasks else None)
+              a.tasks.split(",") if a.tasks else None, a.arrival_max_epochs)
     elif a.mode == "project":
         print(json.dumps(projection(a.queues, a.tasks.split(",") if a.tasks else None), indent=1))
     elif a.mode == "prepass":

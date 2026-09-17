@@ -6,6 +6,14 @@ origins 2–8) and the decision gate **8C**. **Arrival and fill were not run. Fi
 no depth question of its own (the shipped configuration *is* h⁰), so it buys nothing until the capacity and arrival
 questions are settled. The full `reports/phase-8.md` stays open until they are.
 
+> **Stage 8D corrections (recounted from `phase8b_capacity.json` by `ml/eval/phase8d_extrapolation.py`).**
+> (1) Period split, origins 1–6: **h⁴ 9 / tie 2 / h⁰ 1**, not 10/1/1 — v6 o3 and v7 o3 are both "not dist.". The
+> all-16 row (10/2/4) was right and confirms it. (2) h⁴ vs B5 on origins 1–6: **11 of 12**, not 10. (3) h⁴ 80%
+> coverage below nominal in **12** of 16 windows, not 13. (4) Origins 1–5 P90 exceedance spans 4–15%, not 4–12%.
+> (5) The closing sentence of §1 read origin 8 as the fit window's last two snapshots; it is not, and Stage 8D.3 finds
+> no late-period change in the label at all — the "2025 regime" reading below is withdrawn. `reports/phase-8.md`
+> carries the corrected figures and supersedes this note.
+
 Every standing rule held: selection on validation only, bands per metric per configuration per world and never
 borrowed, no learning rate retuned, no protected file touched, `inventory_position_weekly` never read.
 
@@ -92,12 +100,12 @@ evaluation period rather than by drift sign:
 
 | evaluation period | cells | h⁴ wins | ties | h⁰ wins |
 |---|---|---|---|---|
-| origins 1–6 (2022 H1 → 2024 H2) | 12 | **10** | 1 | **1** (v6 o5) |
+| origins 1–6 (2022 H1 → 2024 H2) | 12 | **9** | 2 (v6 o3, v7 o3) | **1** (v6 o5) |
 | **origins 7–8 (2025)** | 4 | **1** (v7 o7) | 0 | **3** |
 
 **That is the regime that matters, and it is time, not sign.** Origins 7 and 8 are also the windows where h⁴'s
 advantage over the strongest deployable baseline disappears: v6 o7 is *not distinguishable* from B5 and v6 o8 and v7 o8
-**lose** to it, while across origins 1–6 h⁴ beats B5 in 10 of 12 cells.
+**lose** to it, while across origins 1–6 h⁴ beats B5 in 11 of 12 cells (v7 o3 not distinguishable).
 
 **Phase 7 binding statement (3)** — *capacity v6's shipped depth is not distinguishable from the strongest deployable
 baseline* — **holds where it was measured (2025) and is contradicted everywhere else.** Origin 1 contradicted it; so do
@@ -109,11 +117,12 @@ including **v6 o7, where validation prefers h⁴ and the evaluation window prefe
 validation/test disagreement reproducing on a second window, four years later.
 
 **Recommendation: do not demote capacity to h⁰, and do not change the shipped configuration in this phase.** The
-evidence does not support a global demotion — h⁴ wins 10 of 16 overall and 10 of 12 before 2025. It does support a
+evidence does not support a global demotion — h⁴ wins 10 of 16 overall and 9 of 12 before 2025 (2 ties, 1 loss). It does support a
 restriction on what may be claimed: **the shipped capacity depth is defensible on 2022–2024 windows and fails on 2025
 windows in three of four cells. It is not safe to quote to a client as a settled configuration without saying which
 period the claim rests on.** Whether 2025 is a permanent change or one bad year cannot be answered from this dataset:
-origin 8's evaluation window is the last two snapshots in the fit window.
+origin 8's evaluation window is two snapshots (2025-08-04, 2025-09-15), and the fit window's last two snapshots
+(2025-10-27, 2025-12-08) are never evaluated. *(Superseded by Stage 8D.3 — see the correction note at the top.)*
 
 ### 8B.3 — the mechanism, per seed: does the shipped head's median move with the label shift or against it?
 
@@ -172,12 +181,13 @@ Open item 3 (bands too narrow: 17–25% exceedance in 2025) across every window 
 
 **The narrow-band problem is real, it is period-dependent, and it is not caused by depth.**
 
-- **Origins 1–5 (2022–2024 H1): exceedance 4–12%**, straddling nominal. The problem does not exist there.
-- **Origins 6–8 (2024 H2 and 2025): 11–22% for h⁴, 17–20% for h⁰, 13–15% for B5.** Every model class exceeds,
+- **Origins 1–5 (2022–2024 H1): exceedance 4–15%** (h⁴ 4.1–14.6%, h⁰ 5.0–12.4%, B5 6.0–12.5%), straddling nominal.
+  The problem does not exist there in any systematic form.
+- **Origins 6–8 (2024 H2 and 2025): 11–22% for h⁴, 17–20% for h⁰, 12–15% for B5.** Every model class exceeds,
   including the LightGBM baseline that shares none of the neural architecture, so this is a property of the label's
   late-period behaviour, not of the graph encoder.
-- **80% coverage runs 0.72–0.81 for h⁴**, below nominal in 13 of 16 windows — the interval is too narrow on both
-  tails in the later windows, not merely at P90.
+- **80% coverage runs 0.72–0.81 for h⁴**, below nominal in **12** of 16 windows (h⁰ 0.76–0.83, below in 11; B5
+  0.73–0.86, below in 10) — the interval is too narrow on both tails in the later windows, not merely at P90.
 - Phase 7 measured 17–25% on the 2025 fixed split; origins 7–8 reproduce it at 20–22%. **Open item 3 stays open**, and
   it now has a shape: it appears from origin 6 onward and affects every forecaster tested.
 
