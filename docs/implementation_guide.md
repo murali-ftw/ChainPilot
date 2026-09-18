@@ -1550,6 +1550,19 @@ median / max. A summary with only a mean fails gate G8.
 > - **One scorer:** `ml/eval/phase7_score.py --backtest`, the Phase 7 scorer, with row identity asserted per (world, task,
 >   origin, fold); `bands()` is guarded by `ml/tests/test_phase7_bands.py`, which fails when the Phase 7 bug is restored.
 > - **Selection evidence uses origins 1–6.** Origins 7 and 8 evaluate inside 2025, the fixed split's test year.
+>
+> **What the backtest cost and what was run.** The full grid measured **51.5 h**, over the 6 h budget, so it ran in
+> stages: capacity on **all 8 origins × 2 worlds** (h⁴, h⁰, B5), arrival on **origins 1, 2, 6, 7** (Stage 8E, for
+> question 3d only), fill on **origin 1** alone, shortage not at all. **Fill therefore has no rolling-origin result and
+> is deferred and unscheduled.** Stage 8A ran origin 1's 30 checkpoints over all eight origins' inputs by inference
+> only, to bound the drift the windows contain before spending training hours on them.
+>
+> **The headline, per guide's own warning about means.** Every table reports the per-seed spread, never a bare mean,
+> and a verdict is given only when two seed ranges are disjoint. Capacity depth **h⁴ beats h⁰ in 10 of 16 windows, ties
+> 2 and loses 4**, and neither the sign nor the magnitude of the label shift predicts which. The per-snapshot label
+> series shows **no trend, no step and no ceiling** over 2019–2025 (deviation 25), so the loss concentrated in 2025 is
+> **not** a late-period regime and **not** a generator artefact: it is instability across windows. See
+> `reports/phase-8.md` §4.
 <!-- P8_GUIDE_RESULT -->
 
 ---
@@ -1719,7 +1732,7 @@ optimiser moves it, the tooling constraint is not bound.
 
 ## Known deviations from spec
 
-Five places where `benchmark_specification.md` and the earlier text of this guide describe the
+Twenty-five places where `benchmark_specification.md` and the earlier text of this guide describe the
 data **as designed** rather than **as generated**. All five are measured on
 `db/gen_v6/seed_1001` and `db/gen_v7/seed_1001`, all 8,598,520 `channel_performance_weekly`
 rows per world. Build against the measured column, not the specified one.
@@ -1746,9 +1759,11 @@ rows per world. Build against the measured column, not the specified one.
 | 18 | a rolling origin is a training cut plus an evaluation window | the loop needs validation: the **12 months before each cut** are carved from training | [8.2](#step-82--rolling-origin-backtest) |
 | 19 | ≥ 5 seeds × 8 folds; calibration fitted on earlier folds | **3 seeds**; recalibration refitted on **each origin's own validation slice** | [8.2](#step-82--rolling-origin-backtest) |
 | 20 | a fold is leak-free when max(train) < min(evaluate) | 90-day outcome windows cross every fold boundary, in the fixed split as in the origins; **measured, not asserted** | [8.2](#step-82--rolling-origin-backtest) |
-| 21 | the backtest runs every fold for every task | measured cost **51.5 h**; run under a budget stop — **capacity origins 1–8, arrival and fill origin 1 only; fill deferred and unscheduled** | [8.2](#step-82--rolling-origin-backtest) |
-| 22 | the 120-epoch cap is slack | arrival h⁰ at 2.5e-4 needs **77–116 epochs**; one cell stopped at the cap (`stop: "CAP (floor)"`). If arrival is re-run the cap goes to **200** — not a learning-rate change | [8.2](#step-82--rolling-origin-backtest) |
-| 23 | the drift thresholds can be calibrated from the backtest | **0 of 48** arrival and **0 of 48** fill observations exceed 4.5 pp across all eight windows (largest 3.93 / 3.90); the `watch` band keeps **9** observations. Arrival's thresholds stay **interpolated** | [8.2](#step-82--rolling-origin-backtest) |
+| 21 | the backtest runs every fold for every task | measured cost **51.5 h**; run under a budget stop plus two follow-up stages — **capacity origins 1–8; arrival origins 1, 2, 6, 7 (Stage 8E, question 3d only); fill origin 1 only, deferred and unscheduled; shortage not queued** | [8.2](#step-82--rolling-origin-backtest) |
+| 22 | the 120-epoch cap is slack | arrival h⁰ at 2.5e-4 needs **77–116 epochs** at origin 1, where one cell stopped at the cap (`stop: "CAP (floor)"`). Stage 8E raised the cap to **200** for origins 2, 6, 7 (`--arrival-max-epochs`, written into each bundle's config; the rate stays 2.5e-4, so not retuning). **No 8E cell reached 200** — all 36 stopped on patience, best epoch 21–96. Origin 1 keeps its 120-epoch cells and its one flagged floor | [8.2](#step-82--rolling-origin-backtest) |
+| 23 | the drift thresholds can be calibrated from the backtest | **0 of 48** arrival and **0 of 48** fill observations exceed 4.5 pp across all eight windows (largest 3.93 / 3.90); the `watch` band keeps **9** observations. Arrival's thresholds stay **interpolated**, and question 3b is **closed as infeasible from this backtest** | [8.2](#step-82--rolling-origin-backtest) |
+| 24 | the eight origins are comparable half-year evaluation windows | origin 8 ends at the specification's 2025-09-30 with **2 snapshots, both in the Aug–Sep seasonal peak**; the fit window's last two snapshots are never evaluated. Its +12.0 / +22.3 hundredth label shift is **seasonal composition** — its mean equals the all-years Aug–Sep mean — not a level change. No origin redefined | [8.2](#step-82--rolling-origin-backtest) |
+| 25 | capacity's 2025 result reflects a late-period regime | **there is no late-period change in the label.** Per-snapshot mean `capacity_strain` over 2019–2025 has no trend (slope +0.004 / +0.010 per year, p = 0.42 / 0.38), no late step (the best change point is COVID, 2020-03) and no ceiling; the only dated generator terms end **2022-06-30**. The interim's "2025 regime" reading is **withdrawn**; what the data support is that capacity depth is **window-dependent with no measured predictor** | [8.2](#step-82--rolling-origin-backtest) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
