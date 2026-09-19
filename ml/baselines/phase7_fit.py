@@ -380,6 +380,42 @@ def run_capacity_origins(w, origins, log):
                  dict(best_iters=[int(m.best_iteration_ or 400) for m in ms], seed=s, origin=k))
 
 
+# ================================================================== Phase 9A: fill baselines on the rolling origins
+def run_fill_origins(w, origins, log):
+    """Stage 9A A.3/A.4. Per origin, refitted on that origin's own folds:
+      lgbm22_id   LightGBM-22 with identity codes -- the object of Phase 7 binding statement 2 (Addendum A's claim)
+      b5flat22    guide B5: the same fit without identity keys, deployable to an unseen entity
+      b2_rolling52_cdf  the model-free as-of 52-week histogram; no fit at all
+    Recalibration is NOT applied here: the backtest scorer fits it on each file's own validation fold, the head's
+    protocol, so every arm is recalibrated the same way."""
+    global OUT
+    OUT = os.path.join(ARTIFACTS, "backtest", "preds")
+    Wd = World(w)
+    lb = labels(w, "fill_rate")
+    y = lb.label_value.to_numpy(float); c22 = fill_cell(y)
+    Xid = Wd.channel_features(lb, with_ids=True, flat=False)
+    Xflat = Wd.channel_features(lb, with_ids=False, flat=True)
+    for k in origins:
+        tr, va, te = FO.rolling_split(lb.snapshot_date, k)
+        FO.assert_no_leak(lb.snapshot_date, tr, va, te)
+        for s in SEEDS:
+            m = lgbm_fit("multi", Xid, c22, tr, va, s, K=22)
+            emit(w, "fill_rate", f"o{k}_lgbm22_id_s{s}", lb, va, te, lambda o: (m.predict_proba(Xid.iloc[o]), None), log,
+                 dict(best_iter=int(m.best_iteration_ or 400), seed=s, origin=k, identity_keyed=True))
+            m = lgbm_fit("multi", Xflat, c22, tr, va, s, K=22)
+            emit(w, "fill_rate", f"o{k}_b5flat22_s{s}", lb, va, te, lambda o: (m.predict_proba(Xflat.iloc[o]), None), log,
+                 dict(best_iter=int(m.best_iteration_ or 400), seed=s, origin=k))
+        glob22 = np.bincount(c22[tr], minlength=22) / tr.sum()          # fallback where a channel has no active week
+        t = time.time()
+        for fold, mask in (("val", va), ("test", te)):
+            o = ordered(lb, mask)
+            Hr, n_act = Wd.rolling52_fill(lb, mask)
+            P = np.where(n_act[:, None] > 0, Hr / np.maximum(n_act[:, None], 1), glob22)
+            save(w, "fill_rate", f"o{k}_b2_rolling52_cdf", fold, P, lb, o, dict(n_active_weeks=n_act))
+        log[f"{w}|fill_rate|o{k}_b2_rolling52_cdf"] = dict(seconds=time.time() - t, origin=k,
+                                                           note="as-of, active weeks only; training-fold global CDF where none")
+
+
 # ================================================================== Phase 8E: arrival B5 on the rolling origins
 def run_arrival_origins(w, origins, log):
     """Phase 7's deployable arrival LightGBM (B5 regressor, flat graph, no identity codes, observed rows only), refitted
@@ -405,14 +441,15 @@ if __name__ == "__main__":
     ap.add_argument("--worlds", default="v6,v7")
     ap.add_argument("--only", default=None, help="comma list of fill,arrival,capacity,shortage")
     ap.add_argument("--origins", default=None, help="Phase 8.2: comma list of rolling origins -> capacity B5 per origin")
-    ap.add_argument("--origin-task", default="capacity", choices=["capacity", "arrival"], help="with --origins")
+    ap.add_argument("--origin-task", default="capacity", choices=["capacity", "arrival", "fill"], help="with --origins")
     a = ap.parse_args()
     if a.origins:
         LOG = os.path.join(ARTIFACTS, "backtest", "phase8_b5_fit.json"); os.makedirs(os.path.dirname(LOG), exist_ok=True)
         blog = json.load(open(LOG)) if os.path.exists(LOG) else {}
         for w in a.worlds.split(","):
             t = time.time()
-            (run_arrival_origins if a.origin_task == "arrival" else run_capacity_origins)(w, [int(x) for x in a.origins.split(",")], blog)
+            {"arrival": run_arrival_origins, "fill": run_fill_origins}.get(a.origin_task, run_capacity_origins)(
+                w, [int(x) for x in a.origins.split(",")], blog)
             print(f"{w} {a.origin_task} B5 origins {a.origins} done in {time.time() - t:.0f}s", flush=True)
             json.dump(blog, open(LOG, "w"), indent=1)
         assert "torch" not in sys.modules

@@ -278,11 +278,38 @@ def backtest_assert_rows():
     return checks
 
 
+BT_BASELINE_RECAL = re.compile(r"_(lgbm22_id_s\d+|b5flat22_s\d+|b2_rolling52_cdf)$")
+
+
+def backtest_recal_arms():
+    """Phase 9A A.3/A.4: the same recalibration protocol as the head, per origin. Each fill baseline's recalibration is
+    fitted on THAT origin's validation fold and applied to its evaluation fold -- never carried across origins."""
+    import loop as L
+    out = {}
+    for f in sorted(glob.glob(os.path.join(BT_PREDS, "*_fill_rate_o*_val.npz"))):
+        name = os.path.basename(f)[:-8]
+        if name.startswith("RECAL_") or not BT_BASELINE_RECAL.search(name):
+            continue
+        zv, zt = np.load(f), np.load(f.replace("_val.npz", "_test.npz"))
+        rec = L.fit_recalibration("fill_rate", {"P": zv["P"], "Y": zv["Y"]})
+        for fold, z in (("test", zt), ("val", zv)):
+            Q = L.apply_recalibration(rec, "fill_rate", {"P": z["P"]})["P22"]
+            base = {k: z[k] for k in ("Y", "EV", "AUX") if k in z.files}
+            if "entity" in z.files:
+                base["entity"] = z["entity"]
+            np.savez_compressed(os.path.join(BT_PREDS, f"RECAL_{name}_{fold}.npz"), P=Q, **base)
+        out[name] = dict(method=rec["method"], vs_T=rec["vs_T"], mm_ratio=rec["mm_ratio"], val_log_score=rec["val_log_score"])
+    json.dump(out, open(os.path.join(ARTIFACTS, "backtest", "phase9a_baseline_recal.json"), "w"), indent=1)
+    return out
+
+
 def backtest_main(workers, preds=None, out=None):
     global BT_PREDS, BT_OUT
     BT_PREDS = preds or BT_PREDS; BT_OUT = out or BT_OUT
     t0 = time.time()
-    R = {"row_identity": backtest_assert_rows()}
+    ra = backtest_recal_arms()
+    print(f"backtest recalibration fitted on {len(ra)} fill baseline files", flush=True)
+    R = {"row_identity": backtest_assert_rows(), "baseline_recalibration": ra}
     print(f"backtest row identity asserted on {sum(c['files'] for c in R['row_identity'])} files in {len(R['row_identity'])} groups", flush=True)
     specs = []
     # test AND validation: 3a asks whether validation would have chosen the depth the evaluation window prefers

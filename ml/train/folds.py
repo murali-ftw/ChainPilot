@@ -105,6 +105,18 @@ def rolling_split(dates, k):
     return tr, va, te
 
 
+def truncate_train(dates, tr, n):
+    """Keep only the most recent n training snapshots. Phase 9A Stage B holds history length at n while the origin's
+    validation and evaluation windows stay exactly where they are, so year and history length stop being confounded."""
+    d = pd.to_datetime(pd.Series(dates))
+    have = sorted(pd.unique(d[tr]))
+    assert len(have) >= n, f"origin has {len(have)} training snapshots, cannot truncate to {n}"
+    keep = set(have[-n:])
+    out = tr & d.isin(keep).to_numpy()
+    assert len(pd.unique(d[out])) == n
+    return out
+
+
 def describe_origin(k):
     o = origin_windows(k)
     f = lambda a, b, lo_open=False: f"{a.date()} {'<' if lo_open else '<='} d <= {b.date()}"

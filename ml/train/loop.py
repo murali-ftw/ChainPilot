@@ -90,6 +90,8 @@ def snapshot_ids(world):
 
 def bundle_dir(cfg):
     name = f"{cfg['world']}_{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
+    if cfg.get("train_snapshots"):
+        name += f"_tr{cfg['train_snapshots']}"          # a truncated-history cell is a separate configuration
     if cfg.get("origin"):
         return os.path.join(BACKTEST_BUNDLES, cfg["task"], f"o{cfg['origin']}", name)
     return os.path.join(BUNDLES, cfg["task"], name)
@@ -124,6 +126,8 @@ def resolve(args):
     assert not cfg["gate"] and not cfg["wsla"], "shipped configuration: staleness gate and reconstructed feature are OFF"
     if getattr(args, "origin", None):
         cfg["origin"] = int(args.origin)                   # only present on backtest cells: fixed-split configs unchanged
+    if getattr(args, "train_snapshots", None):
+        cfg["train_snapshots"] = int(args.train_snapshots)  # Phase 9A Stage B: history held to n snapshots
     return cfg
 
 
@@ -136,6 +140,8 @@ def train(cfg, verbose=False):
     seed_all(cfg["seed"])
     lb = P5.labels(w, task)
     tr, va, te = split_of(cfg, lb.snapshot_date)
+    if cfg.get("train_snapshots"):
+        tr = FO.truncate_train(lb.snapshot_date, tr, cfg["train_snapshots"])
     D = P5.device_inputs(w, np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
     ymu, ysd = 0.0, 1.0
     if task == "capacity_strain":
