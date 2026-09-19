@@ -68,7 +68,16 @@ def _asof(df, col, t0):
     return df[d.isna() | (d <= pd.Timestamp(t0))]
 
 
-def load_inputs(world, t0, horizon_weeks=13, n_parts=None, seed=0):
+def load_inputs(world, t0, horizon_weeks=13, n_parts=None, seed=0, series="forward"):
+    """series="forward"  the TRUE planning horizon: rows visible at t0 (as_of <= t0) whose week lies ahead of t0.
+                         Stage 0 found this is ONE week per part-plant: part_demand_weekly carries 12 as-of dates
+                         per part-plant, each with a single week 30 days out, and production_plan is entirely
+                         retrospective (target_period is 1-8 days BEFORE recorded_ts in both worlds). There is no
+                         multi-week forward requirement anywhere in this dataset.
+       series="observed" the 12 requirement observations for that part-plant that are already in the past at t0.
+                         A MECHANISM DEMONSTRATION for the multi-week solver -- it is NOT a plan and no schedule
+                         built on it may be presented as one.
+    """
     csv = WORLDS[world]
     assert FORBIDDEN not in csv, "guard"
     t0 = pd.Timestamp(t0)
@@ -76,7 +85,10 @@ def load_inputs(world, t0, horizon_weeks=13, n_parts=None, seed=0):
                       usecols=["part_id", "plant_id", "week_start", "as_of_date", "gross_requirement_p50"])
     dem = _asof(dem, "as_of_date", t0)                                   # as-of: the planner's visible forecast
     dem["week_start"] = pd.to_datetime(dem.week_start)
-    dem = dem[(dem.week_start > t0) & (dem.week_start <= t0 + pd.Timedelta(weeks=horizon_weeks))]
+    if series == "forward":
+        dem = dem[(dem.week_start > t0) & (dem.week_start <= t0 + pd.Timedelta(weeks=int(horizon_weeks)))]
+    else:
+        dem = dem[dem.week_start <= t0].groupby(["part_id", "plant_id"]).tail(int(horizon_weeks))
     pp = _asof(pd.read_csv(os.path.join(csv, "part_plant.csv")), "effective_from", t0)
     pp = pp.set_index(["part_id", "plant_id"])
     costs = _asof(pd.read_csv(os.path.join(csv, "part_costs.csv")), "effective_from", t0)
@@ -115,20 +127,29 @@ def load_inputs(world, t0, horizon_weeks=13, n_parts=None, seed=0):
     return out
 
 
-def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=10.0):
+def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=10.0, disable=()):
     """Receipt quantities per week.
 
     mode="coverage" (DELIVERABLE): cover the horizon requirement; no stock balance, no safety-stock floor.
     mode="balance"  (SENSITIVITY): adds the balance and the floor on an INJECTED opening level i0.
 
     Variables per week w: q_w integer (in lots, x_w = lot_size * q_w) and y_w binary (an order is placed).
+
+    `disable` is for gates.py ONLY: it removes a constraint or cost term so a verify gate can be shown FAILING on a
+    deliberately broken solver. Standing rule 1 -- a gate nobody has seen fail is not a gate. Never set it in
+    production use.
     """
+    disable = set(disable)
     c_hold = ASSUMPTIONS["c_hold_per_unit_week"] if c_hold is None else c_hold
     c_order = ASSUMPTIONS["c_order_per_week"] if c_order is None else c_order
     i0 = ASSUMPTIONS["i0"] if i0 is None else i0
     d = np.asarray(part["demand"], float)
     T = len(d)
     lot, moq, cap = part["lot_size"], part["moq"], part["weekly_cap"]
+    if "lot" in disable:
+        lot = 1.0                                     # broken: lot-size multiples not enforced
+    if "moq" in disable:
+        moq = 0.0                                     # broken: MOQ floor not enforced
     R = float(d.sum())
     qmax = int(np.ceil(cap / lot)) if np.isfinite(cap) else int(np.ceil(R / lot)) + 1
     nq, ny = T, T
@@ -139,7 +160,7 @@ def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=
     c = np.zeros(n)
     c[:nq] = part["freight_per_unit"] * lot
     c[nq:] = c_order
-    if mode == "balance" and c_hold:
+    if mode == "balance" and c_hold and "holding" not in disable:
         # I_w = i0 + sum_{u<=w} (lot*q_u - d_u): holding on q_u is c_hold * lot * (T - u) summed over the horizon
         for u in range(T):
             c[u] += c_hold * lot * (T - u)
@@ -148,7 +169,10 @@ def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=
     # coverage: coverage of the horizon requirement, to within one lot (exact equality is infeasible when R is not
     # a lot multiple -- the guide's "sum x_w = requirement" assumes it is)
     r = np.zeros(n); r[:nq] = lot
-    A.append(r); lo.append(R); hi.append(R + lot - 1e-9)
+    if "coverage" in disable:
+        A.append(r); lo.append(0.0); hi.append(np.inf)               # broken: nothing forces the requirement to be met
+    else:
+        A.append(r); lo.append(R); hi.append(R + lot - 1e-9)
     # MOQ linking, both directions: an order week carries at least the MOQ, a non-order week carries nothing
     for w in range(T):
         r = np.zeros(n); r[w] = lot; r[nq + w] = -moq
@@ -161,9 +185,10 @@ def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=
             A.append(r); lo.append(part["safety_stock"] + d[:w + 1].sum() - i0); hi.append(np.inf)
 
     ub_q = np.full(nq, float(qmax)); ub_y = np.ones(ny)
-    for w, ok in enumerate(part["feasible"]):
-        if not ok:                                                        # non-working or shutdown week: no receipt
-            ub_q[w] = 0.0; ub_y[w] = 0.0
+    if "feasible" not in disable:
+        for w, ok in enumerate(part["feasible"]):
+            if not ok:                                                    # non-working or shutdown week: no receipt
+                ub_q[w] = 0.0; ub_y[w] = 0.0
     res = milp(c=c, constraints=LinearConstraint(np.array(A), lo, hi),
                integrality=np.ones(n), bounds=Bounds(np.zeros(n), np.concatenate([ub_q, ub_y])),
                options=dict(time_limit=time_limit))
@@ -202,13 +227,18 @@ def binding_constraints(part, x, y, R, mode, i0):
 
 
 def main(a):
-    parts = load_inputs(a.world, a.t0, a.horizon, a.parts)
+    parts = load_inputs(a.world, a.t0, a.horizon, a.parts, series=a.series)
     rows = [solve(p, mode=a.mode) for p in parts]
     ok = [r for r in rows if r["success"]]
     status = {}
     for r in rows:
         status[r["message"][:40]] = status.get(r["message"][:40], 0) + 1
-    print(f"world {a.world}  t0 {a.t0}  horizon {a.horizon}w  mode {a.mode}  parts {len(rows)}")
+    print(f"world {a.world}  t0 {a.t0}  horizon {a.horizon}w  mode {a.mode}  series {a.series}  parts {len(rows)}")
+    if a.series == "observed":
+        print("  NOTE: series=observed uses PAST requirement weeks. It demonstrates the solver; it is not a plan.")
+    else:
+        w = sorted({len(r["weeks"]) for r in rows})
+        print(f"  forward horizon actually available: {w} week(s) per part-plant (Stage 0: the data carries one)")
     print(f"solver status: {json.dumps(status)}")
     for r in ok[:a.show]:
         print(f"\n  {r['part_id']} @ {r['plant_id']}: requirement {r['requirement']:.0f}, lot {r['lot_size']:.0f}, "
@@ -216,7 +246,7 @@ def main(a):
               f"{r['order_weeks']}, cost {r['cost']:.1f}")
         print(f"    binding: {'; '.join(r['binding'])}")
     out = os.path.join(ARTIFACTS, f"phase10_schedule_{a.world}_{a.mode}.json")
-    json.dump(dict(world=a.world, t0=a.t0, horizon_weeks=a.horizon, mode=a.mode, assumptions=ASSUMPTIONS,
+    json.dump(dict(world=a.world, t0=a.t0, horizon_weeks=a.horizon, mode=a.mode, series=a.series, assumptions=ASSUMPTIONS,
                    dropped_constraints=(["stock balance (no opening level I0 exists)",
                                          "safety-stock floor (needs the balance)"] if a.mode == "coverage" else []),
                    rows=rows), open(out, "w"), indent=1, default=float)
@@ -231,4 +261,6 @@ if __name__ == "__main__":
     ap.add_argument("--parts", type=int, default=3)
     ap.add_argument("--show", type=int, default=3)
     ap.add_argument("--mode", default="coverage", choices=["coverage", "balance"])
+    ap.add_argument("--series", default="forward", choices=["forward", "observed"],
+                    help="forward = the true (one-week) planning horizon; observed = past weeks, a mechanism demo only")
     main(ap.parse_args())
