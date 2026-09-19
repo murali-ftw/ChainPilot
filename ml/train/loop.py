@@ -444,7 +444,21 @@ def status_of(excess_pp, bands):
     return "unusable"
 
 
-def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/shipped.json", threshold_override=None):
+def serve_source(task, shipped, h0_available):
+    """Which distribution is SERVED. A pure function of the configuration: it never reads a drift statistic.
+
+    Phase 8 section 4 3c removed arrival's drift gate -- its output flipped with the training seed in 8 of 16 windows
+    and the two branches were never distinguishable. h0 is served always where a reference exists; SHARE-lite h4 keeps
+    ranking. Any reintroduction of a threshold here must first show the gate CAN fail (standing rule 1).
+    """
+    t = shipped["tasks"][task]
+    assert not t.get("fallback"), (
+        f"{task}: a drift fallback is configured again. The gate was removed in Phase 10 Stage 1.2; re-adding it "
+        f"needs evidence that it can fail and that its branches are distinguishable.")
+    return "h0" if (h0_available and t.get("serve_distribution") == "h0_always") else "model"
+
+
+def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/shipped.json"):
     """Load a bundle, apply its recalibration, and emit drift alongside every prediction batch.
 
     'Production inputs' here are a fold's windows; no label value is read on this path. Drift for a batch is the
@@ -491,7 +505,7 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
     # overall, row-weighted -- Addendum B's thresholds were measured on whole-fold means, so decisions use this
     n = np.array([b["n"] for b in batches], float)
     overall = dict(statistic=stat, drift_pp=float((n * [b["drift_pp"] for b in batches]).sum() / n.sum()))
-    if h0 is not None:
+    if h0 is not None:                                             # still computed, still logged: monitoring only
         overall["h0_drift_pp"] = float((n * [b["h0_drift_pp"] for b in batches]).sum() / n.sum())
         overall["excess_pp"] = abs(overall["drift_pp"] - overall["h0_drift_pp"])
     # bands were calibrated on arrival's P(T > 12); applying them to a utilisation level (capacity) is meaningless
@@ -499,13 +513,13 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
         overall["status"] = status_of(overall.get("excess_pp"), bands)
     else:
         overall["status"] = "no calibrated threshold" if h0 is not None else "no h0 reference"
-    fb = shipped["tasks"][task].get("fallback")
-    threshold = fb["threshold_pp"] if fb else None
-    if fb and threshold_override is not None:
-        threshold = float(threshold_override)                      # testing only: exercise the engaged path
-    overall["fallback_threshold_pp"] = threshold
-    use_h0 = bool(fb and h0 is not None and overall.get("excess_pp", 0) > threshold)
-    overall["distribution_source"] = "h0 (fallback engaged)" if use_h0 else "model"
+    # Phase 10 Stage 1.2: the drift SWITCH is gone. Drift and excess are still computed above and still land in
+    # `overall` for monitoring; they no longer choose anything. serve_source() is the whole decision, and it is a
+    # function of the configuration alone -- ml/tests/test_no_drift_switch.py sweeps the drift statistic over a wide
+    # range and fails if the served distribution ever moves with it.
+    use_h0 = serve_source(task, shipped, h0 is not None) == "h0"
+    overall["distribution_source"] = "h0 (always, gate removed)" if use_h0 else "model"
+    overall["gate_removed"] = True
     cat = lambda lst, k: np.concatenate([x[k] for x in lst])
     result = dict(batches=batches, overall=overall)
     if task == "arrival_week":

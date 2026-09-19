@@ -1,6 +1,6 @@
 {
  "_about": "Phase 6 shipped configuration, fixed by reports/phase-5.md Addendum B. Edit THIS FILE, not ml/train/loop.py, when a seed triple moves a choice. Learning rates are frozen from Phase 5 / Addendum B and are not retuned here.",
- "version": "phase6-shipped-1",
+ "version": "phase10-shipped-1",
  "common": {
   "gate": false,
   "wsla": false,
@@ -34,21 +34,38 @@
     "depth": 0,
     "lr": 0.00025
    },
-   "fallback": {
+   "fallback": null,
+   "drift_bands_apply": true,
+   "_about": "Phase 10 Stage 1.2, approved: the drift FALLBACK SWITCH is removed (reports/phase-8.md section 4 3c). h0's recalibrated distribution is served ALWAYS; SHARE-lite h4 still ranks. Drift and excess are still computed and logged as monitoring -- only the switch is gone.",
+   "_superseded_fallback": {
     "rule": "if |drift - h0 drift| > threshold, feed the Monte Carlo h0's recalibrated distribution and keep this model for ranking",
     "threshold_pp": 1.0
    },
-   "drift_bands_apply": true
+   "serve_distribution": "h0_always"
   },
   "fill_rate": {
-   "arch": "none",
-   "depth": 0,
-   "lr": 0.000125,
+   "_about": "Phase 10 Stage 1.1, approved: fill ships the guide B5 LightGBM-22 on FLAT graph features with NO identity keys, replacing the depth-0 point-mass head. It is not a neural head: no arch/depth/lr, no seed band, no per-window recalibration temperature to maintain.",
+   "model": "b5flat22",
+   "family": "lightgbm",
+   "identity_keys": false,
+   "fitter": "ml/baselines/phase7_fit.py::run_fill_origins / run_world(only={'fill'})",
    "recalibration": "fill22_mm_vs_select_val_logscore",
    "drift_statistic": "p_complete_raw",
    "h0_reference": null,
    "fallback": null,
-   "drift_bands_apply": false
+   "drift_bands_apply": false,
+   "_basis": "reports/phase-9b.md section 3: raw validation ECE-22 better than the neural head in 16 of 16 windows (2.11x-8.35x, median 3.44x) and recalibrated evaluation ECE better in 12 of 16 (reports/phase-9a.md); cost is 0.88%-2.39% of exact CRPS, in which the head wins 16 of 16.",
+   "_reversal_condition": "RE-OPEN THIS if guide 10.2's allocation optimiser becomes the consuming path. An optimiser consumes the whole distribution, so it pays the proper score, where the neural head wins 16 of 16; the calibration advantage that justified this switch is a marginal-probability property that matters when a planner reads P(fill complete) directly. See phase-9b.md B.5.",
+   "_superseded": {
+    "arch": "none",
+    "depth": 0,
+    "lr": 0.000125,
+    "recalibration": "fill22_mm_vs_select_val_logscore",
+    "drift_statistic": "p_complete_raw",
+    "h0_reference": null,
+    "fallback": null,
+    "drift_bands_apply": false
+   }
   },
   "capacity_strain": {
    "arch": "mp",
@@ -81,5 +98,6 @@
   "usable": 0.5,
   "watch": 1.0,
   "degraded": 4.5
- }
+ },
+ "_previous_version": "phase6-shipped-1"
 }
