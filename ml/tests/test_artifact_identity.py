@@ -19,6 +19,7 @@ TRUNC = dict(FULL, train_snapshots=18)
 def test_truncation_suffix_separates_every_name():
     """The exact deviation-28 pair: same task/world/origin/arch/depth/lr/seed, different training history."""
     assert AI.bundle_name(FULL) != AI.bundle_name(TRUNC)
+    assert AI.bundle_path_key(FULL) != AI.bundle_path_key(TRUNC)
     assert AI.pred_stem(FULL, "test") != AI.pred_stem(TRUNC, "test")
     assert AI.pred_stem(FULL, "val") != AI.pred_stem(TRUNC, "val")
     assert AI.index_key(FULL) != AI.index_key(TRUNC)
@@ -26,6 +27,8 @@ def test_truncation_suffix_separates_every_name():
 
 def test_assert_unique_accepts_distinct_and_rejects_collisions():
     AI.assert_unique([FULL, TRUNC, dict(FULL, seed=17)])
+    # a name is unique only within its task/origin directory: the same name under a different origin is NOT a collision
+    AI.assert_unique([FULL, dict(FULL, origin=1, max_epochs=120)])
     try:
         AI.assert_unique([FULL, dict(FULL, max_epochs=200)])       # same name, different identity
     except AI.CollisionError:

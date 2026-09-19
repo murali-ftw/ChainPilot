@@ -22,8 +22,37 @@ column name from a planning document without checking it against the file.
 
 ---
 
+## Standing rules
+
+Rules that outrank any individual step, each earned by a defect that reached a report before it
+was caught.
+
+**1. A gate that cannot fail is not a gate.** Before writing a check, state what would make it
+fire and confirm that outcome is reachable on this data. A check that passes for every possible
+input, or fires for every one, tells you nothing and will be ignored within a week. Six
+instances are on the record (`reports/phase-8.md` §4 3c); the most recent thresholded a
+quantity whose seed-to-seed spread was larger than the threshold.
+
+**2. Artifact identity must be asserted unique at write time, never assumed from a naming
+convention.** If two configurations can resolve to one path, index key or bundle name, they
+eventually will, and the second silently destroys the first. Derive every name from one place
+(`ml/artifact_identity.py`), assert uniqueness across the whole set before writing anything, and
+guard each write against an overwrite whose recorded identity differs. Deviation 28 — a
+truncated-history cell overwriting a full-history cell's predictions — was caught by noticing a
+number had moved, which is luck, not a control.
+
+**3. Selection happens on validation, never on an evaluation window.** This holds even when the
+evaluation answer is clearer, and even when validation cannot settle the question: if validation
+cannot separate two options, that is the finding, and it is reported as such rather than
+resolved by looking at test. Phase 9B Stage B is the worked example — the recalibrated
+validation ECE is ≈0 for every arm by construction, so the comparison moves to the raw
+pre-recalibration figure rather than to the evaluation fold.
+
+---
+
 ## Contents
 
+- [Standing rules](#standing-rules)
 - [Dependency graph](#dependency-graph)
 - [Phase 0 — Environment](#phase-0--environment)
 - [Phase 1 — Data loading](#phase-1--data-loading) ← **start here, nothing trains until this is right**
@@ -1732,7 +1761,7 @@ optimiser moves it, the tooling constraint is not bound.
 
 ## Known deviations from spec
 
-Thirty places where `benchmark_specification.md` and the earlier text of this guide describe the
+Thirty-four places where `benchmark_specification.md` and the earlier text of this guide describe the
 data **as designed** rather than **as generated**. All five are measured on
 `db/gen_v6/seed_1001` and `db/gen_v7/seed_1001`, all 8,598,520 `channel_performance_weekly`
 rows per world. Build against the measured column, not the specified one.
@@ -1769,6 +1798,10 @@ rows per world. Build against the measured column, not the specified one.
 | 28 | a bundle's predictions and index entry are uniquely identified | **they were not**: `backtest.py export` omitted the truncation suffix `loop.bundle_dir` uses, so Phase 9A's truncated-history cells overwrote origin 7's full-history arrival predictions. Caught against Phase 8's recorded values, fixed, everything re-exported and rescored; the full-history figures reproduce Phase 8 exactly | [8.2](#step-82--rolling-origin-backtest) |
 | 29 | B2 is the as-of 52-week histogram of a channel's active weeks | at a rolling origin a channel may have **no** active week in the trailing 52; those rows fall back to that origin's **training-fold global 22-cell CDF**, as on the fixed split | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
 | 30 | training history and the calendar can be separated by truncation | truncation separates **quantity** only: the retained 18 snapshots are the most **recent** ones, so the training era moves with the evaluation window. Phase 9A Stage B rules out "more history"; it does not separate recency from the evaluation window itself | [8.2](#step-82--rolling-origin-backtest) |
+| 31 | Phase 9A Stage 0 ran the promise-date structural check | **it did not.** The check was specified for Phase 9A, never run, and never recorded as skipped. Run in Phase 9B Stage A: `promise_date = po_created + contracted[channel]` and `lead = lognormal(log(0.51·contracted), 0.34)·stress`, so promise and arrival share a line-level anchor (`po_created`) and a channel-level scale (`contracted`) — see row 32 | [8.2](#step-82--rolling-origin-backtest) |
+| 32 | arrival's C-index measures how well a model orders arrivals | **it cannot, for a channel-level model.** The promise week is a LINE-level quantity built from the same two upstream terms as the label; the shipped head reads only the channel's panel and emits one distribution per channel-snapshot (verified: exact prediction ties, up to 4 rows). The promise date's 0.87–0.89 C-index is structural. **Arrival ranking is untestable on this data with the shipped feature set**; Phase 7 binding statement 1 and Phase 8 §4 3d's ranking verdict are statements about the feature set, not findings about the head | [5.3](#step-53--discrete-time-hazard-head-arrival-timing) |
+| 33 | validation can compare recalibrated calibration between configurations | **it cannot**: recalibration is fitted on the validation fold, so marginal ECE-22 is ≈0.0000 there for every arm — head, LightGBM-22, B5-flat-22 and B2 alike. A gate that cannot fail (standing rule 1). Phase 9B Stage B therefore compares **raw, pre-recalibration** validation ECE, where the head loses to every baseline in **16 of 16** windows by 2.2×–8.2× | [6.1](#step-61--time-based-folds) |
+| 34 | "belongs to Phase 10" names work inside Phase 10's scope | **it does not.** The guide's Phase 10 is **10.1 delivery-schedule MILP** and **10.2 allocation**, neither of which is a model-configuration change. Removing the drift gate, switching fill and fixing capacity intervals are **unscheduled work with no phase**, carried by earlier reports under a label that does not correspond to the guide | [10.1](#step-101--delivery-schedule-lp) |
 
 ### 1. The specified TCN cannot learn without residual connections
 

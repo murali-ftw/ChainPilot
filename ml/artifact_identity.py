@@ -27,6 +27,13 @@ def bundle_name(cfg) -> str:
     return f"{cfg['world']}_{config_name(cfg)}"
 
 
+def bundle_path_key(cfg) -> str:
+    """Where the bundle actually lives: a name is unique only WITHIN its task/origin directory."""
+    if cfg.get("origin"):
+        return f"{cfg['task']}/o{cfg['origin']}/{bundle_name(cfg)}"
+    return f"{cfg['task']}/{bundle_name(cfg)}"
+
+
 def pred_stem(cfg, fold: str) -> str:
     return f"{cfg['world']}_{cfg['task']}_o{cfg['origin']}_{config_name(cfg)}_{fold}"
 
@@ -47,7 +54,7 @@ class CollisionError(AssertionError):
 
 def assert_unique(cfgs, label="configurations"):
     """Every configuration must map to a distinct bundle name, prediction stem and index key."""
-    for fn, what in ((bundle_name, "bundle name"), (lambda c: pred_stem(c, "test"), "prediction stem"),
+    for fn, what in ((bundle_path_key, "bundle path"), (lambda c: pred_stem(c, "test"), "prediction stem"),
                      (index_key, "index key")):
         seen = {}
         for c in cfgs:
