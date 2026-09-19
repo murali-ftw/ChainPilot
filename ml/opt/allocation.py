@@ -117,8 +117,13 @@ def candidates(L, part, plant, n=5):
 
 
 # ================================================================== 3.2 the constraint layer
-def constraint_report(L, part, plant, split, incumbent, params=CLIENT_PARAMS):
-    """Each constraint the guide calls 'the product'. Returns (feasible, [violations], [inert reasons])."""
+def constraint_report(L, part, plant, split, incumbent, params=CLIENT_PARAMS, disable=()):
+    """Each constraint the guide calls 'the product'. Returns (feasible, [violations], [inert reasons]).
+
+    `disable` is for the verify gates ONLY: removing a constraint lets a gate be shown FAILING on a deliberately
+    broken constraint layer (standing rule 1). Never set it in production use.
+    """
+    disable = set(disable)
     viol, inert = [], []
     alt = L["alt"]; a = alt[(alt.part_id == part)] if len(alt) else alt
     tool = L["tool"]; t = tool[tool.part_id == part]
@@ -140,7 +145,7 @@ def constraint_report(L, part, plant, split, incumbent, params=CLIENT_PARAMS):
     # --- tooling: a supplier newly receiving volume needs transferable or duplicated tooling
     for s, share in split.items():
         gain = share - incumbent.get(s, 0.0)
-        if gain > 1e-9:
+        if gain > 1e-9 and "tooling" not in disable:
             ts = t[t.supplier_id == s]
             if len(ts):
                 transferable = bool(ts.is_transferable.max())
@@ -201,7 +206,7 @@ class ReducedScorer:
             fill = self.fill.get(s, np.nan)
             fill = 0.9 if not np.isfinite(fill) else fill
             strain = self.strain.get(s, 1.0)
-            penalty = 1.0 + max(0.0, float(strain) - 1.0)     # over-utilised suppliers miss more
+            penalty = 1.0 + max(0.0, float(strain) - 1.0)     # P90 above 1.0 = expected over-utilisation
             unmet += q * (1.0 - fill) * penalty
             purchase += q * float(self.cost.get((part, s), np.nan) if np.isfinite(
                 self.cost.get((part, s), np.nan)) else np.nanmean(list(self.cost.values())))
@@ -210,32 +215,91 @@ class ReducedScorer:
 
 
 def supplier_signals(world, seeds=(7, 17, 27)):
-    """Per-supplier expected fill and capacity strain, from artifacts the pipeline already produced.
+    """Per-supplier signals from artifacts the pipeline already produced, one set per seed so the ranking can be
+    checked against the seed bands (3.3).
 
-    Returns one dict per seed so the ranking can be checked against the seed bands (3.3).
+      fill[s]    mean P(line fills completely) over that supplier's lines, from the SHIPPED fill model -- B5-flat-22
+                 as of Phase 10 Stage 1.1, recalibrated, origin 7. It is a complete-fill PROBABILITY, not an expected
+                 fill fraction: a partially filled line counts as unfilled here, so unmet demand is overstated.
+      strain[s]  mean capacity-strain P90 over that supplier's channels. P90 rather than P50 because utilisation sits
+                 near 0.65 (v6) and a penalty keyed to the median never activates -- the signal would be inert and the
+                 seed-band check vacuous. P90 exceeds 1.0 for 16% of suppliers, so it discriminates.
+                 IT ALSO INHERITS THE INTERVAL MISCALIBRATION: 80% coverage 0.72-0.81, below nominal in 12 of 16
+                 backtest windows. Any ranking that turns on this term carries that caveat.
     """
     BT = os.path.join(ARTIFACTS, "backtest", "preds")
     csv = WORLDS[world]
     ch = pd.read_csv(os.path.join(csv, "sourcing_channels.csv"), usecols=["channel_id", "supplier_id"])
     ch_sup = dict(zip(ch.channel_id, ch.supplier_id))
+    pol = pd.read_csv(os.path.join(csv, "po_lines.csv"), usecols=["po_line_id", "channel_id"])
+    pol_sup = {p: ch_sup.get(c) for p, c in zip(pol.po_line_id, pol.channel_id)}
     out = []
     for s in seeds:
+        strain, fill = {}, {}
         f = os.path.join(BT, f"{world}_capacity_strain_o7_mp_h4_lr0.00025_s{s}_test.npz")
-        strain = {}
         if os.path.exists(f):
-            z = np.load(f, allow_pickle=False)
-            ent = z["entity"].astype(str) if "entity" in z.files else None
-            if ent is not None:
-                q50 = z["P"][:, 1]
-                df = pd.DataFrame(dict(sup=[ch_sup.get(e) for e in ent], q50=q50)).dropna()
-                strain = df.groupby("sup").q50.mean().to_dict()
-        out.append(dict(seed=s, strain=strain))
+            z = np.load(f)
+            d = pd.DataFrame(dict(sup=[ch_sup.get(e) for e in z["entity"].astype(str)], q90=z["P"][:, 2])).dropna()
+            strain = d.groupby("sup").q90.mean().to_dict()
+        g = os.path.join(BT, f"RECAL_{world}_fill_rate_o7_b5flat22_s{s}_test.npz")
+        if os.path.exists(g):
+            z = np.load(g)
+            d = pd.DataFrame(dict(sup=[pol_sup.get(e) for e in z["entity"].astype(str)],
+                                  pc=z["P"][:, 21])).dropna()
+            fill = d.groupby("sup").pc.mean().to_dict()
+        out.append(dict(seed=s, strain=strain, fill=fill))
     return out
+
+
+# ================================================================== 3.4 the verify gate, and whether it can fail
+def verify_tooling_gate(L, disable=()):
+    """The guide's gate: a part whose tooling is neither transferable nor duplicated must return the INCUMBENT split.
+
+    Unlike 10.1's gate this one CAN bind: tooling.is_transferable is 0 for 41% of rows and duplicate_exists is 0 for
+    70%, so parts that cannot move exist in the data. The gate is run against the real constraint layer (must hold)
+    and against one with the tooling check removed (must break).
+    """
+    tool = L["tool"]
+    stuck = tool[(tool.is_transferable == 0) & (tool.duplicate_exists == 0)]
+    checked = blocked = moved = 0
+    example = None
+    ch = L["channels"]
+    for part in stuck.part_id.unique():
+        rows = ch[ch.part_id == part]
+        stuck_sup = set(stuck[stuck.part_id == part].supplier_id)
+        for plant in rows.plant_id.unique():
+            qual, cands = candidates(L, part, plant)
+            # the gate can only bind where a frozen supplier is actually QUALIFIED at this plant -- otherwise no
+            # candidate ever offers it volume and the check is never exercised (29 such part-plants in v6)
+            frozen = stuck_sup & set(qual)
+            if len(qual) < 2 or not frozen:
+                continue
+            inc = dict(cands[0][1])
+            frozen = {s for s in frozen if inc.get(s, 0.0) < 1.0}
+            if not frozen:
+                continue
+            checked += 1
+            for name, split in cands[1:]:
+                gains_to_frozen = any(split.get(s, 0.0) - inc.get(s, 0.0) > 1e-9 for s in frozen)
+                if not gains_to_frozen:
+                    continue
+                ok, viol, _ = constraint_report(L, part, plant, split, inc, disable=disable)
+                if ok:
+                    moved += 1
+                    example = example or dict(part=part, plant=plant, candidate=name,
+                                              suppliers=sorted(frozen), violations=viol)
+                else:
+                    blocked += 1
+    return dict(part_plants_checked=checked, candidates_blocked=blocked, candidates_allowed_through=moved,
+                passes=(moved == 0 and blocked > 0), example_leak=example)
 
 
 def main(a):
     L = load(a.world, a.t0)
     sig = supplier_signals(a.world)
+    cov = [(len(x["fill"]), len(x["strain"])) for x in sig]
+    assert all(f > 0 and st > 0 for f, st in cov), f"signals failed to load: {cov} -- the band check would be vacuous"
+    print(f"signals per seed (suppliers with fill / strain): {cov}")
     unit = L["costs"].groupby(["part_id", "supplier_id"]).unit_cost_inr.mean().to_dict()
     req = L["demand"].groupby(["part_id", "plant_id"]).gross_requirement_p50.sum()
 
@@ -257,7 +321,7 @@ def main(a):
         inc = dict(cands[0][1])
         scored = []
         for seed_sig in sig:
-            sc = ReducedScorer({}, seed_sig["strain"], unit)
+            sc = ReducedScorer(seed_sig["fill"], seed_sig["strain"], unit)
             for name, split in cands:
                 ok, viol, inert = constraint_report(L, part, plant, split, inc)
                 v = sc(L, part, plant, split, R)
@@ -287,8 +351,19 @@ def main(a):
         print(f"    first-to-second margin {margin:,.0f}; seed bands overlap = {bands_overlap} -> "
               f"{'NOT a recommendation' if bands_overlap else 'ranking survives the bands'}")
 
+    real = verify_tooling_gate(L)
+    broken = verify_tooling_gate(L, disable=("tooling",))
+    print(f"\n3.4 tooling gate (guide): {real['part_plants_checked']} part-plants with frozen tooling checked, "
+          f"{real['candidates_blocked']} candidate moves blocked, {real['candidates_allowed_through']} leaked "
+          f"-> {'PASS' if real['passes'] else 'FAIL'}")
+    print(f"    same gate against a constraint layer with the tooling check removed: "
+          f"{broken['candidates_allowed_through']} leaked -> {'FAIL (as required)' if not broken['passes'] else 'still passes -- VACUOUS'}")
+    print(f"    CAN IT FAIL: {'yes, shown' if real['passes'] and not broken['passes'] else 'NO -- vacuous'}")
+
     out = os.path.join(ARTIFACTS, f"phase10_allocation_{a.world}.json")
     json.dump(dict(world=a.world, t0=a.t0, scope=multi, client_parameters=CLIENT_PARAMS, rows=rows,
+                   tooling_gate=dict(real=real, broken=broken,
+                                     can_fail=bool(real["passes"] and not broken["passes"])),
                    caveat="ReducedScorer measures expected UNMET DEMAND IN PERIOD, not stockout against inventory; "
                           "its capacity term inherits interval miscalibration (80% coverage 0.72-0.81, below nominal "
                           "in 12 of 16 windows)"), open(out, "w"), indent=1, default=float)
