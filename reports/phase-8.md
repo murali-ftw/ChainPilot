@@ -657,7 +657,7 @@ covers. "Range" is the condition under which the claim held.
 ## 6. Deviations
 
 Appended to the known-deviations index in `docs/implementation_guide.md`. Rows 18–23 were written at the interim; rows 21
-and 22 are updated for Stage 8E; rows 24–25 are new. Additions only, nothing removed.
+and 22 are updated for Stage 8E; rows 24–26 are new. Additions only, nothing removed.
 
 | # | the guide / specification says | measured, and what Phase 8 did |
 |---|---|---|
@@ -668,7 +668,8 @@ and 22 are updated for Stage 8E; rows 24–25 are new. Additions only, nothing r
 | 22 | the 120-epoch cap is slack | arrival h⁰ at 2.5e-4 needs 77–116 epochs at origin 1, where one cell stopped at the cap. **Stage 8E raised the arrival cap to 200** (`backtest.py queue --arrival-max-epochs 200`, written into each bundle's config) for origins 2, 6 and 7. Origin 1's arrival cells keep the 120 cap they were trained under and were not re-run; its one cap-bound cell stays flagged as a floor. The learning rate is 2.5e-4 as shipped: not retuning. **Outcome: no Stage 8E cell reached 200** (h⁴ best epoch 21–81, h⁰ 63–96; all 36 stopped on patience), so the raised cap removed the floor rather than moving any number |
 | 23 | the drift thresholds can be calibrated from the backtest | **0 of 48** arrival and **0 of 48** fill observations exceed 4.5 pp across all eight windows (largest 3.93 / 3.90). 3b is **closed as infeasible**; the thresholds stay where Addendum B put them, and the `watch` band stays interpolated |
 | 24 | the eight origins are comparable half-year evaluation windows | origin 8's window ends at the specification's 2025-09-30 and holds **2 snapshots, both at the Aug–Sep seasonal peak**; the fit window's last two snapshots (2025-10-27, 2025-12-08) are never evaluated. Origin 8's +12.0 / +22.3 label shift is **seasonal composition** (its mean equals the all-years Aug–Sep mean), not a level change (8D.3). Reported as is; no origin redefined |
-| 25 | Phase 8 reports the backtest | the interim (`reports/phase-8-interim.md`) carried four miscounts and one misreading, recounted in code in Stage 8D and corrected in both documents (Appendix A). The misreading, "a 2025 regime", is withdrawn |
+| 25 | capacity's 2025 result reflects a late-period regime | **there is no late-period change in the label.** Per-snapshot mean `capacity_strain` over 2019–2025 has no trend (slope +0.004 / +0.010 per year, p = 0.42 / 0.38), no late step (the best change point is COVID, 2020-03) and no ceiling; the only dated generator terms end **2022-06-30**. The interim's "2025 regime" reading is **withdrawn** (§4 3a) |
+| 26 | Phase 8 reports the backtest | the interim (`reports/phase-8-interim.md`) carried four miscounts and one misreading, recounted in code in Stage 8D and corrected in both documents (Appendix A). The misreading, "a 2025 regime", is withdrawn |
 
 **Deviations from the closeout brief:** three, all recorded rather than silent.
 1. **The brief's §7 figure "80% coverage below nominal in 13 of 16" is the interim's miscount.** The recount is **12 of

@@ -279,6 +279,9 @@ def export(bundle_root=None, preds=None, index_path=None):
             continue
         task, w, k = cfg["task"], cfg["world"], cfg["origin"]
         name = f"{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
+        if cfg.get("train_snapshots"):
+            name += f"_tr{cfg['train_snapshots']}"     # a truncated-history cell is its own configuration: never the
+                                                       # same prediction file, index key or band as the full-history cell
         rec = json.load(open(os.path.join(d, "recalibration.json")))
         # fixed-width unicode, as Phase 7 saves it: an object array cannot be np.load-ed without pickle
         ent = pd.read_csv(os.path.join(d, "model_outputs.csv.gz"), usecols=["entity_id"]).entity_id.to_numpy().astype(str)

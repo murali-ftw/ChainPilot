@@ -1732,7 +1732,7 @@ optimiser moves it, the tooling constraint is not bound.
 
 ## Known deviations from spec
 
-Twenty-five places where `benchmark_specification.md` and the earlier text of this guide describe the
+Thirty places where `benchmark_specification.md` and the earlier text of this guide describe the
 data **as designed** rather than **as generated**. All five are measured on
 `db/gen_v6/seed_1001` and `db/gen_v7/seed_1001`, all 8,598,520 `channel_performance_weekly`
 rows per world. Build against the measured column, not the specified one.
@@ -1764,6 +1764,11 @@ rows per world. Build against the measured column, not the specified one.
 | 23 | the drift thresholds can be calibrated from the backtest | **0 of 48** arrival and **0 of 48** fill observations exceed 4.5 pp across all eight windows (largest 3.93 / 3.90); the `watch` band keeps **9** observations. Arrival's thresholds stay **interpolated**, and question 3b is **closed as infeasible from this backtest** | [8.2](#step-82--rolling-origin-backtest) |
 | 24 | the eight origins are comparable half-year evaluation windows | origin 8 ends at the specification's 2025-09-30 with **2 snapshots, both in the Aug–Sep seasonal peak**; the fit window's last two snapshots are never evaluated. Its +12.0 / +22.3 hundredth label shift is **seasonal composition** — its mean equals the all-years Aug–Sep mean — not a level change. No origin redefined | [8.2](#step-82--rolling-origin-backtest) |
 | 25 | capacity's 2025 result reflects a late-period regime | **there is no late-period change in the label.** Per-snapshot mean `capacity_strain` over 2019–2025 has no trend (slope +0.004 / +0.010 per year, p = 0.42 / 0.38), no late step (the best change point is COVID, 2020-03) and no ceiling; the only dated generator terms end **2022-06-30**. The interim's "2025 regime" reading is **withdrawn**; what the data support is that capacity depth is **window-dependent with no measured predictor** | [8.2](#step-82--rolling-origin-backtest) |
+| 26 | Phase 8 reports the backtest | its interim (`reports/phase-8-interim.md`) carried **four miscounts and one misreading**, recounted in code in Stage 8D and corrected in both documents (`reports/phase-8.md` Appendix A) | [8.2](#step-82--rolling-origin-backtest) |
+| 27 | fill's rolling-origin backtest is deferred and unscheduled (row 21) | **run in Phase 9A**: origins 2–8, both worlds, 3 seeds, 42 cells. Row 21's fill clause is discharged. Recalibrated ECE-22 varies **9×** across windows (0.011–0.102) and **LightGBM-22 is better calibrated in 12 of 16**, so Phase 7 binding statement 2 extends to both worlds; the head wins exact CRPS 15 of 16 | [8.2](#step-82--rolling-origin-backtest) |
+| 28 | a bundle's predictions and index entry are uniquely identified | **they were not**: `backtest.py export` omitted the truncation suffix `loop.bundle_dir` uses, so Phase 9A's truncated-history cells overwrote origin 7's full-history arrival predictions. Caught against Phase 8's recorded values, fixed, everything re-exported and rescored; the full-history figures reproduce Phase 8 exactly | [8.2](#step-82--rolling-origin-backtest) |
+| 29 | B2 is the as-of 52-week histogram of a channel's active weeks | at a rolling origin a channel may have **no** active week in the trailing 52; those rows fall back to that origin's **training-fold global 22-cell CDF**, as on the fixed split | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
+| 30 | training history and the calendar can be separated by truncation | truncation separates **quantity** only: the retained 18 snapshots are the most **recent** ones, so the training era moves with the evaluation window. Phase 9A Stage B rules out "more history"; it does not separate recency from the evaluation window itself | [8.2](#step-82--rolling-origin-backtest) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
