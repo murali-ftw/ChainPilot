@@ -29,7 +29,7 @@
 
 | | |
 |---|---|
-| Commits | Code **`a259af6`**, committed before any cell ran: history truncation, per-origin fill baselines, baseline recalibration in the backtest scorer. **`cb24b17`** fixes the export naming defect found mid-phase (deviation 28) and adds the two analysis scripts. |
+| Commits | Code **`a259af6`**, committed before any cell ran: history truncation, per-origin fill baselines, baseline recalibration in the backtest scorer. **`2804afa`** fixes the export naming defect found mid-phase (deviation 28), adds the two analysis scripts and carries this report. |
 | Device | **MPS**, Apple Silicon, float32, `PYTORCH_ENABLE_MPS_FALLBACK=1`, `num_workers=0`, torch 2.14.0; LightGBM on CPU in a torch-free process |
 | Configuration | `ml/configs/shipped.json`, `phase6-shipped-1`, **unchanged**; no learning rate retuned |
 | Cost | Stage A fill **42 cells, 7.7 h** wall on two queues, plus 176 baseline fits (45 min CPU). Stage B **6 cells, 1.0 h**. Scoring 1,552 score sets |
