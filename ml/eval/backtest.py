@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "train"), os.path.join(HERE, "..", "data")]
 import numpy as np, pandas as pd
 from config import WORLDS, FIT_WINDOW, ARTIFACTS
+import artifact_identity as AI
 import folds as FO
 
 SHIPPED = "ml/configs/shipped.json"
@@ -273,15 +274,16 @@ def export(bundle_root=None, preds=None, index_path=None):
     root = bundle_root or L.BACKTEST_BUNDLES
     os.makedirs(PREDS, exist_ok=True)
     index = {}
-    for cfgp in sorted(glob_bundles(root)):
-        d = os.path.dirname(cfgp); cfg = json.load(open(cfgp))
-        if not cfg.get("complete"):
-            continue
+    # deviation 28: two configurations must never resolve to one artifact. Asserted over the whole set BEFORE any
+    # write, so a collision fails loudly instead of silently overwriting the cell that got there first.
+    done = [json.load(open(p)) for p in sorted(glob_bundles(root))]
+    done = [c for c in done if c.get("complete")]
+    AI.assert_unique(done, "completed bundles")
+    man = AI.load_manifest(PREDS)
+    for cfg in done:
+        d = os.path.dirname(os.path.join(L.bundle_dir(cfg), "config.json"))
         task, w, k = cfg["task"], cfg["world"], cfg["origin"]
-        name = f"{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
-        if cfg.get("train_snapshots"):
-            name += f"_tr{cfg['train_snapshots']}"     # a truncated-history cell is its own configuration: never the
-                                                       # same prediction file, index key or band as the full-history cell
+        name = AI.config_name(cfg)
         rec = json.load(open(os.path.join(d, "recalibration.json")))
         # fixed-width unicode, as Phase 7 saves it: an object array cannot be np.load-ed without pickle
         ent = pd.read_csv(os.path.join(d, "model_outputs.csv.gz"), usecols=["entity_id"]).entity_id.to_numpy().astype(str)
@@ -292,6 +294,9 @@ def export(bundle_root=None, preds=None, index_path=None):
                 assert len(ent) == len(z["Y"]), "model_outputs rows != test predictions"
                 base["entity"] = ent
             stem = f"{w}_{task}_o{k}_{name}_{fold}.npz"
+            assert stem == AI.pred_stem(cfg, fold) + ".npz", stem
+            for f_ in (stem, "RECAL_" + stem) if task in ("arrival_week", "fill_rate") else (stem,):
+                AI.guard_write(man, PREDS, f_, AI.identity_of(cfg), owner=d)
             if task == "arrival_week":
                 np.savez_compressed(os.path.join(PREDS, stem), P=z["P"], S=z["S"], pT=z["pT"], **base)
                 r = L.apply_recalibration(rec, task, z)
@@ -306,11 +311,15 @@ def export(bundle_root=None, preds=None, index_path=None):
         tl = json.load(open(os.path.join(d, "train_log.json")))
         drift_b = json.load(open(os.path.join(d, "drift_baseline.json")))
         met = json.load(open(os.path.join(d, "metrics.json")))
-        index[f"{w}|{task}|o{k}_{name}"] = dict(
+        key = AI.index_key(cfg)
+        assert key == f"{w}|{task}|o{k}_{name}", key
+        assert key not in index, f"index key collision: {key}"
+        index[key] = dict(
             bundle=d, stamp=cfg["stamps"]["model_version"], split=cfg["split"], epochs=tl.get("epochs_run"),
             best_epoch=tl.get("best_epoch"), stop=tl.get("stop"), seconds=tl.get("seconds"),
             recalibration={k2: rec.get(k2) for k2 in ("method", "vs_T", "mm_ratio", "fitted_on")},
             drift_val=drift_b["values"], drift_test=met["test_drift_values_label_free"])
+    AI.save_manifest(PREDS, man)
     json.dump(index, open(INDEX, "w"), indent=1)
     print(f"exported {len(index)} bundles -> {PREDS}", flush=True)
     return index

@@ -32,6 +32,7 @@ import numpy as np, pandas as pd, torch
 import phase5_heads as P5
 import temporal_share as TS
 import folds as FO
+import artifact_identity as AI
 import phase5_metrics as M
 from heads import HazardHead, fill_cell, fill_to_legacy
 from phase5_recal import fit_mm, apply_mm, fit_vs, apply_vs, log_score
@@ -89,9 +90,7 @@ def snapshot_ids(world):
 
 
 def bundle_dir(cfg):
-    name = f"{cfg['world']}_{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
-    if cfg.get("train_snapshots"):
-        name += f"_tr{cfg['train_snapshots']}"          # a truncated-history cell is a separate configuration
+    name = AI.bundle_name(cfg)                          # ml/artifact_identity.py -- the only place a name is built
     if cfg.get("origin"):
         return os.path.join(BACKTEST_BUNDLES, cfg["task"], f"o{cfg['origin']}", name)
     return os.path.join(BUNDLES, cfg["task"], name)
