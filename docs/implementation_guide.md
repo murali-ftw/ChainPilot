@@ -65,6 +65,7 @@ pre-recalibration figure rather than to the evaluation fold.
 - [Phase 8 — Evaluation](#phase-8--evaluation)
 - [Phase 9 — Simulation](#phase-9--simulation)
 - [Phase 10 — Optimisers](#phase-10--optimisers)
+- [Phase 11 — Model changes deferred from evaluation](#phase-11--model-changes-deferred-from-evaluation)
 - [Known deviations from spec](#known-deviations-from-spec) ← **read before trusting a §3.2 number**
 - [Troubleshooting](#troubleshooting)
 - [Glossary](#glossary)
@@ -1756,6 +1757,82 @@ Solver: OR-Tools CP-SAT or HiGHS.
 **Verify** — a part whose tooling has `is_transferable = false` and `duplicate_exists =
 false` must return the incumbent split unchanged, whatever the cost difference. If the
 optimiser moves it, the tooling constraint is not bound.
+
+---
+
+## Phase 11 — Model changes deferred from evaluation
+
+Two changes that earlier reports filed under "Phase 10". They are not Phase 10 work: Phase 10 is the optimisers
+(10.1, 10.2), and neither of these is an optimiser. Deviation 34 recorded the mislabelling; this section gives them
+a home. Both require training and neither was run in Phase 10.
+
+### Step 11.1 — Capacity intervals: a level-aware recalibration
+
+**What** — Make capacity's predictive intervals hold their nominal coverage when utilisation rises above the level
+the model was calibrated on.
+
+**Files** — `ml/eval/conformal_capacity.py` (new), `ml/train/loop.py` (recalibration hook)
+
+**Depends on** — 8.2 (the rolling-origin backtest supplies the evidence and the test windows)
+
+**Why a fixed widening factor will not work.** Phase 8 Stage 8D.4 measured the driver: P90 exceedance tracks how far
+the evaluation window's label level sits ABOVE the window the intervals were fitted on, at Spearman ~0.8 in every
+model class (h⁴ +0.80, h⁰ +0.68, B5 +0.82 against the evaluation-mean z-score). Coverage is not uniformly too
+narrow — it is too narrow exactly when the level has moved, and close to nominal when it has not. A constant
+multiplier would over-widen the quiet windows and still under-cover the moving ones.
+
+**Implementation** — two candidates, to be compared on validation only:
+1. **Conformal widening keyed to recent drift.** Fit conformal residual quantiles on the validation fold, then scale
+   the interval by a function of the label-free drift statistic observed since. The drift statistic is already
+   computed and logged every run (Phase 10 Stage 1.2 kept it as monitoring after removing the gate).
+2. **Recalibration refitted on a trailing window** rather than on the origin's fixed validation slice, so the
+   calibration set tracks the level.
+
+**Verify** — 80% coverage within [0.78, 0.82] in at least 13 of the 16 backtest windows, against 4 of 16 today, AND
+no window worse than the current 0.72 floor. Both arms must be shown capable of failing that gate before it is
+trusted (standing rule 1).
+
+**Cost** — ~3 h: no retraining (both arms are post-hoc on existing prediction files), 16 windows × 2 arms × 3 seeds
+re-scored, plus the comparison. If a trailing-window recalibration needs per-origin refits of the recalibrator only,
+add ~1 h.
+
+---
+
+### Step 11.2 — Arrival: give the head `promise_week` and line age
+
+**What** — Add the two line-level scalars the arrival head has never received.
+
+**Files** — `ml/train/phase5_heads.py` (feature assembly), `ml/data/loader.py` (line-level join)
+
+**Depends on** — 5.3, 8.2
+
+**THE HIGHEST-EXPECTED-VALUE MODEL CHANGE IN THIS PROJECT, and why.** Phase 9B Stage A read the generator's own
+definitions: `promise_date = po_created + contracted[channel]` and `arrival_week = po_created_week + ceil(lead/7)`
+where `lead` is lognormal with median `0.51 * contracted[channel]`. Both quantities are offsets from the SAME
+line-level anchor, `po_created`, and both carry the same channel-level scale. The head receives neither. It reads a
+channel's weekly panel, so it emits ONE distribution per channel-snapshot — measured directly: 25,569 evaluation
+rows across eight cells carry bit-identical predictions in groups of up to 4.
+
+The consequence is arithmetic, not opinion: the promise date orders arrivals at C-index 0.87–0.89 while the head
+manages 0.66–0.69, and the gap is the line-level information, not model quality. Phase 7 binding statement 1 and
+Phase 8 §4 3d's ranking verdict are therefore statements about the feature set. **This is the one change that could
+convert arrival's ranking claim from "untestable on this data" into a measurable result**, and it is the only
+open item whose ceiling is known to be high before the experiment runs.
+
+**Implementation** — join `po_lines.original_promise_date` and the line's creation date to each label row under the
+as-of rule (`recorded_ts <= t0`, never `event_ts`), add `promise_week` and `age_weeks` as per-row features
+alongside the channel encoding, and retrain arrival h⁴ and h⁰ unchanged in every other respect. The promise date is
+currently used only as the scorer's offset `AUX`; moving it into the feature path means the C-index comparison
+against promise-only stops being circular and starts being a real question.
+
+**Verify** — C-index against the promise-date baseline on the ORIGIN-1 validation fold, a window where the current
+head loses by 0.21. The new head must beat promise-only there, or the change is rejected. Lateness ROC-AUC must not
+regress below the current +0.001 to +0.031 range on the four backtested origins.
+
+**Cost** — ~6–7 h: arrival h⁴ and h⁰, 3 seeds, 2 worlds, on origins 1, 2, 6 and 7 costs ~5 h wall on two queues at
+the measured per-cell times (Phase 8 Stage 8E ran the same grid in 9.2 h including origin 7's 44-snapshot cells),
+plus ~1 h for the feature join and ~1 h for scoring and the report. A single-origin pilot (origin 1, 3 seeds, both
+worlds) is ~1.2 h and would settle the direction before the rest is spent.
 
 ---
 
