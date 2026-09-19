@@ -171,6 +171,10 @@ def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=
     r = np.zeros(n); r[:nq] = lot
     if "coverage" in disable:
         A.append(r); lo.append(0.0); hi.append(np.inf)               # broken: nothing forces the requirement to be met
+    elif mode == "balance":
+        # the safety-stock floor requires stock ABOVE the requirement, so capping receipts at one lot over it makes
+        # the two constraints contradictory. In balance mode coverage is a floor only.
+        A.append(r); lo.append(R); hi.append(np.inf)
     else:
         A.append(r); lo.append(R); hi.append(R + lot - 1e-9)
     # MOQ linking, both directions: an order week carries at least the MOQ, a non-order week carries nothing
