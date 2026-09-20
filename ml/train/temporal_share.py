@@ -93,6 +93,7 @@ def labels_for(w, task):
         cols = ["po_line_id", "channel_id"]
         if task == "arrival_week":
             cols.append("original_promise_date")     # for the binarised late/on-time ROC-AUC
+            cols += ["created_ts", "recorded_ts"]    # Phase 11 Stage 2: line age, and its as-of visibility check
         pol = read_df(D, "po_lines", usecols=cols)
         lb = lb.merge(pol, left_on="entity_id", right_on="po_line_id", how="inner")
         lb["key"] = lb.channel_id
@@ -100,6 +101,10 @@ def labels_for(w, task):
             # promise expressed in the SAME units as the label: weeks after the snapshot
             prom = pd.to_datetime(lb.original_promise_date, errors="coerce")
             lb["promise_week"] = ((prom - lb.snapshot_date).dt.days / 7.0)
+            # Phase 11 Stage 2: the line's age at the snapshot, in the same units. AS-OF -- the line is visible only
+            # once recorded_ts has passed, which batches() asserts per batch; created_ts is then part of that record.
+            lb["line_age_weeks"] = ((lb.snapshot_date - pd.to_datetime(lb.created_ts, errors="coerce")).dt.days / 7.0)
+            lb["line_recorded_ts"] = pd.to_datetime(lb.recorded_ts, errors="coerce")
     else:
         lb[["part_id", "plant_id"]] = lb.entity_id.str.split("|", expand=True)
         lb["key"] = lb.part_id + "|" + lb.plant_id

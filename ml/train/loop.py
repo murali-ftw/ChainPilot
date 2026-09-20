@@ -127,6 +127,9 @@ def resolve(args):
         cfg["origin"] = int(args.origin)                   # only present on backtest cells: fixed-split configs unchanged
     if getattr(args, "train_snapshots", None):
         cfg["train_snapshots"] = int(args.train_snapshots)  # Phase 9A Stage B: history held to n snapshots
+    if getattr(args, "row_features", None):
+        cfg["row_features"] = True                          # Phase 11 Stage 2: promise_week + line age (arrival only)
+        assert cfg["task"] == "arrival_week", "row features are defined for arrival only"
     return cfg
 
 
@@ -147,7 +150,8 @@ def train(cfg, verbose=False):
         ymu = float(lb.label_value[tr].mean()); ysd = float(lb.label_value[tr].std())
     seed_all(cfg["seed"])                                   # init independent of the data path, as in Phase 5
     model = P5.HeadNet(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
-                       gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"]).to(DEV).to(DTYPE)
+                       gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
+                       n_row_feats=2 if cfg.get("row_features") else 0).to(DEV).to(DTYPE)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=TS.HP["wd"])
     train_b = P5.batches(task, lb, tr, D["W"], ymu, ysd)
     n_train = int(tr.sum())
@@ -158,7 +162,7 @@ def train(cfg, verbose=False):
         with warnings.catch_warnings(record=True) as wl:
             warnings.simplefilter("always")
             for t0, tg, _ in train_b:
-                z = P5.forward(model, D, t0, tg["idx"])
+                z = P5.forward(model, D, t0, tg["idx"], xrow=tg.get("xrow") if cfg.get("row_features") else None)
                 L, n_c = P5.loss_of(model, z, tg)
                 opt.zero_grad(); L.backward(); opt.step()
                 ep_l.append(float(L.detach())); n_rows += n_c
@@ -431,7 +435,8 @@ def load_bundle(path):
 
 def _materialise(B, D):
     cfg = B["cfg"]
-    m = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"]).to(DEV)
+    m = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
+                   n_row_feats=2 if cfg.get("row_features") else 0).to(DEV)
     m.load_state_dict(torch.load(os.path.join(B["path"], "checkpoint.pt"), map_location="cpu"))
     return m.eval()
 
@@ -489,13 +494,16 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
             ii = order[dates == s]
             idx = torch.from_numpy(lb.key.iloc[ii].map(keymap).to_numpy(np.int64)).to(DEV)
             t0 = P5.t0_of(D["W"], s)
-            pr = _head_outputs(task, P5.forward(model, D, t0, idx), ymu, ysd)
+            xr = _row_features(lb, ii) if cfg.get("row_features") else None
+            pr = _head_outputs(task, P5.forward(model, D, t0, idx, xrow=xr), ymu, ysd)
             rc = apply_recalibration(B["rec"], task, pr)
             d = drift_stats(task, pr, rc)[stat]
             rec = dict(snapshot=str(pd.Timestamp(s).date()), n=int(len(ii)), statistic=stat, value=d,
                        baseline=B["base"]["values"][stat], drift_pp=100 * (d - B["base"]["values"][stat]))
             if h0 is not None:
-                ph = _head_outputs(task, P5.forward(h0, D, t0, idx), ymu, ysd)
+                ph = _head_outputs(task, P5.forward(h0, D, t0, idx,
+                                                    xrow=_row_features(lb, ii) if H["cfg"].get("row_features") else None),
+                                   ymu, ysd)
                 rh = apply_recalibration(H["rec"], task, ph)
                 dh = drift_stats(task, ph, rh)[stat]
                 rec.update(h0_drift_pp=100 * (dh - H["base"]["values"][stat]))
@@ -533,6 +541,15 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
     else:
         result["probability"] = cat([p for p, _ in parts], "P")
     return result
+
+
+def _row_features(lb, ii):
+    """The serving path's copy of batches()' per-row features, with the same as-of assertion."""
+    rows = lb.iloc[ii]
+    assert (rows.line_recorded_ts <= rows.snapshot_date).all(), "as-of violation: a po_line is not yet recorded"
+    x = np.stack([rows.promise_week.to_numpy(float) / 10.0, rows.line_age_weeks.to_numpy(float) / 10.0], 1)
+    assert np.isfinite(x).all()
+    return torch.from_numpy(x.astype(np.float32)).to(DEV)
 
 
 def _head_outputs(task, z, ymu, ysd):

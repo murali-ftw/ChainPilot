@@ -119,10 +119,11 @@ def device_inputs(w, snaps_train, wsla):
 
 # ---------------------------------------------------------------- model
 class HeadNet(nn.Module):
-    def __init__(self, d_in, task, arch="none", depth=0, gate_cols=None, fill_loss="rps"):
+    def __init__(self, d_in, task, arch="none", depth=0, gate_cols=None, fill_loss="rps", n_row_feats=0):
         super().__init__()
         h = TS.HP["tcn_hidden"]
         self.task, self.arch, self.depth, self.fill_loss = task, arch, depth, fill_loss
+        self.n_row_feats = int(n_row_feats)        # per-LINE inputs concatenated to the channel encoding
         self.tcn = TCN(d_in, h)
         self.gate = StalenessGate(len(gate_cols)) if gate_cols is not None else None
         if gate_cols is not None:
@@ -136,6 +137,7 @@ class HeadNet(nn.Module):
             self.enc = HeteroMP(h, 3, rounds=max(1, depth // 2))
         else:
             self.enc = None
+        wide += self.n_row_feats
         self.head = {"hazard": lambda: HazardHead(wide, HORIZON_WEEKS),
                      "cdf22": lambda: FillCDFHead(wide),
                      "quantile": lambda: QuantileHead(wide),
@@ -156,7 +158,7 @@ class HeadNet(nn.Module):
         return (h, g) if return_gate else h
 
 
-def forward(model, D, t0, idx, return_gate=False):
+def forward(model, D, t0, idx, return_gate=False, xrow=None):
     W = D["W"]
     sl = slice(t0 - WIN + 1, t0 + 1)
     h, g = model.encode(D["X"][:, sl], D["dt"][:, sl], D["obs"][:, sl], W, return_gate=True)
@@ -166,7 +168,14 @@ def forward(model, D, t0, idx, return_gate=False):
         cnt = torch.zeros(n_pp, 1, device=DEV, dtype=h.dtype).index_add_(
             0, W["pp_of_chan"], torch.ones_like(h[:, :1]))
         h = agg / cnt.clamp(min=1.0)
-    z = model.head(h[idx])
+    hi = h[idx]
+    if getattr(model, "n_row_feats", 0):
+        assert xrow is not None and xrow.shape[1] == model.n_row_feats, \
+            f"model expects {model.n_row_feats} per-row features, got {None if xrow is None else xrow.shape}"
+        hi = torch.cat([hi, xrow.to(hi.dtype)], dim=-1)
+    else:
+        assert xrow is None, "per-row features supplied to a model that has none"
+    z = model.head(hi)
     return (z, g) if return_gate else z
 
 
@@ -182,6 +191,14 @@ def batches(task, lb, mask, W, ymu=0.0, ysd=1.0):
         k = rows.key.map(keymap)
         assert k.notna().all(), f"{task}: {int(k.isna().sum())} label keys absent from the graph"
         tg = {"idx": torch.from_numpy(k.to_numpy(np.int64)).to(DEV)}
+        if task == "arrival_week" and "line_age_weeks" in rows:
+            # AS-OF: every row used must already be recorded at its own snapshot. Asserted, not assumed.
+            assert (rows.line_recorded_ts <= rows.snapshot_date).all(), \
+                "a po_line is not yet recorded at its own snapshot -- as-of violation"
+            pw = rows.promise_week.to_numpy(float); ag = rows.line_age_weeks.to_numpy(float)
+            assert np.isfinite(pw).all() and np.isfinite(ag).all(), "non-finite per-row feature"
+            assert (ag >= 0).all(), "negative line age"
+            tg["xrow"] = torch.from_numpy(np.stack([pw / 10.0, ag / 10.0], 1).astype(np.float32)).to(DEV)
         y = rows.label_value.to_numpy(float)
         cen = rows.label_censored.to_numpy(bool)
         if task == "arrival_week":
@@ -215,7 +232,8 @@ def predict(model, D, lb, mask, ymu=0.0, ysd=1.0, gate_stats=False):
     W = D["W"]
     parts, rows_all, gs = {}, [], []
     for t0, tg, ii in batches(model.task, lb, mask, W, ymu, ysd):
-        z, g = forward(model, D, t0, tg["idx"], return_gate=True)
+        z, g = forward(model, D, t0, tg["idx"], return_gate=True,
+                       xrow=tg.get("xrow") if getattr(model, "n_row_feats", 0) else None)
         if model.task == "arrival_week":
             lam, S, pT = HazardHead.distribution(z)
             got = {"P": HazardHead.expected_time(S), "S": S, "pT": pT}
@@ -282,7 +300,8 @@ def train_cell(world, task, lr, seed=7, arch="none", depth=0, gate=False, wsla=F
         te0 = time.time()
         model.train(); ep_l, n_rows = [], 0
         for t0, tg, _ in train_b:
-            z = forward(model, D, t0, tg["idx"])
+            z = forward(model, D, t0, tg["idx"],
+                        xrow=tg.get("xrow") if getattr(model, "n_row_feats", 0) else None)
             L, n_c = loss_of(model, z, tg)
             opt.zero_grad(); L.backward(); opt.step()
             ep_l.append(float(L.detach())); n_rows += n_c

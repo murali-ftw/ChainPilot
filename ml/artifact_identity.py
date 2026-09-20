@@ -20,6 +20,8 @@ def config_name(cfg) -> str:
     name = f"{cfg['arch']}_h{cfg['depth']}_lr{cfg['lr']:g}_s{cfg['seed']}"
     if cfg.get("train_snapshots"):
         name += f"_tr{cfg['train_snapshots']}"
+    if cfg.get("row_features"):
+        name += "_rowfeat"                          # Phase 11 Stage 2: promise_week + line age as head inputs
     return name
 
 
@@ -44,7 +46,8 @@ def index_key(cfg) -> str:
 
 def identity_of(cfg) -> dict:
     """The fields that make two artifacts the same artifact. A difference in any of them is a different artifact."""
-    keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs")
+    keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs",
+            "row_features")
     return {k: cfg.get(k) for k in keys}
 
 

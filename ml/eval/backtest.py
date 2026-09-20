@@ -129,14 +129,15 @@ def cells(origins, worlds=("v6", "v7"), tasks=None):
     return [c for c in out if tasks is None or c[0] in tasks]
 
 
-def cfg_of(c, tag="phase8", arrival_max_epochs=None, train_snapshots=None):
+def cfg_of(c, tag="phase8", arrival_max_epochs=None, train_snapshots=None, row_features=False):
     """arrival_max_epochs: Stage 8E raises arrival's cap from the shipped 120 (deviation 22). Not a learning-rate change;
     it is written into each bundle's config, and bundle paths do not depend on it."""
     import loop as L
     task, w, s, arch, depth, lr, k = c
     ns = argparse.Namespace(config=SHIPPED, task=task, world=w, seed=s, arch=arch, depth=depth, lr=lr, tag=tag,
                             max_epochs=arrival_max_epochs if task == "arrival_week" else None, origin=k,
-                            train_snapshots=train_snapshots)
+                            train_snapshots=train_snapshots,
+                            row_features=row_features and task == "arrival_week")
     return L.resolve(ns)
 
 
@@ -173,7 +174,7 @@ def projection(queues, tasks=None):
 
 
 def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None, arrival_max_epochs=None,
-          train_snapshots=None, shipped_only=False):
+          train_snapshots=None, shipped_only=False, row_features=False):
     import loop as L
     ks = surviving_origins()
     run_ks = [k for k in ks if only_origins is None or k in only_origins]  # the ETA decision is taken before origin 2 starts
@@ -183,7 +184,8 @@ def queue(q, queues, allow_over_budget=False, only_origins=None, only_tasks=None
     for c in mine:
         if os.path.exists(STOP) and not allow_over_budget:
             print(f"[queue {q}] STOP file present ({STOP}); exiting before {c}", flush=True); return
-        cfg = cfg_of(c, arrival_max_epochs=arrival_max_epochs, train_snapshots=train_snapshots)
+        cfg = cfg_of(c, arrival_max_epochs=arrival_max_epochs, train_snapshots=train_snapshots,
+                     row_features=row_features)
         if complete(cfg):
             continue
         L.run_train(cfg)
@@ -361,6 +363,8 @@ if __name__ == "__main__":
     ap.add_argument("--train-snapshots", type=int, default=None,
                     help="Phase 9A Stage B: truncate training to the most recent n snapshots (own bundle, own band)")
     ap.add_argument("--shipped-only", action="store_true", help="queue the shipped configuration only, not its h0 twin")
+    ap.add_argument("--row-features", action="store_true",
+                    help="Phase 11 Stage 2: give arrival promise_week and line age (its own bundle, its own band)")
     a = ap.parse_args()
     if a.mode == "plan":
         plan()
@@ -368,7 +372,8 @@ if __name__ == "__main__":
         smoke(a.root or os.path.join(BT, "smoke_bundles"))
     elif a.mode == "queue":
         queue(a.queue, a.queues, a.allow_over_budget, [int(x) for x in a.origins.split(",")] if a.origins else None,
-              a.tasks.split(",") if a.tasks else None, a.arrival_max_epochs, a.train_snapshots, a.shipped_only)
+              a.tasks.split(",") if a.tasks else None, a.arrival_max_epochs, a.train_snapshots, a.shipped_only,
+              a.row_features)
     elif a.mode == "project":
         print(json.dumps(projection(a.queues, a.tasks.split(",") if a.tasks else None), indent=1))
     elif a.mode == "prepass":
