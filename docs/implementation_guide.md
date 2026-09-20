@@ -1829,6 +1829,13 @@ against promise-only stops being circular and starts being a real question.
 head loses by 0.21. The new head must beat promise-only there, or the change is rejected. Lateness ROC-AUC must not
 regress below the current +0.001 to +0.031 range on the four backtested origins.
 
+> **PRECONDITION, measured in Phase 11 and failed on this dataset (deviation 44/45).** This step assumes the head
+> could legitimately hold `promise_week` and line age at t0. On `gen_v6`/`gen_v7` it cannot: every arrival label row
+> describes a `po_line` created **7-89 days after its own snapshot** (median 49), in 244,000 of 244,000 rows in both
+> worlds, so neither input exists when the forecast is made. **Do not run this step until the labels attach to lines
+> already raised at t0** — true of a real Rane extract forecasting open orders, false here. The estimate below stands
+> only once that precondition holds.
+
 **Cost** — ~6–7 h: arrival h⁴ and h⁰, 3 seeds, 2 worlds, on origins 1, 2, 6 and 7 costs ~5 h wall on two queues at
 the measured per-cell times (Phase 8 Stage 8E ran the same grid in 9.2 h including origin 7's 44-snapshot cells),
 plus ~1 h for the feature join and ~1 h for scoring and the report. A single-origin pilot (origin 1, 3 seeds, both
@@ -1838,7 +1845,7 @@ worlds) is ~1.2 h and would settle the direction before the rest is spent.
 
 ## Known deviations from spec
 
-Forty-three places where `benchmark_specification.md` and the earlier text of this guide describe the
+Forty-eight places where `benchmark_specification.md` and the earlier text of this guide describe the
 data **as designed** rather than **as generated**. All five are measured on
 `db/gen_v6/seed_1001` and `db/gen_v7/seed_1001`, all 8,598,520 `channel_performance_weekly`
 rows per world. Build against the measured column, not the specified one.
@@ -1888,6 +1895,11 @@ rows per world. Build against the measured column, not the specified one.
 | 41 | 10.2 ranks candidates by expected shortage cost | **blocked**: shortage needs inventory. `SimulationScorer` implements the signature and raises; `ReducedScorer` measures expected **unmet demand in period** instead, and says so wherever a number is quoted | [10.2](#step-102--allocation-enumeration-then-milp) |
 | 42 | a seed-band check protects the ranking | keyed to the capacity **P50** the penalty was inert (P50 < 1.0 for 98% of suppliers), every seed scored identically and the check could not fail. Fixed to the **P90** (>1.0 for 16%); an assertion now fails the run if either signal loads empty | [10.2](#step-102--allocation-enumeration-then-milp) |
 | 43 | a verify gate that passes is a verify gate that works | 10.2's tooling gate first passed while blocking nothing: the frozen suppliers were not qualified at the plants tested, so no candidate ever offered them volume. Restricted to the 41 part-plants where it can bind, it blocks 77 (v6) / 88 (v7) moves and fails when the check is removed | [10.2](#step-102--allocation-enumeration-then-milp) |
+| 44 | arrival labels describe purchase-order lines observable at the snapshot | **they do not**: in 244,000 of 244,000 rows in both worlds the line is created **7-89 days after** its own snapshot (median 49). The task is a channel-level forecast of orders **not yet raised**, which is why the head is channel-level | [5.3](#step-53--discrete-time-hazard-head-arrival-timing) |
+| 45 | guide 11.2 gives the head `promise_week` and line age | **withdrawn as specified**: neither exists at prediction time on this data, so the pilot cannot run without leakage. Kept with a precondition for a real extract (labels must attach to lines already raised at t0) | [11.2](#step-112--arrival-give-the-head-promise_week-and-line-age) |
+| 46 | `shipped.json` names the model that is served | **it does not**: the Phase 10 fill switch to `b5flat22` is declarative only — no such bundle exists, `loop` cannot materialise a LightGBM, and `loop.predict` silently serves the superseded depth-0 head | [6.3](#step-63--loop-and-checkpointing) |
+| 47 | 10.2's candidate ranking is a recommendation | only **25%** of part-plants survive both a shortage-cost sweep over two orders of magnitude and the 3-seed bands, and 9 of those 30 say "keep the incumbent". The assumed Rs 1,000/unit sits inside the band where winners flip | [10.2](#step-102--allocation-enumeration-then-milp) |
+| 48 | the promise-date baseline is deployable, "a planner already holds it" (Phase 7 section 7) | **false on this data**: the promise date belongs to a line raised ~7 weeks after the forecast instant, so its 0.87-0.89 C-index uses future information and the head's lateness margin is measured against a **privileged** baseline | [7.1](#step-71--rolling-statistics-baselines-b2-b3-b4) |
 
 ### 1. The specified TCN cannot learn without residual connections
 
