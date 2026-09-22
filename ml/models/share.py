@@ -1,6 +1,6 @@
 """Phase 4 / run 8 — SHARE: RGCN basis decomposition + relation-blind shared attention.
 
-Specified in `docs/model_plan.md` "Stage 2" and `benchmark_specification.md` §4, and this
+Specified in `docs/specs/model_plan.md` "Stage 2" and `benchmark_specification.md` §4, and this
 is that specification, not an approximation of it:
 
     W_r^(l) = sum_{b=1..B} a_rb^(l) V_b^(l)                                    B = 10

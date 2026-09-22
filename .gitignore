@@ -1,10 +1,12 @@
-# datasets — never commit.
-# Scoped to the seed directories rather than the whole gen_v*/ tree, so that the
-# generator source living beside them stays under version control (synthetic_rules.md
-# §18: "the generator source, not only the CSVs -- the dataset is not reviewable
-# without it"). A blanket db/gen_v7/ rule silently excludes generator_v7.py.
+# ---------------------------------------------------------------- datasets
+# Never commit a generated world. Scoped to the SEED DIRECTORIES rather than the whole
+# gen_v*/ tree, so the generator source living beside them stays under version control
+# (synthetic_rules.md §18: "the generator source, not only the CSVs -- the dataset is not
+# reviewable without it"). A blanket db/gen_v8/ rule would silently exclude
+# generator_v8.py and validator_v8.py, which are the reviewable part.
 db/gen_v6/seed_*/
 db/gen_v7/seed_*/
+db/gen_v8/seed_*/
 db/csv_*_seed*/
 *.csv
 *.csv.gz
@@ -15,33 +17,42 @@ db/csv_*_seed*/
 
 # simulation state emitted alongside the worlds
 *.npz
+*.npy
 
-# model artefacts
-# derived snapshot cache; rebuilt by ml/data/cache.py in ~6s per world.
+# ---------------------------------------------------------------- model artefacts
+# Derived snapshot cache; rebuilt by ml/data/cache.py in ~6s per world.
 # NOTE: git has no trailing-comment syntax -- a comment must be on its own line,
 # or the whole line becomes the pattern and matches nothing.
 ml/artifacts/
 checkpoints/
-runs/
+mlruns/
+wandb/
 *.pt
 *.pth
 *.ckpt
-*.npy
-*.npz
-mlruns/
-wandb/
 
-# python
+# Training-run output at the REPO ROOT only. Without the leading slash this pattern
+# matches a directory named `runs` at any depth, which silently swallowed
+# docs/v8/runs/ and docs/validation/runs/ -- the raw validator output that the
+# validation record is built from.
+/runs/
+
+# ---------------------------------------------------------------- logs
+# Generation logs are reproducible from the generator and the seed; the written
+# validation record in docs/validation/ is not, and stays tracked.
+docs/logs/gen_*.log
+
+# ---------------------------------------------------------------- python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 .ipynb_checkpoints/
 
-# os / editor
+# ---------------------------------------------------------------- os / editor
 .DS_Store
 .idea/
 .vscode/
 
-# large logs
-docs/gen_*.log
+# ---------------------------------------------------------------- prompts
+prompts/

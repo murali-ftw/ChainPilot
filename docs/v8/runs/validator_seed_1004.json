@@ -1,0 +1,1158 @@
+{
+ "validator": "validator_v8.0",
+ "bands_frozen": "2026-09-22",
+ "dataset": "db/gen_v8/seed_1004",
+ "first_failed_gate": "G4",
+ "checks": [
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "every schema table is present",
+   "passed": true,
+   "detail": "49/49 present",
+   "breaks": "delete any CSV from the seed directory",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "header matches schema column list",
+   "passed": true,
+   "detail": "all tables",
+   "breaks": "drop or rename a column in any emitted frame",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "primary keys unique",
+   "passed": true,
+   "detail": "no duplicates",
+   "breaks": "emit two rows sharing a po_line_id",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "NOT NULL columns populated",
+   "passed": true,
+   "detail": "all populated",
+   "breaks": "blank revealed_capacity_monthly.constrained_month_flag",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "enum / CHECK domains honoured",
+   "passed": true,
+   "detail": "all in domain",
+   "breaks": "write txn_type='opening_balance', which is not in the schema enum",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "foreign keys resolve to masters",
+   "passed": true,
+   "detail": "all resolve",
+   "breaks": "point shortage_events.responsible_supplier_id at SUP99999",
+   "value": null
+  },
+  {
+   "level": 1,
+   "gate": "G0",
+   "name": "dates inside the world span",
+   "passed": true,
+   "detail": "2015-01-01..2027-12-31",
+   "breaks": "post the opening balance at 1970-01-01",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "ordered units: po_lines == channel store",
+   "passed": true,
+   "detail": "260,676,996 vs 260,676,996",
+   "breaks": "drop one PO line from the weekly aggregation",
+   "value": [
+    260676996,
+    260676996
+   ]
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "received units: grn_lines == channel store",
+   "passed": true,
+   "detail": "217,189,185 vs 217,189,185",
+   "breaks": "bucket a receipt on the event week instead of the visible week",
+   "value": [
+    217189185,
+    217189185
+   ]
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "rows whose visible week falls outside the span stay under 1%",
+   "passed": true,
+   "detail": "po_lines 168/1,023,936 (0.016%), grn_lines 289/994,382 (0.029%)",
+   "breaks": "let the recording lag run for years, so most rows land past the extract cut",
+   "value": [
+    0.0001640727545471592,
+    0.00029063277492955426
+   ]
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "supplier store reconciles to the channel store",
+   "passed": true,
+   "detail": "ordered 260,676,996 recv 217,189,185",
+   "breaks": "aggregate the supplier store from a different filter",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "quality: accepted + rejected == inspected",
+   "passed": true,
+   "detail": "0 violations of 972,516",
+   "breaks": "draw the rejection twice with different seeds",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "quality: inspected == grn qty_received",
+   "passed": true,
+   "detail": "0 violations of 972,516",
+   "breaks": "inspect a quantity the GRN never received",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "\u00a72.1 ledger roll-forward == weekly position, EXACT, every week",
+   "passed": true,
+   "detail": "0 mismatched part-plant-weeks of 2,261,445 (13,256,718 ledger rows)",
+   "breaks": "post the opening balance as a level instead of an adjustment row, or net the scrap into the receipt and post it again (v7 did exactly this)",
+   "value": 0
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "no negative on-hand anywhere in the roll-forward",
+   "passed": true,
+   "detail": "0 negative weeks",
+   "breaks": "issue more than is on hand",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "monthly snapshot == the same ledger closed monthly, EXACT",
+   "passed": true,
+   "detail": "0 of 524,096 month-ends differ",
+   "breaks": "date the snapshot at month start while it holds the closing balance (v7 did exactly this), or generate snapshots independently of the ledger",
+   "value": 0
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "allocation_pct sums to 100 per part-plant per effective date",
+   "passed": true,
+   "detail": "0 of 173,307 windows off by more than 0.5pp",
+   "breaks": "log only the channels whose share moved, not the whole split",
+   "value": 0
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "allocation is time-varying, not one static split",
+   "passed": true,
+   "detail": "41 distinct effective dates",
+   "breaks": "write every allocation row at 2019-01-01",
+   "value": null
+  },
+  {
+   "level": 2,
+   "gate": "G0",
+   "name": "plan_drift actual == production_actual",
+   "passed": true,
+   "detail": "0 of 65,700 rows differ",
+   "breaks": "draw the actual twice",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 sourcing channels >= 15,000",
+   "passed": true,
+   "detail": "16,072",
+   "breaks": "ship 320 channels, as an earlier version did",
+   "value": 16072
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 channels that ever traded >= 14,000",
+   "passed": true,
+   "detail": "15,334",
+   "breaks": "let the order policy idle most channels",
+   "value": 15334
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 cold-start slice in 3-6%",
+   "passed": true,
+   "detail": "738 (4.59%)",
+   "breaks": "give every channel an order",
+   "value": 0.04591836734693878
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 channel-week rows >= 5,000,000",
+   "passed": true,
+   "detail": "8,598,520",
+   "breaks": "shorten the world span",
+   "value": 8598520
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 channel-weeks per traded channel >= 350",
+   "passed": true,
+   "detail": "535",
+   "breaks": "emit only the weeks a channel was active",
+   "value": 535.0
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "\u00a72.4 PO lines per channel per year >= 6",
+   "passed": true,
+   "detail": "6.52",
+   "breaks": "slow the review cadence or raise the reorder point",
+   "value": 6.521047997913135
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "G1 median channel degree at part-plant > 1",
+   "passed": true,
+   "detail": "median 4.0, p25 2, max 13",
+   "breaks": "single-source every part-plant, which leaves attention nothing to choose between",
+   "value": 4.0
+  },
+  {
+   "level": 0,
+   "gate": "G1",
+   "name": "supplier degree (neighbourhood the capacity head reads)",
+   "passed": null,
+   "detail": "median 38, min 19, max 58",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 every published version covers MORE THAN ONE future period",
+   "passed": true,
+   "detail": "min 12, median 19, max 26 periods per version",
+   "breaks": "emit one target_period per plan_date, as v7 did",
+   "value": 12
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 horizon_days varies, is not a fixed value",
+   "passed": true,
+   "detail": "26 distinct horizons, 7..182 days",
+   "breaks": "set horizon_days = 30 for every row, as v7 did",
+   "value": 26
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 each version rolls 12-26 weeks forward",
+   "passed": true,
+   "detail": "version span 12..26 weeks, median 19; row horizons 7..182 days",
+   "breaks": "draw one horizon length for every version, or publish a single period",
+   "value": [
+    12.0,
+    26.0
+   ]
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 a target period is republished across versions",
+   "passed": true,
+   "detail": "max 7 versions of one target period, median 5",
+   "breaks": "publish every target period exactly once",
+   "value": 7
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 later versions are closer to the actual than V1",
+   "passed": true,
+   "detail": "median |err| V1 0.1644 -> latest 0.0890",
+   "breaks": "republish V1 unchanged, so revision carries no information",
+   "value": [
+    0.1643835616438356,
+    0.08898801254316675
+   ]
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 part_demand_weekly horizon_days varies",
+   "passed": true,
+   "detail": "26 distinct, 46 as-of dates",
+   "breaks": "net requirements once per week with a single-period horizon",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.2 p90 requirement strictly above p50",
+   "passed": true,
+   "detail": "0 inversions",
+   "breaks": "copy p50 into p90",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "G0",
+   "name": "\u00a72.3 lag sd/|mean| >= 0.1 for every table",
+   "passed": true,
+   "detail": "all dispersed",
+   "breaks": "set a constant lag per table",
+   "value": {
+    "po_lines": 1.346,
+    "supplier_acknowledgements": 2.134,
+    "goods_receipts": 1.713,
+    "asn": 1.844,
+    "inventory_transactions": 2.053,
+    "shortage_events": 2.358,
+    "expedite_events": 2.196,
+    "po_line_revisions": 2.534,
+    "quality_inspections": 2.197
+   }
+  },
+  {
+   "level": 0,
+   "gate": "G0",
+   "name": "\u00a72.3 lag is right-skewed, not symmetric",
+   "passed": true,
+   "detail": "all skew > 0.5",
+   "breaks": "draw the lag from a normal",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "G0",
+   "name": "\u00a72.3 lag is never negative on an event table",
+   "passed": true,
+   "detail": "none negative",
+   "breaks": "record before the event happens",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.3 validity windows ARE forward dated (capacity, allocation)",
+   "passed": true,
+   "detail": "supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect",
+   "breaks": "stamp the declaration after the month it governs has already started",
+   "value": {
+    "supplier_capacity": 1.0,
+    "supplier_allocation": 1.0
+   }
+  },
+  {
+   "level": 0,
+   "gate": "G0",
+   "name": "\u00a72.3 lag is not shared across tables",
+   "passed": true,
+   "detail": "9 distinct medians across 9 tables: [0.8, 1.98, 1.55, 1.29, 1.16, 2.945, 2.2, 2.0, 2.91]",
+   "breaks": "use one lag distribution everywhere",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag po_lines",
+   "passed": null,
+   "detail": "p50 0.80d p90 2.92d sd/mean 1.35 skew 6.54",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag supplier_acknowledgements",
+   "passed": null,
+   "detail": "p50 1.98d p90 10.86d sd/mean 2.13 skew 10.63",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag goods_receipts",
+   "passed": null,
+   "detail": "p50 1.55d p90 6.92d sd/mean 1.71 skew 9.03",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag asn",
+   "passed": null,
+   "detail": "p50 1.29d p90 6.16d sd/mean 1.84 skew 10.51",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag inventory_transactions",
+   "passed": null,
+   "detail": "p50 1.16d p90 6.04d sd/mean 2.05 skew 12.14",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag shortage_events",
+   "passed": null,
+   "detail": "p50 2.95d p90 17.93d sd/mean 2.36 skew 9.06",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag expedite_events",
+   "passed": null,
+   "detail": "p50 2.20d p90 11.46d sd/mean 2.20 skew 12.92",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag po_line_revisions",
+   "passed": null,
+   "detail": "p50 2.00d p90 13.77d sd/mean 2.53 skew 10.32",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": null,
+   "name": "    lag quality_inspections",
+   "passed": null,
+   "detail": "p50 2.91d p90 16.83d sd/mean 2.20 skew 9.16",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.6 contract terms are not degenerate",
+   "passed": true,
+   "detail": "all vary",
+   "breaks": "ship moq [10,10] and lot_size [25,25] as v7 did",
+   "value": []
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.6 MOQ actually differs by supplier tier",
+   "passed": true,
+   "detail": "median moq by tier {'tier1': np.float64(43.0), 'tier2': np.float64(140.0)}, ratio 3.26x",
+   "breaks": "draw the terms without conditioning on tier",
+   "value": 3.255813953488372
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "\u00a72.6 qualification_status is not a constant",
+   "passed": true,
+   "detail": "{'qualified': np.int64(13406), 'in_progress': np.int64(1867), 'potential': np.int64(799)}",
+   "breaks": "mark every alternate source qualified, as v7 did",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "revealed_capacity_est is not 100% null",
+   "passed": true,
+   "detail": "22.33% populated; capacity observability is a MEASURED outcome",
+   "breaks": "leave the column unwritten, as v7 did",
+   "value": 0.22326751838946962
+  },
+  {
+   "level": 0,
+   "gate": "V8",
+   "name": "revealed estimate exists exactly where the month was constrained",
+   "passed": true,
+   "detail": "0 rows disagree",
+   "breaks": "populate the estimate everywhere, which would make capacity fully observed",
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "G0",
+   "name": "P1 fill_rate vs fill_rate_last13  |r| >= 0.10",
+   "passed": true,
+   "detail": "spearman +0.1029  n=332,000",
+   "breaks": "draw the label independently of the channel history that produced it",
+   "value": 0.1029482435607826
+  },
+  {
+   "level": 3,
+   "gate": "G0",
+   "name": "P1 arrival_week vs otd_rate_last13  |r| >= 0.10",
+   "passed": true,
+   "detail": "spearman -0.1172  n=332,000",
+   "breaks": "draw the label independently of the channel history that produced it",
+   "value": -0.11722214723152255
+  },
+  {
+   "level": 3,
+   "gate": "G0",
+   "name": "P1 capacity_strain vs load_ratio  |r| >= 0.10",
+   "passed": true,
+   "detail": "spearman +0.3730  n=207,500",
+   "breaks": "draw the label independently of the channel history that produced it",
+   "value": 0.37300059387281914
+  },
+  {
+   "level": 3,
+   "gate": "G0",
+   "name": "P1 verdict",
+   "passed": null,
+   "detail": "near-zero here would make every other number irrelevant",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P2 load_ratio vs fill_rate is NEGATIVE",
+   "passed": true,
+   "detail": "r -0.2237 n=1,023,226",
+   "breaks": "fulfil every order regardless of capacity",
+   "value": -0.2237443723724731
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P2 load_ratio vs lead_time_ratio is POSITIVE",
+   "passed": true,
+   "detail": "r +0.0822 n=1,023,226",
+   "breaks": "remove the congestion term from the lane process",
+   "value": 0.0822275133398231
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P3 P(late | short) > P(late | full)",
+   "passed": true,
+   "detail": "0.6806 vs 0.2340   phi +0.3664  n=1,023,932",
+   "breaks": "draw lateness independently of the capacity that caused the shortfall",
+   "value": [
+    0.6805745935163207,
+    0.23402363150203798
+   ]
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P4 fill materially lower in constrained supplier-months",
+   "passed": true,
+   "detail": "unconstrained 0.9654 vs constrained 0.7506  gap +0.2149",
+   "breaks": "let delivered exceed the latent ceiling",
+   "value": 0.21486539744543387
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P5 shortage cause corroborated by evidence in the CSVs (target ~100%)",
+   "passed": true,
+   "detail": "87.64% of 6,836 events corroborated; root_cause mix {'supplier_delay': np.int64(3461), 'supplier_short': np.int64(2311), 'quality_reject': np.int64(948), 'demand_spike': np.int64(96), 'plan_change': np.int64(20)}",
+   "breaks": "label the cause without checking that the evidence exists",
+   "value": 0.8763897015798713
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P5 root_cause is a mix, not one label on everything",
+   "passed": true,
+   "detail": "most common supplier_delay at 50.6% of events",
+   "breaks": "label every shortage with one cause -- corroboration alone cannot see this, because a label that happens to be corroborable everywhere still passes the evidence test",
+   "value": 0.5062902282036279
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P5 named responsible supplier resolves to the master",
+   "passed": true,
+   "detail": "6,721 named, 0 unresolved",
+   "breaks": "name a supplier that does not exist",
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P6 expedite lift given a shortage >= 2x",
+   "passed": true,
+   "detail": "P(exp|short) 0.7174 vs P(exp|none) 0.1332  lift 5.4x",
+   "breaks": "raise expedites on a fixed random share of lines",
+   "value": 5.385440184483247
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P6 revisions come from both directions and carry a reason",
+   "passed": true,
+   "detail": "by {'supplier': np.int64(163021), 'buyer': np.int64(50265)} reason {'capacity_short': np.int64(163021), 'shortage': np.int64(50265)}",
+   "breaks": "emit `r.random(NPO) < 0.34` revisions with reason_code='shortage', as v7 did",
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P6 resolution_action mix",
+   "passed": null,
+   "detail": "{'reschedule': np.float64(0.5888), 'expedite': np.float64(0.2724), 'alternate_source': np.float64(0.0767), 'substitute': np.float64(0.0622)}",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down",
+   "passed": true,
+   "detail": "within-supplier r -0.1182  n=51,240",
+   "breaks": "let shifted volume land on a supplier without consuming its capacity",
+   "value": -0.11820839228467456
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P7 cross-supplier (confounded, reported not gated)",
+   "passed": null,
+   "detail": "r -0.1356  n=51,240 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P7 utilisation persistence m -> m+1",
+   "passed": null,
+   "detail": "r +0.5877  n=51,240",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P8 staleness vs sd(lead time) is POSITIVE",
+   "passed": true,
+   "detail": "r +0.0732  n=15,334",
+   "breaks": "make the recording lag independent of supplier stress",
+   "value": 0.0731992336410487
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "    KS arrival_week",
+   "passed": null,
+   "detail": "D=1.0000 p=0.000e+00 n=332,000 mean=12.5978 sd=6.0585 REJECT (good)",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "    KS capacity_strain",
+   "passed": null,
+   "detail": "D=0.2999 p=0.000e+00 n=207,500 mean=0.7387 sd=0.3085 REJECT (good)",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "    KS demand_drift",
+   "passed": null,
+   "detail": "D=0.8508 p=0.000e+00 n=10,620 mean=0.9681 sd=0.0591 REJECT (good)",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "    KS fill_rate",
+   "passed": null,
+   "detail": "D=0.8497 p=0.000e+00 n=332,000 mean=0.8959 sd=0.2713 REJECT (good)",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "    KS shortage_qty",
+   "passed": null,
+   "detail": "D=0.8412 p=0.000e+00 n=124,500 mean=40.1554 sd=485.3033 REJECT (good)",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 3,
+   "gate": "L3",
+   "name": "P9 every label rejects Uniform(0,1) at p < 0.01",
+   "passed": true,
+   "detail": "all reject",
+   "breaks": "draw a label from a uniform instead of reading it off the simulated future",
+   "value": null
+  },
+  {
+   "level": 0,
+   "gate": "G0",
+   "name": "G0 no task has 0% censoring",
+   "passed": true,
+   "detail": "{'arrival_week': 46.31, 'capacity_strain': 4.0, 'demand_drift': 4.82, 'fill_rate': 46.31, 'shortage_qty': 3.02}",
+   "breaks": "resolve every label inside the horizon, so nothing is right-censored",
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G2",
+   "name": "fill: naive baselines computed before any model",
+   "passed": true,
+   "detail": "CRPS global 0.09339 | per-channel 0.09731 | last value 0.16945 -> number to beat 0.09339",
+   "breaks": "report a model number with no baseline beside it",
+   "value": 0.09339280578751531
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "fill: LightGBM beats the best naive baseline",
+   "passed": true,
+   "detail": "CRPS 0.09170 vs baseline 0.09339 (+1.81%)",
+   "breaks": "detach the label from the feature history",
+   "value": [
+    0.09170263658399497,
+    0.09339280578751531
+   ]
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "fill: top features (leak check)",
+   "passed": null,
+   "detail": "load_ratio=9.8%, si=8.9%, fill_rate_last52=8.4%, pi=8.0%, transport_distance_km=7.6%",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "negative controls FAIL to predict (row no, gen order, seed, id hash, file order)",
+   "passed": true,
+   "detail": "CRPS 0.09348 vs naive 0.09339 -- a win here means the generator leaked its own structure",
+   "breaks": "order the rows by outcome, or key any field to generation order",
+   "value": 0.09347633828805066
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [no identity keys] h0 features only",
+   "passed": null,
+   "detail": "CRPS 0.09170",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [no identity keys] h1 one hop",
+   "passed": null,
+   "detail": "CRPS 0.09152",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [no identity keys] h4 four layers",
+   "passed": null,
+   "detail": "CRPS 0.09164",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "fill: graph contribution (reported, NOT gated)",
+   "passed": null,
+   "detail": "h0 0.09170 -> h4 0.09164 (+0.06%). Fill reads out AT THE CHANNEL and has no real neighbourhood (brief \u00a71.2), so a null here is the structural claim confirmed, not a defect. G4 is gated on capacity_strain, whose label IS a supplier aggregate.",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [with identity keys] h0 features only",
+   "passed": null,
+   "detail": "CRPS 0.09170",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [with identity keys] h1 one hop",
+   "passed": null,
+   "detail": "CRPS 0.09152",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  fill [with identity keys] h4 four layers",
+   "passed": null,
+   "detail": "CRPS 0.09160",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "fill: same ladder WITH identity keys",
+   "passed": null,
+   "detail": "h0 0.09170 -> h4 0.09160 (+0.12%) -- a tree that can split on si has already been given a 0-hop supplier aggregate, so this arm understates what propagation adds",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "ablation: remove supplier history degrades fill",
+   "passed": true,
+   "detail": "CRPS 0.09266 vs full 0.09170 (+1.04%) -- supplier-risk performance must degrade",
+   "breaks": "make the feature redundant with another one already in the frame",
+   "value": 0.09265892721336243
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "ablation: remove capacity features degrades fill",
+   "passed": true,
+   "detail": "CRPS 0.09224 vs full 0.09170 (+0.58%) -- capacity signal must degrade",
+   "breaks": "make the feature redundant with another one already in the frame",
+   "value": 0.09223753908106215
+  },
+  {
+   "level": 4,
+   "gate": "G2",
+   "name": "arrival: naive baselines computed first",
+   "passed": true,
+   "detail": "C-index per-lane median 0.5227 | global median 0.5000 -> number to beat 0.5227",
+   "breaks": "quote a C-index with no baseline",
+   "value": 0.5227463055602964
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "arrival: LightGBM beats the naive baseline",
+   "passed": true,
+   "detail": "C-index 0.6429 vs baseline 0.5227",
+   "breaks": "detach arrival from the lane and congestion process",
+   "value": [
+    0.6428721817548093,
+    0.5227463055602964
+   ]
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "arrival: task definition",
+   "passed": null,
+   "detail": "ARRIVAL IS A RIGHT-CENSORED TIME-TO-EVENT ON THE OPEN PO LINE, ranked by C-index. Every earlier report in this project compared it against a baseline that implicitly assumed the opposite (\u00a71.4 item 4) -- state this wherever the head is described.",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G2",
+   "name": "capacity: naive baselines computed first",
+   "passed": true,
+   "detail": "MAE global mean 0.23275 | per-channel mean 0.24715 -> number to beat 0.23275",
+   "breaks": "quote a capacity number with no baseline beside it",
+   "value": 0.23275121839218854
+  },
+  {
+   "level": 4,
+   "gate": "G3",
+   "name": "capacity: LightGBM beats the naive baseline",
+   "passed": true,
+   "detail": "MAE 0.21645 vs baseline 0.23275 (+7.00%)",
+   "breaks": "detach capacity_strain from the ordering history that reveals the ceiling",
+   "value": [
+    0.21644830018524017,
+    0.23275121839218854
+   ]
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  capacity h0 features only",
+   "passed": null,
+   "detail": "MAE 0.21645",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  capacity h1 one hop",
+   "passed": null,
+   "detail": "MAE 0.21792",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "  capacity h4 four layers",
+   "passed": null,
+   "detail": "MAE 0.21835",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "graph contributes on capacity_strain: h4 beats h0 by more than 0.5%",
+   "passed": false,
+   "detail": "h0 0.21645 -> h1 0.21792 -> h4 0.21835 (-0.88%)",
+   "breaks": "cut the alternate-sourcing and capacity-coupling arcs, so a supplier's load no longer reaches its other channels and there is nothing to propagate",
+   "value": -0.008795960517553462
+  },
+  {
+   "level": 4,
+   "gate": "G4",
+   "name": "ablation: propagating over a SHUFFLED graph degrades capacity",
+   "passed": false,
+   "detail": "MAE real graph 0.21835 vs shuffled 0.21656 (-0.82%) -- if a random neighbourhood works as well, the edges carry nothing and the aggregate is just smoothing",
+   "breaks": "aggregate over neighbours that are not the real supplier/part/plant groups",
+   "value": 0.21656427533500092
+  },
+  {
+   "level": 4,
+   "gate": "G5",
+   "name": "shuffling recorded_ts DEGRADES the as-of feature",
+   "passed": true,
+   "detail": "MAE true recorded_ts 0.19431 -> shuffled 0.20048 (+3.173%)",
+   "breaks": "make the recording lag independent of state, so when a row lands carries no information and the as-of cut is cosmetic",
+   "value": [
+    0.19431230604691951,
+    0.2004772402402352
+   ]
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2022-01-03",
+   "passed": null,
+   "detail": "train 184,000 test 8,000  CRPS model 0.06911 vs naive 0.06931",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2022-07-04",
+   "passed": null,
+   "detail": "train 204,000 test 8,000  CRPS model 0.12993 vs naive 0.13461",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2023-01-02",
+   "passed": null,
+   "detail": "train 220,000 test 8,000  CRPS model 0.05744 vs naive 0.05801",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2023-07-03",
+   "passed": null,
+   "detail": "train 236,000 test 8,000  CRPS model 0.11658 vs naive 0.11935",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2024-01-01",
+   "passed": null,
+   "detail": "train 256,000 test 8,000  CRPS model 0.07133 vs naive 0.07193",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2024-07-01",
+   "passed": null,
+   "detail": "train 272,000 test 8,000  CRPS model 0.13591 vs naive 0.14030",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "  origin 2025-01-06",
+   "passed": null,
+   "detail": "train 288,000 test 8,000  CRPS model 0.08657 vs naive 0.08743",
+   "breaks": null,
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "purged split: no train label window reaches the test feature window",
+   "passed": true,
+   "detail": "clean at every origin",
+   "breaks": "train on snapshots inside 90 days of the origin, which is the default un-purged split and the leak \u00a71.4 item 5 describes",
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "every backtest origin actually trained (\u00a71.4 item 7)",
+   "passed": true,
+   "detail": "7/7 origins trained",
+   "breaks": "run origins 1-2 and report the set as if it were complete",
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G6",
+   "name": "model beats naive at a majority of purged origins",
+   "passed": true,
+   "detail": "7/7 origins",
+   "breaks": "leave the signal only in the fixed 2025 test fold",
+   "value": null
+  },
+  {
+   "level": 4,
+   "gate": "G7",
+   "name": "cold-start slice exists and is held out of the trained history",
+   "passed": true,
+   "detail": "738 channels never traded (4.59%)",
+   "breaks": "give every channel an order, so nothing tests the cold path",
+   "value": 738
+  },
+  {
+   "level": 4,
+   "gate": "G7",
+   "name": "seed-variance band",
+   "passed": null,
+   "detail": "computed across seeds by --variance; a single seed cannot produce one",
+   "breaks": null,
+   "value": null
+  }
+ ],
+ "level4": {
+  "fill_crps": 0.09170263658399497,
+  "fill_crps_baseline": 0.09339280578751531,
+  "fill_h0": 0.09169702660377066,
+  "fill_h4": 0.09164296645156479,
+  "fill_h_gain": 0.000589551855802973,
+  "fill_h0_with_keys": 0.09170263658399497,
+  "fill_h4_with_keys": 0.09159605480566552,
+  "fill_h_gain_with_keys": 0.001162254241532384,
+  "arrival_cindex": 0.6428721817548093,
+  "arrival_cindex_baseline": 0.5227463055602964,
+  "capacity_mae": 0.21644830018524017,
+  "capacity_mae_baseline": 0.23275121839218854,
+  "cap_h0": 0.21644830018524017,
+  "cap_h1": 0.21792186929882598,
+  "cap_h4": 0.2183521708877611,
+  "cap_h_gain": -0.008795960517553462,
+  "cap_h4_shuffled": 0.21656427533500092,
+  "origins": [
+   [
+    "2022-01-03",
+    184000,
+    8000,
+    0.06911355802445085,
+    0.06931094079926749
+   ],
+   [
+    "2022-07-04",
+    204000,
+    8000,
+    0.12993454994444456,
+    0.13460909362985393
+   ],
+   [
+    "2023-01-02",
+    220000,
+    8000,
+    0.057438844970297796,
+    0.05801405341528927
+   ],
+   [
+    "2023-07-03",
+    236000,
+    8000,
+    0.11657913350811697,
+    0.11934638591640338
+   ],
+   [
+    "2024-01-01",
+    256000,
+    8000,
+    0.07133134293071484,
+    0.07193309138946533
+   ],
+   [
+    "2024-07-01",
+    272000,
+    8000,
+    0.1359116256617267,
+    0.1402982550254109
+   ],
+   [
+    "2025-01-06",
+    288000,
+    8000,
+    0.08657445225908694,
+    0.08742623430025077
+   ]
+  ]
+ },
+ "n_failed": 2,
+ "elapsed_s": 435.5
+}

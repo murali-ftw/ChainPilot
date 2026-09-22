@@ -506,7 +506,7 @@ def check_leakage(res, dirs, schema_path, csv_dir, derived_dir) -> None:
 # A task whose uncensored label_value has zero spread is a CONSTANT TARGET. It
 # trains to near-zero loss on the first epoch and every metric says the model
 # works. This is not hypothetical: training_labels.fill_rate shipped that way
-# (docs/benchmark_specification.md s11.7) -- 837,318 uncensored rows all at
+# (docs/specs/benchmark_specification.md s11.7) -- 837,318 uncensored rows all at
 # exactly 1.0 -- because the censoring rule marked every settled short delivery
 # as censored and left only the perfect ones behind.
 # The threshold has to be RELATIVE. The defect this gate was written for had a

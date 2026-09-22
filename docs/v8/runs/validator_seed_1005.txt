@@ -1,0 +1,192 @@
+================================================================================================
+validator_v8.0   bands frozen 2026-09-22   dataset db/gen_v8/seed_1005
+================================================================================================
+  tags: {"seed": 1005, "generator_version": "generator_v8", "parameter_version": "params-v8.0", "dataset_version": "rane-v8-seed1005", "label_version": "labels-v8", "code_commit": "71de78afa645", "generated_at": "2026-09-22T22:43:11.076357", "is_smoke_run": false, "schema": "db/schema.sql", "rows_channel_week": 8598520}
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   254,688,538 vs 254,688,538
+  [PASS] L2 G0  received units: grn_lines == channel store                 213,443,262 vs 213,443,262
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 162/1,016,662 (0.016%), grn_lines 243/987,324 (0.025%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 254,688,538 recv 213,443,262
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 965,717
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 965,717
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 2,255,025 (12,980,169 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 522,456 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 172,815 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 65,700 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [PASS] L0 G1  §2.4 sourcing channels >= 15,000                           16,072
+  [PASS] L0 G1  §2.4 channels that ever traded >= 14,000                   15,333
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              739 (4.60%)
+  [PASS] L0 G1  §2.4 channel-week rows >= 5,000,000                        8,598,520
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.48
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 4.0, p25 2, max 13
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 38, min 19, max 57
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1657 -> latest 0.0894
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.79, 1.96, 1.54, 1.29, 1.15, 2.9, 2.17, 2.0, 2.87]
+  [    ] L0 --      lag po_lines                                           p50 0.79d p90 2.91d sd/mean 1.35 skew 6.84
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.96d p90 10.76d sd/mean 2.13 skew 11.07
+  [    ] L0 --      lag goods_receipts                                     p50 1.54d p90 6.90d sd/mean 1.72 skew 9.71
+  [    ] L0 --      lag asn                                                p50 1.29d p90 6.09d sd/mean 1.86 skew 10.93
+  [    ] L0 --      lag inventory_transactions                             p50 1.15d p90 5.98d sd/mean 2.06 skew 12.58
+  [    ] L0 --      lag shortage_events                                    p50 2.90d p90 18.06d sd/mean 2.48 skew 10.07
+  [    ] L0 --      lag expedite_events                                    p50 2.17d p90 11.53d sd/mean 2.25 skew 9.87
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.58d sd/mean 2.59 skew 10.73
+  [    ] L0 --      lag quality_inspections                                p50 2.87d p90 16.70d sd/mean 2.19 skew 9.23
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(45.0), 'tier2': np.float64(146.0)}, ratio 3.24x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(13367), 'in_progress': np.int64(1855), 'potential': np.int64(850)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     21.31% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [PASS] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.1077  n=332,000
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1155  n=332,000
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.3806  n=207,500
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.2237 n=1,015,975
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0988 n=1,015,975
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6776 vs 0.2218   phi +0.3725  n=1,016,657
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9670 vs constrained 0.7509  gap +0.2161
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [PASS] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 86.95% of 6,683 events corroborated; root_cause mix {'supplier_delay': np.int64(3404), 'supplier_short': np.int64(2193), 'quality_reject': np.int64(935), 'demand_spike': np.int64(142), 'plan_change': np.int64(7), 'logistics': np.int64(2)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 50.9% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       6,532 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.7016 vs P(exp|none) 0.1109  lift 6.3x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(155146), 'buyer': np.int64(48532)} reason {'capacity_short': np.int64(155146), 'shortage': np.int64(48532)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.5813), 'expedite': np.float64(0.2812), 'alternate_source': np.float64(0.0738), 'substitute': np.float64(0.0637)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.1312  n=51,240
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1416  n=51,240 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5797  n=51,240
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.0806  n=15,331
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=332,000 mean=12.4735 sd=5.9329 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2855 p=0.000e+00 n=207,500 mean=0.7266 sd=0.3120 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8498 p=0.000e+00 n=10,620 mean=0.9683 sd=0.0590 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.8559 p=0.000e+00 n=332,000 mean=0.9004 sd=0.2663 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8482 p=0.000e+00 n=124,500 mean=37.9207 sd=482.1897 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 45.53, 'capacity_strain': 3.94, 'demand_drift': 4.78, 'fill_rate': 45.53, 'shortage_qty': 2.91}
+
+--- LEVEL 4 : LEARNABILITY (G2 baselines -> G3 signal -> G4 graph -> G5 as-of -> G6 folds) ---
+  fill: train 264,000 val 32,000 test 36,000
+  [PASS] L4 G2  fill: naive baselines computed before any model            CRPS global 0.08955 | per-channel 0.09336 | last value 0.16132 -> number to beat 0.08955
+  [PASS] L4 G3  fill: LightGBM beats the best naive baseline               CRPS 0.08836 vs baseline 0.08955 (+1.33%)
+  [    ] L4 G3  fill: top features (leak check)                            load_ratio=9.8%, si=9.0%, fill_rate_last52=8.8%, transport_distance_km=7.6%, reporting_lag_days=7.4%
+  [PASS] L4 G3  negative controls FAIL to predict (row no, gen order, seed, id hash, file order) CRPS 0.08963 vs naive 0.08955 -- a win here means the generator leaked its own structure
+  [    ] L4 G4    fill [no identity keys] h0 features only                 CRPS 0.08838
+  [    ] L4 G4    fill [no identity keys] h1 one hop                       CRPS 0.08832
+  [    ] L4 G4    fill [no identity keys] h4 four layers                   CRPS 0.08838
+  [    ] L4 G4  fill: graph contribution (reported, NOT gated)             h0 0.08838 -> h4 0.08838 (-0.00%). Fill reads out AT THE CHANNEL and has no real neighbourhood (brief §1.2), so a null here is the structural claim confirmed, not a defect. G4 is gated on capacity_strain, whose label IS a supplier aggregate.
+  [    ] L4 G4    fill [with identity keys] h0 features only               CRPS 0.08836
+  [    ] L4 G4    fill [with identity keys] h1 one hop                     CRPS 0.08837
+  [    ] L4 G4    fill [with identity keys] h4 four layers                 CRPS 0.08834
+  [    ] L4 G4  fill: same ladder WITH identity keys                       h0 0.08836 -> h4 0.08834 (+0.02%) -- a tree that can split on si has already been given a 0-hop supplier aggregate, so this arm understates what propagation adds
+  [PASS] L4 G3  ablation: remove supplier history degrades fill            CRPS 0.08883 vs full 0.08836 (+0.54%) -- supplier-risk performance must degrade
+  [PASS] L4 G3  ablation: remove capacity features degrades fill           CRPS 0.08869 vs full 0.08836 (+0.38%) -- capacity signal must degrade
+  arrival: train 264,000 test 36,000  censored 45.5%
+  [PASS] L4 G2  arrival: naive baselines computed first                    C-index per-lane median 0.5211 | global median 0.5000 -> number to beat 0.5211
+  [PASS] L4 G3  arrival: LightGBM beats the naive baseline                 C-index 0.6430 vs baseline 0.5211
+  [    ] L4 G3  arrival: task definition                                   ARRIVAL IS A RIGHT-CENSORED TIME-TO-EVENT ON THE OPEN PO LINE, ranked by C-index. Every earlier report in this project compared it against a baseline that implicitly assumed the opposite (§1.4 item 4) -- state this wherever the head is described.
+
+  capacity_strain: the graph task
+  capacity: train 164,988 val 19,999 test 22,498
+  [PASS] L4 G2  capacity: naive baselines computed first                   MAE global mean 0.22339 | per-channel mean 0.24220 -> number to beat 0.22339
+  [PASS] L4 G3  capacity: LightGBM beats the naive baseline                MAE 0.20730 vs baseline 0.22339 (+7.20%)
+  [    ] L4 G4    capacity h0 features only                                MAE 0.20730
+  [    ] L4 G4    capacity h1 one hop                                      MAE 0.20909
+  [    ] L4 G4    capacity h4 four layers                                  MAE 0.20928
+  [FAIL] L4 G4  graph contributes on capacity_strain: h4 beats h0 by more than 0.5% h0 0.20730 -> h1 0.20909 -> h4 0.20928 (-0.96%)
+  [FAIL] L4 G4  ablation: propagating over a SHUFFLED graph degrades capacity MAE real graph 0.20928 vs shuffled 0.20699 (-1.10%) -- if a random neighbourhood works as well, the edges carry nothing and the aggregate is just smoothing
+
+  G5: is the as-of gate binding?
+  [PASS] L4 G5  shuffling recorded_ts DEGRADES the as-of feature           MAE true recorded_ts 0.18599 -> shuffled 0.19239 (+3.443%)
+
+  G6: purged split with a 90-day gap, at EVERY backtest origin
+  [    ] L4 G6    origin 2022-01-03                                        train 184,000 test 8,000  CRPS model 0.07096 vs naive 0.07124
+  [    ] L4 G6    origin 2022-07-04                                        train 204,000 test 8,000  CRPS model 0.12410 vs naive 0.13076
+  [    ] L4 G6    origin 2023-01-02                                        train 220,000 test 8,000  CRPS model 0.05922 vs naive 0.05932
+  [    ] L4 G6    origin 2023-07-03                                        train 236,000 test 8,000  CRPS model 0.11460 vs naive 0.11748
+  [    ] L4 G6    origin 2024-01-01                                        train 256,000 test 8,000  CRPS model 0.05778 vs naive 0.05857
+  [    ] L4 G6    origin 2024-07-01                                        train 272,000 test 8,000  CRPS model 0.11790 vs naive 0.12098
+  [    ] L4 G6    origin 2025-01-06                                        train 288,000 test 8,000  CRPS model 0.07254 vs naive 0.07177
+  [PASS] L4 G6  purged split: no train label window reaches the test feature window clean at every origin
+  [PASS] L4 G6  every backtest origin actually trained (§1.4 item 7)       7/7 origins trained
+  [PASS] L4 G6  model beats naive at a majority of purged origins          6/7 origins
+
+  G7: will it survive production?
+  [PASS] L4 G7  cold-start slice exists and is held out of the trained history 739 channels never traded (4.60%)
+  [    ] L4 G7  seed-variance band                                         computed across seeds by --variance; a single seed cannot produce one
+
+================================================================================================
+READINESS LADDER
+================================================================================================
+  G0  Is this a dataset?                     PASS  (27 checks)
+  G1  Does the graph exist?                  PASS  (7 checks)
+  G2  What is the number to beat?            PASS  (3 checks)
+  G3  Is there signal at all?                PASS  (6 checks)
+  G4  Does the graph contribute?             FAIL  (2/2 checks)
+         - graph contributes on capacity_strain: h4 beats h0 by more than 0.5%: h0 0.20730 -> h1 0.20909 -> h4 0.20928 (-0.96%)
+         - ablation: propagating over a SHUFFLED graph degrades capacity: MAE real graph 0.20928 vs shuffled 0.20699 (-1.10%) -- if a random neighbourhood works as well, the edges carry nothing and the aggregate is just smoothing
+  G5  Is the as-of gate binding?             NOT REACHED (an earlier gate failed)
+  G6  Are the folds sound?                   NOT REACHED (an earlier gate failed)
+  G7  Will it survive production?            NOT REACHED (an earlier gate failed)
+
+  checks run 75, failed 2, elapsed 302s
+
+  FAILURES (reported, not hidden -- see §5.5):
+    L4 G4  graph contributes on capacity_strain: h4 beats h0 by more than 0.5%
+         h0 0.20730 -> h1 0.20909 -> h4 0.20928 (-0.96%)
+    L4 G4  ablation: propagating over a SHUFFLED graph degrades capacity
+         MAE real graph 0.20928 vs shuffled 0.20699 (-1.10%) -- if a random neighbourhood works as well, the edges carry nothing and the aggregate is just smoothing
+
+================================================================================================
+LEVEL-3 JOINT PROBES (reported; only P1 gates -- the brief calls it decisive)
+================================================================================================
+  12/12 pass
+
+================================================================================================
+V8 BRIEF REQUIREMENTS §2.2 / §2.6 (deliverable checks, reported)
+================================================================================================
+  13/13 pass
+  report -> results/v8/validator_seed_1005.json

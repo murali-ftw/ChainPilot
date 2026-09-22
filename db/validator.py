@@ -91,7 +91,7 @@ csv.field_size_limit(1 << 24)
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC_MD = os.path.join(HERE, "dataset_structure.md")
 SPEC_SQL = os.path.join(HERE, "schema.sql")
-REPORT_PATH = os.path.join(os.path.dirname(HERE), "docs",
+REPORT_PATH = os.path.join(os.path.dirname(HERE), "docs", "validation",
                            "external_dataset_validation.md")
 
 
@@ -1984,7 +1984,7 @@ def _select(lines, cancelled, start, end, window):
             obs[k] = L
     # AMENDMENT 01: the censoring test is a predicate on promise dates, so the share it
     # produces has to be normalised by the promise timeline, not by the creation-date span.
-    # See docs/validator_amendment_01.md.
+    # See docs/validation/validator_amendment_01.md.
     prom_span = (min(proms), max(proms), horizon_end) if proms else None
     return obs, censored, start, end, prom_span
 
@@ -2825,7 +2825,7 @@ def main(argv=None):
     ap.add_argument("--max-rows", type=int, default=None,
                     help="cap rows read per table in Tier 1 (reported)")
     ap.add_argument("--no-report", action="store_true",
-                    help="skip writing docs/external_dataset_validation.md")
+                    help="skip writing docs/validation/external_dataset_validation.md")
     a = ap.parse_args(argv)
     root = os.path.abspath(a.directory)
     if not os.path.isdir(root):

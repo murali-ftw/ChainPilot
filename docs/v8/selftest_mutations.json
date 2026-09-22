@@ -1,0 +1,129 @@
+[
+ {
+  "mutation": "net_scrap_into_receipt",
+  "target": "inventory_transactions",
+  "newly_failing": [
+   "monthly snapshot == the same ledger closed monthly, EXACT",
+   "\u00a72.1 ledger roll-forward == weekly position, EXACT, every week"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "opening_balance_removed",
+  "target": "inventory_transactions",
+  "newly_failing": [
+   "monthly snapshot == the same ledger closed monthly, EXACT",
+   "\u00a72.1 ledger roll-forward == weekly position, EXACT, every week"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "drop_one_percent_of_orders",
+  "target": "channel_performance_weekly",
+  "newly_failing": [
+   "ordered units: po_lines == channel store"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "position_shifted_by_one",
+  "target": "inventory_position_weekly",
+  "newly_failing": [
+   "\u00a72.1 ledger roll-forward == weekly position, EXACT, every week"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "allocation_partial_log",
+  "target": "supplier_allocation",
+  "newly_failing": [
+   "allocation_pct sums to 100 per part-plant per effective date"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "single_period_plan",
+  "target": "production_plan",
+  "newly_failing": [
+   "\u00a72.2 each version rolls 12-26 weeks forward",
+   "\u00a72.2 horizon_days varies, is not a fixed value"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "constant_lag",
+  "target": "po_lines",
+  "newly_failing": [
+   "\u00a72.3 lag is right-skewed, not symmetric",
+   "\u00a72.3 lag sd/|mean| >= 0.1 for every table"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "degenerate_contract_terms",
+  "target": "supplier_contracts",
+  "newly_failing": [
+   "\u00a72.6 MOQ actually differs by supplier tier",
+   "\u00a72.6 contract terms are not degenerate"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "labels_detached_from_features",
+  "target": "training_labels",
+  "newly_failing": [
+   "P1 arrival_week vs otd_rate_last13  |r| >= 0.10",
+   "P1 capacity_strain vs load_ratio  |r| >= 0.10"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "uniform_labels",
+  "target": "training_labels",
+  "newly_failing": [
+   "P1 arrival_week vs otd_rate_last13  |r| >= 0.10",
+   "P1 capacity_strain vs load_ratio  |r| >= 0.10",
+   "P9 every label rejects Uniform(0,1) at p < 0.01"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "fill_independent_of_load",
+  "target": "channel_performance_weekly",
+  "newly_failing": [
+   "P1 capacity_strain vs load_ratio  |r| >= 0.10",
+   "P2 load_ratio vs fill_rate is NEGATIVE",
+   "P2 load_ratio vs lead_time_ratio is POSITIVE"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "cause_labelled_without_evidence",
+  "target": "shortage_events",
+  "newly_failing": [
+   "P5 root_cause is a mix, not one label on everything"
+  ],
+  "caught": true,
+  "harness_error": null
+ },
+ {
+  "mutation": "no_censoring",
+  "target": "training_labels",
+  "newly_failing": [
+   "G0 no task has 0% censoring"
+  ],
+  "caught": true,
+  "harness_error": null
+ }
+]

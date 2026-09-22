@@ -1,0 +1,1532 @@
+
+================================================================================================
+SELFTEST -- each mutation must make at least one check fail
+================================================================================================
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+
+--- mutation: net_scrap_into_receipt  (on inventory_transactions) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [FAIL] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 203,226 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [FAIL] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  46,883 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: opening_balance_removed  (on inventory_transactions) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [FAIL] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 272,850 mismatched part-plant-weeks of 276,060 (889,881 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [FAIL] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  62,689 of 63,427 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: drop_one_percent_of_orders  (on channel_performance_weekly) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [FAIL] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 18,866,741
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (1 newly failing)
+
+--- mutation: position_shifted_by_one  (on inventory_position_weekly) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [FAIL] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 276,060 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (1 newly failing)
+
+--- mutation: allocation_partial_log  (on supplier_allocation) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [FAIL] L2 G0  allocation_pct sums to 100 per part-plant per effective date 9,348 of 15,257 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (1 newly failing)
+
+--- mutation: single_period_plan  (on production_plan) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [FAIL] L0 V8  §2.2 horizon_days varies, is not a fixed value             1 distinct horizons, 0..0 days
+  [FAIL] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 0..0 weeks, median 0; row horizons 0..0 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: constant_lag  (on po_lines) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [FAIL] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  constant-ish: ['po_lines']
+  [FAIL] L0 G0  §2.3 lag is right-skewed, not symmetric                    symmetric: ['po_lines']
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [1.0, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 1.00d p90 1.00d sd/mean 0.00 skew 0.00
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: degenerate_contract_terms  (on supplier_contracts) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [FAIL] L0 V8  §2.6 contract terms are not degenerate                     still constant: [('moq', 1), ('lot_size', 1), ('min_volume_commitment', 1), ('max_volume_cap', 1), ('penalty_clause_inr', 1)]
+  [FAIL] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(10.0), 'tier2': np.float64(10.0)}, ratio 1.00x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: labels_detached_from_features  (on training_labels) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0035  n=137,451
+  [FAIL] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.0004  n=137,451
+  [FAIL] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman -0.0007  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=0.6641 p=0.000e+00 n=137,451 mean=7.5896 sd=211.3528 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.6688 p=0.000e+00 n=95,035 mean=7.6071 sd=190.4182 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.6775 p=0.000e+00 n=2,360 mean=5.2442 sd=14.1956 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.6622 p=0.000e+00 n=137,451 mean=7.9333 sd=252.4732 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.6602 p=0.000e+00 n=42,828 mean=6.3479 sd=76.4551 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (2 newly failing)
+
+--- mutation: uniform_labels  (on training_labels) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman -0.0023  n=137,451
+  [FAIL] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman +0.0057  n=137,451
+  [FAIL] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.0002  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=0.0032 p=1.187e-01 n=137,451 mean=0.5014 sd=0.2887 CANNOT REJECT -- looks uniform (bad)
+  [    ] L3 L3      KS capacity_strain                                     D=0.0025 p=5.994e-01 n=95,035 mean=0.4999 sd=0.2886 CANNOT REJECT -- looks uniform (bad)
+  [    ] L3 L3      KS demand_drift                                        D=0.0215 p=2.208e-01 n=2,360 mean=0.4916 sd=0.2875 CANNOT REJECT -- looks uniform (bad)
+  [    ] L3 L3      KS fill_rate                                           D=0.0027 p=2.553e-01 n=137,451 mean=0.4995 sd=0.2893 CANNOT REJECT -- looks uniform (bad)
+  [    ] L3 L3      KS shortage_qty                                        D=0.0027 p=9.026e-01 n=42,828 mean=0.5001 sd=0.2882 CANNOT REJECT -- looks uniform (bad)
+  [FAIL] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            uniform-looking: ['arrival_week', 'capacity_strain', 'demand_drift', 'fill_rate', 'shortage_qty']
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (3 newly failing)
+
+--- mutation: fill_independent_of_load  (on channel_performance_weekly) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [FAIL] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman -0.0007  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [FAIL] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r +0.0012 n=74,890
+  [FAIL] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r -0.0023 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (3 newly failing)
+
+--- mutation: cause_labelled_without_evidence  (on shortage_events) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 38.37% of 503 events corroborated; root_cause mix {'plan_change': np.int64(503)}
+  [FAIL] L3 L3  P5 root_cause is a mix, not one label on everything        most common plan_change at 100.0% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [PASS] L0 G0  G0 no task has 0% censoring                                {'arrival_week': 41.77, 'capacity_strain': 4.07, 'demand_drift': 4.87, 'fill_rate': 41.77, 'shortage_qty': 2.99}
+  => CAUGHT (1 newly failing)
+
+--- mutation: no_censoring  (on training_labels) ---
+
+--- LEVEL 1 : STRUCTURAL ---
+  [PASS] L1 G0  every schema table is present                              49/49 present
+  [PASS] L1 G0  header matches schema column list                          all tables
+  [PASS] L1 G0  primary keys unique                                        no duplicates
+  [PASS] L1 G0  NOT NULL columns populated                                 all populated
+  [PASS] L1 G0  enum / CHECK domains honoured                              all in domain
+  [PASS] L1 G0  foreign keys resolve to masters                            all resolve
+  [PASS] L1 G0  dates inside the world span                                2015-01-01..2027-12-31
+
+--- LEVEL 2 : ACCOUNTING (exact integer) ---
+  [PASS] L2 G0  ordered units: po_lines == channel store                   19,096,386 vs 19,096,386
+  [PASS] L2 G0  received units: grn_lines == channel store                 17,320,154 vs 17,320,154
+  [PASS] L2 G0  rows whose visible week falls outside the span stay under 1% po_lines 13/74,943 (0.017%), grn_lines 19/72,849 (0.026%)
+  [PASS] L2 G0  supplier store reconciles to the channel store             ordered 19,096,386 recv 17,320,154
+  [PASS] L2 G0  quality: accepted + rejected == inspected                  0 violations of 71,236
+  [PASS] L2 G0  quality: inspected == grn qty_received                     0 violations of 71,236
+  building the ledger roll-forward (this is the §2.1 check)...
+  [PASS] L2 G0  §2.1 ledger roll-forward == weekly position, EXACT, every week 0 mismatched part-plant-weeks of 276,060 (890,984 ledger rows)
+  [PASS] L2 G0  no negative on-hand anywhere in the roll-forward           0 negative weeks
+  [PASS] L2 G0  monthly snapshot == the same ledger closed monthly, EXACT  0 of 63,937 month-ends differ
+  [PASS] L2 G0  allocation_pct sums to 100 per part-plant per effective date 0 of 21,156 windows off by more than 0.5pp
+  [PASS] L2 G0  allocation is time-varying, not one static split           41 distinct effective dates
+  [PASS] L2 G0  plan_drift actual == production_actual                     0 of 14,600 rows differ
+
+--- V8 BRIEF REQUIREMENTS (§2.2 plan, §2.3 lag, §2.4 population, §2.6 terms) ---
+  [FAIL] L0 G1  §2.4 sourcing channels >= 15,000                           1,200
+  [FAIL] L0 G1  §2.4 channels that ever traded >= 14,000                   1,145
+  [PASS] L0 G1  §2.4 cold-start slice in 3-6%                              55 (4.58%)
+  [FAIL] L0 G1  §2.4 channel-week rows >= 5,000,000                        642,000
+  [PASS] L0 G1  §2.4 channel-weeks per traded channel >= 350               535
+  [PASS] L0 G1  §2.4 PO lines per channel per year >= 6                    6.39
+  [PASS] L0 G1  G1 median channel degree at part-plant > 1                 median 2.0, p25 1, max 8
+  [    ] L0 G1  supplier degree (neighbourhood the capacity head reads)    median 20, min 10, max 30
+  [PASS] L0 V8  §2.2 every published version covers MORE THAN ONE future period min 12, median 19, max 26 periods per version
+  [PASS] L0 V8  §2.2 horizon_days varies, is not a fixed value             26 distinct horizons, 7..182 days
+  [PASS] L0 V8  §2.2 each version rolls 12-26 weeks forward                version span 12..26 weeks, median 19; row horizons 7..182 days
+  [PASS] L0 V8  §2.2 a target period is republished across versions        max 7 versions of one target period, median 5
+  [PASS] L0 V8  §2.2 later versions are closer to the actual than V1       median |err| V1 0.1641 -> latest 0.0873
+  [PASS] L0 V8  §2.2 part_demand_weekly horizon_days varies                26 distinct, 46 as-of dates
+  [PASS] L0 V8  §2.2 p90 requirement strictly above p50                    0 inversions
+  [PASS] L0 G0  §2.3 lag sd/|mean| >= 0.1 for every table                  all dispersed
+  [PASS] L0 G0  §2.3 lag is right-skewed, not symmetric                    all skew > 0.5
+  [PASS] L0 G0  §2.3 lag is never negative on an event table               none negative
+  [PASS] L0 V8  §2.3 validity windows ARE forward dated (capacity, allocation) supplier_capacity 100.0% registered before effect, supplier_allocation 100.0% registered before effect
+  [PASS] L0 G0  §2.3 lag is not shared across tables                       9 distinct medians across 9 tables: [0.8, 1.99, 1.55, 1.3, 1.18, 2.84, 2.195, 2.0, 2.91]
+  [    ] L0 --      lag po_lines                                           p50 0.80d p90 2.89d sd/mean 1.35 skew 6.66
+  [    ] L0 --      lag supplier_acknowledgements                          p50 1.99d p90 10.90d sd/mean 2.06 skew 8.94
+  [    ] L0 --      lag goods_receipts                                     p50 1.55d p90 7.01d sd/mean 1.71 skew 11.87
+  [    ] L0 --      lag asn                                                p50 1.30d p90 6.30d sd/mean 1.89 skew 10.23
+  [    ] L0 --      lag inventory_transactions                             p50 1.18d p90 6.21d sd/mean 2.07 skew 13.23
+  [    ] L0 --      lag shortage_events                                    p50 2.84d p90 15.63d sd/mean 1.63 skew 3.93
+  [    ] L0 --      lag expedite_events                                    p50 2.20d p90 9.39d sd/mean 1.69 skew 4.84
+  [    ] L0 --      lag po_line_revisions                                  p50 2.00d p90 13.94d sd/mean 2.77 skew 12.37
+  [    ] L0 --      lag quality_inspections                                p50 2.91d p90 16.86d sd/mean 2.18 skew 9.31
+  [PASS] L0 V8  §2.6 contract terms are not degenerate                     all vary
+  [PASS] L0 V8  §2.6 MOQ actually differs by supplier tier                 median moq by tier {'tier1': np.float64(46.0), 'tier2': np.float64(84.0)}, ratio 1.83x
+  [PASS] L0 V8  §2.6 qualification_status is not a constant                {'qualified': np.int64(1002), 'in_progress': np.int64(137), 'potential': np.int64(61)}
+  [PASS] L0 V8  revealed_capacity_est is not 100% null                     4.51% populated; capacity observability is a MEASURED outcome
+  [PASS] L0 V8  revealed estimate exists exactly where the month was constrained 0 rows disagree
+
+--- LEVEL 3 : CAUSAL JOINT PROBES ---
+
+  PROBE 1 (DECISIVE): each label vs its most predictive feature
+  [FAIL] L3 G0  P1 fill_rate vs fill_rate_last13  |r| >= 0.10              spearman +0.0955  n=137,451
+  [PASS] L3 G0  P1 arrival_week vs otd_rate_last13  |r| >= 0.10            spearman -0.1359  n=137,451
+  [PASS] L3 G0  P1 capacity_strain vs load_ratio  |r| >= 0.10              spearman +0.4883  n=95,035
+  [    ] L3 G0  P1 verdict                                                 near-zero here would make every other number irrelevant
+
+  PROBE 2: capacity pressure up -> fill down, lead time up
+  [PASS] L3 L3  P2 load_ratio vs fill_rate is NEGATIVE                     r -0.1645 n=74,890
+  [PASS] L3 L3  P2 load_ratio vs lead_time_ratio is POSITIVE               r +0.0345 n=74,890
+
+  PROBE 3: late and short co-occur on the same PO lines
+  [PASS] L3 L3  P3 P(late | short) > P(late | full)                        0.6968 vs 0.1857   phi +0.3196  n=74,942
+
+  PROBE 4: fill in constrained vs unconstrained supplier-months
+  [PASS] L3 L3  P4 fill materially lower in constrained supplier-months    unconstrained 0.9728 vs constrained 0.7893  gap +0.1834
+
+  PROBE 5: shortage events with an INDEPENDENTLY CORROBORATED upstream cause
+  [FAIL] L3 L3  P5 shortage cause corroborated by evidence in the CSVs (target ~100%) 70.97% of 503 events corroborated; root_cause mix {'supplier_delay': np.int64(212), 'supplier_short': np.int64(209), 'quality_reject': np.int64(44), 'demand_spike': np.int64(37), 'plan_change': np.int64(1)}
+  [PASS] L3 L3  P5 root_cause is a mix, not one label on everything        most common supplier_delay at 42.1% of events
+  [PASS] L3 L3  P5 named responsible supplier resolves to the master       465 named, 0 unresolved
+
+  PROBE 6: shortage -> expedite / revision / alternate sourcing
+  [PASS] L3 L3  P6 expedite lift given a shortage >= 2x                    P(exp|short) 0.6497 vs P(exp|none) 0.0981  lift 6.6x
+  [PASS] L3 L3  P6 revisions come from both directions and carry a reason  by {'supplier': np.int64(4526), 'buyer': np.int64(3146)} reason {'capacity_short': np.int64(4526), 'shortage': np.int64(3146)}
+  [    ] L3 L3  P6 resolution_action mix                                   {'reschedule': np.float64(0.3658), 'expedite': np.float64(0.3141), 'alternate_source': np.float64(0.2724), 'substitute': np.float64(0.0477)}
+
+  PROBE 7: alternate sourcing -> receiving supplier load up -> its own fill down
+  [PASS] L3 L3  P7 WITHIN-supplier: load(m) up -> its own fill(m+1) down   within-supplier r -0.0919  n=7,311
+  [    ] L3 L3  P7 cross-supplier (confounded, reported not gated)         r -0.1131  n=7,311 -- across suppliers this is dominated by selection: the allocation arc gives more volume to the suppliers that deliver, so high load and high fill travel together. The arc is a within-supplier statement.
+  [    ] L3 L3  P7 utilisation persistence m -> m+1                        r +0.5432  n=7,320
+
+  PROBE 8: staleness up -> lead-time variance up across channels
+  [PASS] L3 L3  P8 staleness vs sd(lead time) is POSITIVE                  r +0.1624  n=1,144
+
+  PROBE 9: KS of every label against Uniform(0,1) -- must REJECT at p < 0.01
+  [    ] L3 L3      KS arrival_week                                        D=1.0000 p=0.000e+00 n=137,451 mean=11.8869 sd=5.5527 REJECT (good)
+  [    ] L3 L3      KS capacity_strain                                     D=0.2750 p=0.000e+00 n=95,035 mean=0.3933 sd=0.2283 REJECT (good)
+  [    ] L3 L3      KS demand_drift                                        D=0.8526 p=0.000e+00 n=2,360 mean=0.9690 sd=0.0556 REJECT (good)
+  [    ] L3 L3      KS fill_rate                                           D=0.9396 p=0.000e+00 n=137,451 mean=0.9580 sd=0.1835 REJECT (good)
+  [    ] L3 L3      KS shortage_qty                                        D=0.8464 p=0.000e+00 n=42,828 mean=31.1853 sd=658.2405 REJECT (good)
+  [PASS] L3 L3  P9 every label rejects Uniform(0,1) at p < 0.01            all reject
+  [FAIL] L0 G0  G0 no task has 0% censoring                                ['arrival_week', 'capacity_strain', 'demand_drift', 'fill_rate', 'shortage_qty']
+  => CAUGHT (1 newly failing)
+
+================================================================================================
+SELFTEST SUMMARY
+================================================================================================
+  CAUGHT     net_scrap_into_receipt             -> monthly snapshot == the same ledger closed monthly, EXACT, §2.1 ledger roll-forward == weekly position, EXACT, every week
+  CAUGHT     opening_balance_removed            -> monthly snapshot == the same ledger closed monthly, EXACT, §2.1 ledger roll-forward == weekly position, EXACT, every week
+  CAUGHT     drop_one_percent_of_orders         -> ordered units: po_lines == channel store
+  CAUGHT     position_shifted_by_one            -> §2.1 ledger roll-forward == weekly position, EXACT, every week
+  CAUGHT     allocation_partial_log             -> allocation_pct sums to 100 per part-plant per effective date
+  CAUGHT     single_period_plan                 -> §2.2 each version rolls 12-26 weeks forward, §2.2 horizon_days varies, is not a fixed value
+  CAUGHT     constant_lag                       -> §2.3 lag is right-skewed, not symmetric, §2.3 lag sd/|mean| >= 0.1 for every table
+  CAUGHT     degenerate_contract_terms          -> §2.6 MOQ actually differs by supplier tier, §2.6 contract terms are not degenerate
+  CAUGHT     labels_detached_from_features      -> P1 arrival_week vs otd_rate_last13  |r| >= 0.10, P1 capacity_strain vs load_ratio  |r| >= 0.10
+  CAUGHT     uniform_labels                     -> P1 arrival_week vs otd_rate_last13  |r| >= 0.10, P1 capacity_strain vs load_ratio  |r| >= 0.10, P9 every label rejects Uniform(0,1) at p < 0.01
+  CAUGHT     fill_independent_of_load           -> P1 capacity_strain vs load_ratio  |r| >= 0.10, P2 load_ratio vs fill_rate is NEGATIVE, P2 load_ratio vs lead_time_ratio is POSITIVE
+  CAUGHT     cause_labelled_without_evidence    -> P5 root_cause is a mix, not one label on everything
+  CAUGHT     no_censoring                       -> G0 no task has 0% censoring
+
+  13/13 mutations caught.  No blind spots in this set.
