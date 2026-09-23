@@ -307,7 +307,35 @@ ROC-AUC is measured *against a privileged reference*, exactly as Phase 8 §5 fra
 adds lateness information beyond the promise date"). It is the head's measured value on this
 data; it is not a claim that a planner holding only `t0` information could reproduce it.
 
-### 3.2 How shortage is reported
+### 3.2 The pre-registered arrival investigation (§4.3) — run, and CLEAN
+
+The brief pre-registers the suspicion that a large jump in arrival C-index is **both the expected
+correct result and exactly what leakage looks like**, and requires the investigation reported
+either way, including when the number is modest. **It is modest, and the investigation ran anyway.**
+
+The first cell (h4 SHARE-lite, seed 7) scores **C-index 0.67422** on the test fold. That is far
+below §4.3's 0.85 threshold and below the privileged promise figure, so no alarm was raised. The
+four checks:
+
+| # | check | result |
+|---|---|---|
+| 1 | **Window bound** — the encoder's slice ends at `t0`, never later | **PASS** on every test snapshot; `slice(t0−51, t0+1)`, last week read ≤ snapshot date |
+| 2 | **Future-blind** — corrupt *every* panel week after `t0`; the prediction at `t0` must not move | **PASS** — change ≤ that snapshot's own unperturbed-repeat noise, all 4 snapshots, 46–52 weeks corrupted each |
+| 2b | **Falsification of 2** — the same corruption *inside* the window must move it | **PASS** — moves by **6.866**, a factor of **2.4 million** over the noise floor |
+| 3 | **No feature is a function of the label** | **PASS** — max abs correlation over all 25 channels at `t0` is **0.319** (`lead_time_actual_days`); next are `lead_time_ratio` 0.129 and `otd_rate_last13` 0.088 |
+| 4 | **As-of assertion armed** | **PASS** — shipped path carries **zero** line-level columns; pilot path still fires on **244,000 / 244,000** rows |
+
+**Check 2 needed a control before it meant anything, and that control changed its verdict.** On
+MPS two *identical* forwards are not bit-identical — they differ by **1.907e-06** (deviation 13
+records the same thing: reproduction is `allclose`, not equality). Taken literally,
+"bit-identical" reports a leak that is not there, which is what the first run of this probe did.
+The floor also **varies by snapshot** (1.9e-06 to 2.9e-06), so a single global floor is the wrong
+comparison too. Each snapshot is now measured against its own unperturbed repeat.
+
+**Result: recorded_ts, not event_ts, gated every feature that reached this model, and no feature
+is a function of the label.** The modest C-index is a modest C-index, not a suppressed leak.
+
+### 3.3 How shortage is reported
 
 **v8's shortage positive rate is 23.62%** against a real-world operating base rate near 3%
 (`synthetic_rules.md` §9), and v8's event rates run **4×–6× over** Rane's stated bands
