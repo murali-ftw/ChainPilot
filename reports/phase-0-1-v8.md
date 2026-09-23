@@ -26,7 +26,8 @@ that. Fixed by gating the *attachment* of line-level columns, never the assertio
 | Supplier store | 7 identically-zero columns — and **no panel feature reads it**, so nothing dead is carried |
 | Leak assertions | **10 run, 10 pass, 0 fired unexpectedly** |
 | B1 re-check | **100.000000%** on seed 1001 *and* seed 1005, through the loader path |
-| Phase 1 | see §3 — running at the time of writing |
+| Phase 1 | **21 of 21 cells, 0 failed**, 3-seed bands on every task. Shipped depth beats h0 on ranking and point accuracy everywhere; **h0 is better calibrated everywhere** |
+| §4.3 investigation | **CLEAN** — and check 2 needed a measured device control before it meant anything |
 | Newly unblocked | Phase 9.1 in full; 10.1's stock-balance and safety-stock constraints; 10.2's `SimulationScorer` in quantity terms |
 
 ---
@@ -267,9 +268,9 @@ the last cumulative level at or before each store week — both seeds reconcile 
 
 ## 3. Stage 2 — Phase 1, first training
 
-*Running at the time of writing. This section is completed when the queue lands; see §7.*
+**21 of 21 cells completed, 0 failed.** 08:55 → 15:39, ~6h45m on MPS.
 
-**What is being run:** `ml/configs/shipped.json` **unmodified**, world passed on the command
+**What was run:** `ml/configs/shipped.json` **unmodified**, world passed on the command
 line, fixed split, 3 seeds (7 / 17 / 27), shipped depth **and** h0 — 21 cells. No learning rate
 is retuned and nothing is tuned.
 
@@ -277,6 +278,89 @@ is retuned and nothing is tuned.
 (deviation 46).** That is unresolved, and this phase does not repair it. **Fill's neural h0 is
 trained instead** — `arch none / depth 0 / lr 1.25e-4`, which is `shipped.json`'s own
 `_superseded` entry — and the config is left exactly as it stands.
+
+### 3.0 Results, with 3-seed bands
+
+Every figure is the mean over seeds 7 / 17 / 27, with `[min, max]` and sd. Fixed split, test fold
+(2025). **No v8 number below is a comparison to v6 or v7.**
+
+**arrival_week** — n_test 36,000, censored 48.52%, late rate 20.09%
+
+| metric | h4 SHARE-lite (shipped) | h0 |
+|---|---|---|
+| **C-index** | **0.67438** [0.67365, 0.67526] sd 0.00082 | 0.66133 [0.66109, 0.66170] sd 0.00032 |
+| **Lateness ROC-AUC** | **0.75304** [0.74990, 0.75626] sd 0.00318 | 0.72993 [0.72944, 0.73038] sd 0.00047 |
+| Lateness ROC-AUC (P-tail) | 0.71276 [0.70946, 0.71545] | 0.66957 [0.66829, 0.67072] |
+| ECE-week | 0.22773 [0.17590, 0.30655] **sd 0.06938** | **0.11029** [0.10521, 0.11450] sd 0.00471 |
+
+**capacity_strain** — n_test 22,500
+
+| metric | h4 message-passing (shipped) | h0 |
+|---|---|---|
+| **Pinball (mean of P10/P50/P90)** | **0.07248** [0.07213, 0.07279] | 0.07671 [0.07652, 0.07694] |
+| Pinball P50 | **0.11400** [0.11349, 0.11434] | 0.12186 [0.12154, 0.12223] |
+| MAE P50 | **0.22800** [0.22699, 0.22867] | 0.24373 [0.24308, 0.24446] |
+| **80% coverage** (nominal 0.80) | 0.78391 [0.77640, 0.78800] | **0.80234** [0.79884, 0.80484] |
+| **P90 exceedance** (nominal 0.10) | 0.13473 [0.12369, 0.14676] | **0.12065** [0.11933, 0.12200] |
+| quantile crossing | 0.00000 | 0.00000 |
+
+**fill_rate** — neural h0, n_test 36,000 (see deviation 46 note below)
+
+| metric | raw | recalibrated |
+|---|---|---|
+| **Exact CRPS** (point-mass-aware, 22-cell) | 0.13880 [0.13878, 0.13882] | **0.13827** [0.13820, 0.13834] |
+| **ECE-22** | 0.13166 [0.11976, 0.14140] sd 0.01098 | **0.05583** [0.05417, 0.05759] sd 0.00171 |
+
+Recalibration improves ECE-22 by **2.21×–2.46×** on every seed and also *stabilises* it — the raw
+band spans 0.0216, the recalibrated band 0.0034. CRPS moves 0.4%: recalibration is a marginal
+correction, not a sharpness one. The head **over-predicts completeness by 2.6 pp** (P(complete)
+0.77565 predicted vs 0.74925 observed).
+
+**shortage_qty** — `diagnostic_only`, not shipped, n_test 13,500, base rate 25.70%
+
+| metric | h1 message-passing (shipped) | h0 |
+|---|---|---|
+| **ROC-AUC** | **0.81587** [0.81541, 0.81642] sd 0.00051 | 0.78935 [0.78601, 0.79109] sd 0.00290 |
+| PR-AUC | 0.65875 [0.65826, 0.65932] | 0.62343 [0.62147, 0.62468] |
+
+**Selection stayed on validation.** The validation bands separate cleanly for every task, and in
+every case they agree with the test ordering, so nothing was selected on an evaluation window:
+
+| task | shipped depth | h0 | overlap? |
+|---|---|---|---|
+| arrival_week (C-index ↑) | 0.67042–0.67114 | 0.65313–0.65435 | **none** |
+| capacity_strain (pinball ↓) | 0.06879–0.07035 | 0.07475–0.07544 | **none** |
+| shortage_qty (↑) | 0.64677–0.65321 | 0.61931–0.62505 | **none** |
+| fill_rate (↓) | — (h0 is the trained arm) | 0.12652–0.12671 | — |
+
+**One pattern holds across all three tasks that have both arms: the deeper shipped configuration
+is sharper and more accurate, and h0 is better calibrated.** Arrival's ECE-week is 2.1× better at
+h0; capacity's 80% coverage is essentially exact at h0 (0.802 vs nominal 0.80) and 1.6 pp low at
+h4. That is precisely the division `shipped.json` already encodes for arrival — h4 ranks, h0's
+recalibrated distribution is served — and v8 reproduces the reasoning behind it independently.
+
+### 3.0.1 What this does NOT establish: the graph
+
+It is tempting to read "h4 beats h0 everywhere" as evidence the graph contributes, and as
+refuting v8's own **G4 failure** (`docs/v8/v8_report.md` §3.1: "the graph contributes nothing").
+**That claim is not made here, because the check that could falsify it was not run.**
+
+| | v8's G4 | this measurement |
+|---|---|---|
+| model | `validator_v8.py`'s own | this repo's TCN + HeteroMP, shipped config |
+| metric | MAE | pinball (quantile head) / C-index / ROC-AUC |
+| split | validator's | fixed split 2023 / 2024 / 2025 |
+| **shuffled-graph control** | **yes — the arm that made it conclusive** | **NOT RUN** |
+
+v8's finding was conclusive *because* a randomly shuffled neighbourhood scored the same as the
+real one on all five seeds. Without that control, "h4 > h0" cannot distinguish **the edges carry
+information** from **the extra depth and parameters help regardless of which edges they read**.
+By standing rule 1 that is the check that could make the claim fail, so the claim is withheld.
+
+**What is defensible:** on this pipeline, with the shipped configuration, h4 outperforms h0 on
+arrival's and capacity's point and ranking metrics, and h1 outperforms h0 on shortage, with no
+band overlap on either fold. **Whether the graph's edges are what does it is untested here**, and
+it is in genuine tension with v8's G4. **Open item 8.**
 
 ### 3.1 How arrival is reported (corrected rule, clause c)
 
@@ -441,6 +525,17 @@ one inference sweep, not as simulation compute. **Phase 9 was not started.**
 6. **`supplier_performance_weekly`'s seven zero columns** (deviation 54) are harmless today
    because nothing reads that store. Decide whether it is live before anything does.
 7. **B3 and B5 are client asks** and have been for three worlds. No generator can close them.
+8. **The shuffled-graph control was not run** (§3.0.1). It is the one measurement that would
+   settle whether v8's G4 failure survives this pipeline, and without it "h4 > h0" says nothing
+   about the edges. Cost: 3 cells per task, ~45 min for capacity. **This is the highest-value
+   next measurement in this report**, because a Temporal-SHARE architecture whose graph carries
+   nothing is the premise of the whole project.
+9. **Arrival's ECE-week is seed-dependent on v8** — 0.176 to 0.307 across three seeds at h4
+   (sd 0.069), against h0's 0.105–0.115 (sd 0.005). The h4 week-level calibration is not
+   quotable as a point value, which is a further reason the served distribution is h0's.
+10. **Capacity's intervals are narrow at the shipped depth**: 80% coverage 0.784 against nominal
+    0.80, P90 exceedance 13.5% against nominal 10%, in every seed. h0's are nearly exact
+    (0.802 / 12.1%). Interval quotability on v8 needs its own decision.
 
 ---
 
@@ -448,9 +543,12 @@ one inference sweep, not as simulation compute. **Phase 9 was not started.**
 
 Phase 0 ran in full. Stage 3's analysis is complete and required no training.
 
-Stage 2's queue — 21 cells, `ml/configs/shipped.json` unmodified — was running when this section
-was written; §3 records the protocol and the two reporting rules in force, and the tables are
-completed when it lands.
+**Stage 2 ran in full: 21 of 21 cells, 0 failed**, 08:55 → 15:39 (~6h45m) on MPS, from
+`ml/configs/shipped.json` unmodified with the world passed on the command line. Per-cell cost
+11–24 min; every cell stopped on patience, none hit the 120-epoch cap.
+
+**The shuffled-graph control (§3.0.1, open item 8) was NOT run**, so no claim is made about
+whether the graph's edges carry information on v8.
 
 **Nothing was tuned. No learning rate was retuned. `ml/configs/shipped.json` is untouched. No
 assertion was disabled, weakened or bypassed** — the one change near an assertion stops
