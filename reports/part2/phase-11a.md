@@ -36,7 +36,10 @@ that measurement. §2.4.
 
 ### Stage 3 — five model seeds *(running at the time of writing; §4)*
 
-### Stage 4 — deviation 59 reproduction *(running at the time of writing; §5)*
+### Stage 4 — deviation 59: **the cells reproduce; open item 1 CLOSED**
+
+C-index and lateness ROC-AUC land inside the recorded bootstrap intervals on both v6
+and v7, with identical parameter counts and training populations. §5.
 
 ### Stage 5 — the Phase 9 gates: **both specified and demonstrated failing; neither existed before**
 
@@ -309,7 +312,43 @@ phase**, including in Stage 1's control.
 
 ## 5. Deviation 59 — the reproduction check
 
-*Running at the time of writing.*
+One arrival cell at the shipped configuration, seed 7, run to completion on **v6** and on **v7**
+now that the unconditional line-feature attachment is fixed. Written to a separate bundle root,
+so the recorded Phase 8 bundles were neither skipped nor overwritten.
+
+**The defect made cells CRASH, not mis-train, and that is what the numbers show.**
+
+| world | metric | recorded | re-run | delta | recorded 95% CI | inside CI |
+|---|---|---|---|---|---|---|
+| v6 | **C-index** | 0.672338 | 0.672164 | **−0.000174** | [0.66440, 0.68124] | **yes** |
+| v6 | lateness ROC-AUC | 0.780045 | 0.780695 | +0.000649 | [0.77151, 0.78935] | **yes** |
+| v6 | ECE-week | 0.136908 | 0.148134 | +0.011226 | [0.12812, 0.14659] | no |
+| v7 | **C-index** | 0.677313 | 0.678103 | **+0.000790** | [0.66913, 0.68598] | **yes** |
+| v7 | lateness ROC-AUC | 0.774826 | 0.776939 | +0.002114 | [0.76628, 0.78257] | **yes** |
+| v7 | ECE-week | 0.230264 | 0.199258 | −0.031006 | [0.22111, 0.23947] | no |
+
+Structurally identical in both worlds: **532,812 parameters** exactly, 176,000 training rows
+entering the loss every epoch, same stop reason (`patience`). The optimisation *path* differs —
+v6 stops at epoch 67 rather than 71, v7 at 63 rather than 58 — which is deviation 13 behaving as
+documented: on MPS, reproduction is `allclose` within a band, not bit-identical, and a full
+training run is a long chain of non-deterministic reductions, so the path diverges even where the
+result does not.
+
+**One thing I will not overclaim.** Against the recorded **3-seed** bands the re-run lands
+marginally outside on C-index (v6 by 0.00018, v7 by 0.00064) and on v6's ECE-week by 0.0008.
+**That is not evidence of non-reproduction.** A min/max band over three points is an extremely
+tight interval, and a fourth exchangeable draw falls outside a 3-point min/max **half the time**
+by construction. The deltas are of the same order as the recorded seed-to-seed spread itself
+(v6's C-index band is 0.002 wide, v7's 0.0003), and the row-bootstrap intervals — the interval
+that reflects sampling in the metric — contain every ranking figure.
+
+**Verdict: the cells reproduce. `reports/part2/phase-0-1-v8.md` open item 1 is CLOSED.**
+
+ECE-week is the one quantity that moves more than its own bootstrap CI on both worlds. That is
+consistent rather than surprising: Phase 1 on v8 already recorded arrival's ECE-week at h4 as the
+seed-sensitive metric (sd 0.069 across three seeds), and v7's recorded 3-seed ECE-week band here
+spans 0.140–0.230. **Arrival's week-level calibration is not a quotable point value on any of the
+three worlds** — a conclusion three independent measurements now agree on.
 
 ---
 
