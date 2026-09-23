@@ -58,8 +58,21 @@ def assert_rows():
             src = "bundle " + os.path.relpath(b, BUND)
         else:
             if fold == "test":
-                ref = np.load(os.path.join(ARTIFACTS, "run10_preds", f"{w}_shortage_qty_none_h0_s7.npz"))
-                ok_y, ok_e, src = np.array_equal(z["Y"], ref["Y"]), True, "Phase 5 shortage h0 predictions"
+                # v6/v7 reference: the Phase 5 run-10 shortage h0 predictions.
+                # v8 has no Phase 5 artifacts (it postdates them), so it falls back to the exact
+                # analogue -- its OWN shortage h0 seed-7 BUNDLE predictions, same task, same seed,
+                # same row population. This is a different SOURCE for the same reference, not a
+                # weaker check: `Y` must still match element for element.
+                r5 = os.path.join(ARTIFACTS, "run10_preds", f"{w}_shortage_qty_none_h0_s7.npz")
+                if os.path.exists(r5):
+                    ref = np.load(r5); src = "Phase 5 shortage h0 predictions"
+                else:
+                    cand = sorted(glob.glob(os.path.join(
+                        BUND, "shortage_qty", f"{w}_none_h0_*_s7", "preds_test.npz")))
+                    assert cand, (f"no row-identity reference for {w} shortage: neither "
+                                  f"run10_preds nor a {w} shortage h0 seed-7 bundle exists")
+                    ref = np.load(cand[0]); src = "bundle " + os.path.relpath(cand[0], BUND)
+                ok_y, ok_e = np.array_equal(z["Y"], ref["Y"]), True
             else:
                 ok_y, ok_e, src = True, True, "no reference (validation fold, shortage)"
         checks.append(dict(file=name, reference=src, labels_identical=bool(ok_y), entity_order_identical=bool(ok_e), rows=int(len(z["Y"]))))
