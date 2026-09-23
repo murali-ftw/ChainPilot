@@ -44,9 +44,10 @@ HEAD_OF = {"arrival_week": "hazard", "fill_rate": "cdf22", "capacity_strain": "q
 
 
 # ---------------------------------------------------------------- labels
-def labels(w, task):
+def labels(w, task, row_features: bool = False):
+    """row_features is threaded through to TS.labels_for; see its docstring (deviation 59)."""
     if task != "capacity_strain":
-        lb = TS.labels_for(w, task)
+        lb = TS.labels_for(w, task, row_features=row_features)
     else:
         lb = read_df(WORLDS[w], "training_labels",
                      usecols=["snapshot_date", "entity_id", "task", "label_value", "label_censored"])

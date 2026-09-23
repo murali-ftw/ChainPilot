@@ -76,7 +76,26 @@ def load_world(w):
     return W
 
 
-def labels_for(w, task):
+def labels_for(w, task, row_features: bool = False):
+    """row_features: attach the LINE-LEVEL columns the Phase 11 pilot needs.
+
+    DEFAULT FALSE, and that default is load-bearing. Phase 11 (commit ef3048d) attached
+    `line_age_weeks` / `line_recorded_ts` unconditionally for arrival_week, while
+    phase5_heads.batches() guards its as-of assertion on `"line_age_weeks" in rows`. The two
+    together mean the assertion fires for EVERY arrival cell on EVERY world -- v6, v7 and v8
+    alike, 100% of rows in all three -- so arrival training has been unrunnable since that
+    commit. Phase 11 reported the path as "default off, every existing configuration
+    bit-identically unchanged"; that is not what the code does (deviation 59).
+
+    The fix is to stop ATTACHING what must not be USED, which is exactly the standing rule
+    "no line-level feature is added to any head". The assertion in batches() is NOT touched,
+    NOT weakened and NOT bypassed: it still fires the moment row_features=True, which is the
+    case it exists to guard.
+
+    `promise_week` stays attached unconditionally because it is a SCORING reference (the
+    lateness ROC-AUC's AUX), never a head input. It is privileged information and must be
+    labelled as such wherever it is reported.
+    """
     D = WORLDS[w]
     lb = read_df(D, "training_labels",
                  usecols=["snapshot_date", "entity_id", "task", "label_value",
@@ -93,7 +112,8 @@ def labels_for(w, task):
         cols = ["po_line_id", "channel_id"]
         if task == "arrival_week":
             cols.append("original_promise_date")     # for the binarised late/on-time ROC-AUC
-            cols += ["created_ts", "recorded_ts"]    # Phase 11 Stage 2: line age, and its as-of visibility check
+            if row_features:
+                cols += ["created_ts", "recorded_ts"]  # Phase 11 Stage 2: line age + its as-of check
         pol = read_df(D, "po_lines", usecols=cols)
         lb = lb.merge(pol, left_on="entity_id", right_on="po_line_id", how="inner")
         lb["key"] = lb.channel_id
@@ -101,10 +121,13 @@ def labels_for(w, task):
             # promise expressed in the SAME units as the label: weeks after the snapshot
             prom = pd.to_datetime(lb.original_promise_date, errors="coerce")
             lb["promise_week"] = ((prom - lb.snapshot_date).dt.days / 7.0)
-            # Phase 11 Stage 2: the line's age at the snapshot, in the same units. AS-OF -- the line is visible only
-            # once recorded_ts has passed, which batches() asserts per batch; created_ts is then part of that record.
-            lb["line_age_weeks"] = ((lb.snapshot_date - pd.to_datetime(lb.created_ts, errors="coerce")).dt.days / 7.0)
-            lb["line_recorded_ts"] = pd.to_datetime(lb.recorded_ts, errors="coerce")
+            if row_features:
+                # Phase 11 Stage 2: the line's age at the snapshot, in the same units. AS-OF -- the line is visible
+                # only once recorded_ts has passed, which batches() asserts per batch; created_ts is then part of
+                # that record. Attached ONLY on the row-features path, so the assertion guards that path and the
+                # shipped channel-only path carries no line-level column at all.
+                lb["line_age_weeks"] = ((lb.snapshot_date - pd.to_datetime(lb.created_ts, errors="coerce")).dt.days / 7.0)
+                lb["line_recorded_ts"] = pd.to_datetime(lb.recorded_ts, errors="coerce")
     else:
         lb[["part_id", "plant_id"]] = lb.entity_id.str.split("|", expand=True)
         lb["key"] = lb.part_id + "|" + lb.plant_id

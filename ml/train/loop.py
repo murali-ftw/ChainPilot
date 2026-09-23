@@ -405,7 +405,7 @@ def run_convert(cfg, preds_path):
     if os.path.exists(os.path.join(out, "config.json")) and json.load(open(os.path.join(out, "config.json"))).get("complete"):
         print(f"[skip] complete bundle exists: {out}", flush=True); return out
     seed_all(cfg["seed"])
-    lb = P5.labels(cfg["world"], cfg["task"])
+    lb = P5.labels(cfg["world"], cfg["task"], row_features=bool(cfg.get("row_features")))
     tr, va, te = FO.fixed_split(lb.snapshot_date); FO.assert_no_leak(lb.snapshot_date, tr, va, te)
     D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
     model = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"]).to(DEV)
@@ -475,7 +475,7 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
     bands = shipped["drift_bands_pp"]
     B = load_bundle(bundle); cfg = B["cfg"]; task = cfg["task"]
     H = load_bundle(h0_bundle) if h0_bundle else None
-    lb = P5.labels(cfg["world"], task)
+    lb = P5.labels(cfg["world"], task, row_features=bool(cfg.get("row_features")))
     tr, va, te = split_of(cfg, lb.snapshot_date)
     mask = {"test": te, "val": va}[fold]
     D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
