@@ -38,7 +38,10 @@ def probe(bundle_path, n_snapshots=4, seed=0):
     assert task == "arrival_week", "this probe is arrival-specific"
     lb = P5.labels(cfg["world"], task, row_features=bool(cfg.get("row_features")))
     tr, va, te = LP.split_of(cfg, lb.snapshot_date)
-    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+    # A bundle trained on the shuffled graph MUST be scored on the same shuffled graph.
+    # Scoring it against the real graph would silently compare a model to inputs it never saw.
+    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                         graph_shuffle=cfg.get("graph_shuffle"))
     model = LP._materialise(B, D)
     order = P5.ordered(lb, te); dates = lb.snapshot_date.values[order]
     snaps = np.unique(dates)

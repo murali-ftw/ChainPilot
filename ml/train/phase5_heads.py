@@ -78,14 +78,20 @@ def t0_of(W, s):
 _DEV_CACHE = {}
 
 
-def device_inputs(w, snaps_train, wsla):
-    key = (w, bool(wsla), tuple(pd.Timestamp(s) for s in snaps_train))
+def device_inputs(w, snaps_train, wsla, graph_shuffle=None):
+    """graph_shuffle: an int seed -> the Stage 1 control arm reads a degree-preserving permuted
+    neighbourhood (ml/models/graph_control.py). None -> the real graph. It is part of the cache
+    key, so a shuffled arm can never be served a cached real-graph world or the reverse."""
+    key = (w, bool(wsla), tuple(pd.Timestamp(s) for s in snaps_train), graph_shuffle)
     if key in _DEV_CACHE:
         return _DEV_CACHE[key]
     _DEV_CACHE.clear()
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
     W = TS.load_world(w)
+    if graph_shuffle is not None:
+        from graph_control import shuffled_world
+        W = shuffled_world(W, int(graph_shuffle), DEV)
     cols, null = list(W["meta"]["cols"]), list(W["meta"]["nullable"])
     names = cols + ["obs:" + c for c in null]
     X = np.concatenate([W["panel"], W["miss"]], 2)
@@ -113,7 +119,8 @@ def device_inputs(w, snaps_train, wsla):
              norm_mu=nz.mu.astype(np.float32), norm_sd=nz.sd.astype(np.float32), norm_log1p_idx=list(log1p),
              dt=torch.from_numpy(np.ascontiguousarray(W["panel"][..., lag])).to(DEV),
              obs=torch.from_numpy(np.ascontiguousarray(W["miss"][..., null.index("reporting_lag_days")] > 0)).to(DEV),
-             gate_cols=[i for i, c in enumerate(cols) if c != "reporting_lag_days"])
+             gate_cols=[i for i, c in enumerate(cols) if c != "reporting_lag_days"],
+             graph_shuffle=graph_shuffle)
     _DEV_CACHE[key] = D
     return D
 

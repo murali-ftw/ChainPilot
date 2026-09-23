@@ -34,7 +34,10 @@ def raw_and_recal(bundle_path, fold="test"):
     lb = P5.labels(cfg["world"], task, row_features=bool(cfg.get("row_features")))
     tr, va, te = LP.split_of(cfg, lb.snapshot_date)
     mask = {"test": te, "val": va}[fold]
-    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+    # A bundle trained on the shuffled graph MUST be scored on the same shuffled graph.
+    # Scoring it against the real graph would silently compare a model to inputs it never saw.
+    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                         graph_shuffle=cfg.get("graph_shuffle"))
     assert np.allclose(D["norm_mu"], B["norm"]["mu"]) and np.allclose(D["norm_sd"], B["norm"]["sd"]), \
         "the rebuilt normaliser does not match the bundle's -- inputs changed since training"
     model = LP._materialise(B, D)
@@ -63,7 +66,10 @@ def score_bundle(bundle_path):
     y = rows.label_value.to_numpy(float)
     cen = rows.label_censored.to_numpy(bool)
     out = dict(task=task, world=cfg["world"], arch=cfg["arch"], depth=cfg["depth"],
-               lr=cfg["lr"], seed=cfg["seed"], n=int(len(y)), bundle=bundle_path)
+               lr=cfg["lr"], seed=cfg["seed"], n=int(len(y)), bundle=bundle_path,
+               graph_shuffle=cfg.get("graph_shuffle"),
+               arm=("shuffled" if cfg.get("graph_shuffle") is not None
+                    else ("h0" if cfg["depth"] == 0 else "real")))
 
     if task == "arrival_week":
         ET = cat(raw, "P"); S = cat(raw, "S"); pT = cat(raw, "pT")
@@ -150,7 +156,7 @@ def main():
     # 3-seed bands per (task, arch, depth)
     bands = {}
     for c in cells:
-        k = f"{c['task']}|{c['arch']}|h{c['depth']}"
+        k = f"{c['task']}|{c['arch']}|h{c['depth']}|{c['arm']}"
         bands.setdefault(k, {"cells": [], "seeds": []})
         bands[k]["cells"].append(c); bands[k]["seeds"].append(c["seed"])
     agg = {}

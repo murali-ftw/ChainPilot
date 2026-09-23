@@ -129,6 +129,8 @@ def resolve(args):
         cfg["train_snapshots"] = int(args.train_snapshots)  # Phase 9A Stage B: history held to n snapshots
     if getattr(args, "row_features", None):
         cfg["row_features"] = True                          # Phase 11 Stage 2: promise_week + line age (arrival only)
+    if getattr(args, "graph_shuffle", None) is not None:
+        cfg["graph_shuffle"] = int(args.graph_shuffle)      # Phase 11A Stage 1: the shuffled-graph control
         assert cfg["task"] == "arrival_week", "row features are defined for arrival only"
     return cfg
 
@@ -149,7 +151,8 @@ def train(cfg, verbose=False):
     tr, va, te = split_of(cfg, lb.snapshot_date)
     if cfg.get("train_snapshots"):
         tr = FO.truncate_train(lb.snapshot_date, tr, cfg["train_snapshots"])
-    D = P5.device_inputs(w, np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+    D = P5.device_inputs(w, np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                         graph_shuffle=cfg.get("graph_shuffle"))
     ymu, ysd = 0.0, 1.0
     if task == "capacity_strain":
         ymu = float(lb.label_value[tr].mean()); ysd = float(lb.label_value[tr].std())
@@ -412,7 +415,8 @@ def run_convert(cfg, preds_path):
     seed_all(cfg["seed"])
     lb = P5.labels(cfg["world"], cfg["task"], row_features=bool(cfg.get("row_features")))
     tr, va, te = FO.fixed_split(lb.snapshot_date); FO.assert_no_leak(lb.snapshot_date, tr, va, te)
-    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                         graph_shuffle=cfg.get("graph_shuffle"))
     model = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"]).to(DEV)
     model.load_state_dict(torch.load(preds_path.replace(".npz", ".pt"), map_location="cpu"))
     ymu, ysd = 0.0, 1.0
@@ -483,7 +487,8 @@ def predict(bundle, fold="test", h0_bundle=None, shipped_config="ml/configs/ship
     lb = P5.labels(cfg["world"], task, row_features=bool(cfg.get("row_features")))
     tr, va, te = split_of(cfg, lb.snapshot_date)
     mask = {"test": te, "val": va}[fold]
-    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"])
+    D = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                         graph_shuffle=cfg.get("graph_shuffle"))
     assert np.allclose(D["norm_mu"], B["norm"]["mu"]) and np.allclose(D["norm_sd"], B["norm"]["sd"]), \
         "the rebuilt normaliser does not match the bundle's -- inputs changed since training"
     model = _materialise(B, D); h0 = _materialise(H, D) if H else None
@@ -579,6 +584,9 @@ if __name__ == "__main__":
     ap.add_argument("--origin", type=int, default=None, help="Phase 8.2 rolling origin 1-8; omit for the fixed split")
     ap.add_argument("--from-preds", default=None)
     ap.add_argument("--bundle", default=None); ap.add_argument("--h0-bundle", default=None); ap.add_argument("--fold", default="test")
+    ap.add_argument("--graph-shuffle", type=int, default=None,
+                    help="Phase 11A Stage 1: train against a degree-preserving PERMUTED neighbourhood "
+                         "(the control arm). Omit for the real graph.")
     ap.add_argument("--max-epochs", type=int, default=None, help="smoke runs only; shipped runs use the config's cap")
     ap.add_argument("--bundle-root", default=None, help="write bundles elsewhere (smoke tests must not occupy real bundle paths)")
     a = ap.parse_args()
