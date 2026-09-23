@@ -152,8 +152,17 @@ exactly, every part-plant, every week.
 
 I verified this independently rather than accepting the generator's claim, and I verified the
 check can fail: deleting the opening posting drops the match to **0.5%**; netting 200 scrap
-postings into their receipts drops it to **62.9%**. Across seeds: 100.0, 100.0, 100.0, 100.0,
-**99.9944** (seed 1005, ~9 rows of ~155,700 on a 300-part-plant sample — noted, not material).
+postings into their receipts drops it to **62.9%**.
+
+**Across seeds: 100.000000% on every one.** An earlier draft of this report recorded seed 1005 at
+99.9944% and filed it as open item 7. **That was my reconciliation, not the data.** The opening
+posting sits at `event_ts` 2015-12-28, in the week *before* the store's first week (2016-01-04),
+so an exact-week merge drops it and a forward-fill inside the merged frame cannot recover it; any
+part-plant with no transaction in the store's first week then reads a cumulative of 0 and appears
+to mismatch. Three part-plants in seed 1005 are in that position. Re-run as an as-of join —
+the last cumulative level at or before each store week — seed 1005 reconciles on **2,255,025 of
+2,255,025 rows, 4,215 of 4,215 part-plants, max abs diff 0**, exactly like seed 1001. Open item 7
+is closed; `ml/train/phase0_v8.py` carries the corrected join.
 
 **This is the item `reports/phase-10.md` §6.1 called "the single highest-value item on this list —
 the only one that blocks a whole phase." It is delivered.**
@@ -702,8 +711,9 @@ Deviation 45's precondition ("labels must attach to lines already raised at t0")
    3–7 are unchanged by v8 and no generator can close them.
 6. **The panel width change (deviation 53)** must be applied per-world when Phase 0 does run —
    25 channels on v8, not 24. Do not borrow v6/v7's width.
-7. **Seed 1005's B1 reconciliation** read 99.9944% on a 300-part-plant sample against 100.0000% on
-   the other four. ~9 rows. Worth one look before B1 is quoted as exact across all seeds.
+7. ~~**Seed 1005's B1 reconciliation** read 99.9944%~~ — **CLOSED.** The shortfall was an
+   exact-week merge dropping the pre-store opening posting, not a data defect. Re-run as an as-of
+   join, seed 1005 is **100.000000%** on all 2,255,025 rows. See §2 B1.
 
 ---
 
