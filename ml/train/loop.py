@@ -129,9 +129,11 @@ def resolve(args):
         cfg["train_snapshots"] = int(args.train_snapshots)  # Phase 9A Stage B: history held to n snapshots
     if getattr(args, "row_features", None):
         cfg["row_features"] = True                          # Phase 11 Stage 2: promise_week + line age (arrival only)
+        assert cfg["task"] == "arrival_week", "row features are defined for arrival only"
     if getattr(args, "graph_shuffle", None) is not None:
         cfg["graph_shuffle"] = int(args.graph_shuffle)      # Phase 11A Stage 1: the shuffled-graph control
-        assert cfg["task"] == "arrival_week", "row features are defined for arrival only"
+        assert cfg["depth"] and cfg["depth"] > 0, \
+            "graph_shuffle is meaningless at depth 0: h0 reads no neighbourhood at all"
     return cfg
 
 
