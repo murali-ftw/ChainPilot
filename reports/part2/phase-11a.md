@@ -13,10 +13,12 @@ validation 2024, test 2025. Selection on validation only.
 
 ### Stage 1 — the shuffled-graph control: **THE EDGES CARRY INFORMATION** (verdict i)
 
-On `capacity_strain`, with a degree-preserving permuted neighbourhood, **the real graph beats the
-shuffled graph outside the seed bands on both folds.** 71.7% of the h4-over-h0 advantage is
-attributable to the edges; 28.3% to depth and parameters alone, and on the test fold that
-remainder is not distinguishable from zero.
+On **both** `capacity_strain` and `arrival_week`, with a degree-preserving permuted
+neighbourhood, **the real graph beats the shuffled graph outside the seed bands on both folds.**
+The edges account for **71.7%** of the h4-over-h0 advantage on capacity's validation pinball and
+**99.2%** on arrival's validation C-index; the depth-and-parameters remainder is not
+distinguishable from zero on three of the four measurements. On arrival's test fold a shuffled
+neighbourhood is **worse than no neighbourhood at all**.
 
 **This pipeline does not corroborate v8's own G4.** That is stated without softening, and so is
 its limit: the instruments differ, so this is the answer *on this pipeline*, not a refutation of
@@ -117,6 +119,53 @@ real-graph world is byte-unchanged.
 real vs shuffled **disjoint**; **shuffled vs h0 NOT disjoint**. On the evaluation fold a permuted
 neighbourhood buys nothing over no neighbourhood at all, so there essentially **the whole
 advantage is the edges** and the depth/parameter share falls to nothing measurable.
+
+### 2.3b The three arms — `arrival_week`, 3 model seeds
+
+**Validation C-index (higher is better):**
+
+| arm | mean | band |
+|---|---|---|
+| **real graph** | **0.67079** | [0.67042, 0.67114] |
+| shuffled graph | 0.65378 | [0.65297, 0.65507] |
+| h0 (no graph) | 0.65364 | [0.65313, 0.65435] |
+
+real vs shuffled **DISJOINT**; real vs h0 **DISJOINT**; **shuffled vs h0 NOT DISJOINT — not
+distinguishable.**
+
+**Gap decomposition — the h4-over-h0 advantage is +0.01715 C-index:**
+
+| source | C-index | share |
+|---|---|---|
+| **the EDGES** (real − shuffled) | **+0.01701** | **99.2%** |
+| depth and parameters alone (shuffled − h0) | +0.00014 | **0.8%** |
+
+**Test fold:**
+
+| arm | C-index | lateness ROC-AUC | ECE-week |
+|---|---|---|---|
+| real | **0.67438** [0.67365, 0.67526] | 0.75304 | 0.22773 |
+| shuffled | 0.65666 [0.65307, 0.65922] | 0.72420 | 0.31189 |
+| h0 | 0.66133 [0.66109, 0.66170] | 0.72993 | 0.11029 |
+
+Both comparisons disjoint on test — and note the ordering: **real > h0 > shuffled.** On the
+evaluation fold a randomised neighbourhood is not merely uninformative, it is **worse than having
+no neighbourhood at all** (0.65666 vs 0.66133, disjoint), and its week-level calibration is worst
+of the three (ECE-week 0.312). Forcing the encoder to aggregate over misleading neighbours costs
+more than leaving it with none.
+
+### 2.3c Both tasks, one verdict
+
+| task | metric | edges' share of the h4−h0 gap | shuffled vs h0 |
+|---|---|---|---|
+| capacity_strain | validation pinball | **71.7%** | disjoint (shuffled better) |
+| capacity_strain | test pinball | ~100% | **not distinguishable** |
+| arrival_week | validation C-index | **99.2%** | **not distinguishable** |
+| arrival_week | test C-index | >100% | disjoint (**shuffled WORSE than h0**) |
+
+**Verdict (i) on both tasks, on both folds: the edges carry information.** The depth-and-
+parameters share is 28.3% at most, and on three of the four measurements above it is not
+distinguishable from zero or negative.
 
 ### 2.4 Against v8's own G4 — stated plainly, and bounded
 
