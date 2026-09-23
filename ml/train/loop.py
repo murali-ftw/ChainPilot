@@ -140,7 +140,12 @@ DEFAULT_STAT = {"arrival_week": "p_late_raw", "fill_rate": "p_complete_raw", "ca
 def train(cfg, verbose=False):
     task, w = cfg["task"], cfg["world"]
     seed_all(cfg["seed"])
-    lb = P5.labels(w, task)
+    # row_features MUST be threaded here: with it dropped, a row_features=True cell would load a
+    # labels frame with no line-level columns, train silently WITHOUT the features, and never
+    # reach the as-of assertion that guards them. See temporal_share.labels_for (deviation 59).
+    lb = P5.labels(w, task, row_features=bool(cfg.get("row_features")))
+    if cfg.get("row_features"):
+        assert "line_age_weeks" in lb.columns,             "row_features requested but the labels frame carries no line-level column"
     tr, va, te = split_of(cfg, lb.snapshot_date)
     if cfg.get("train_snapshots"):
         tr = FO.truncate_train(lb.snapshot_date, tr, cfg["train_snapshots"])
