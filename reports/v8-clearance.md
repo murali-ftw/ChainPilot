@@ -26,9 +26,13 @@ distribution is the same shape Phase 11 measured on v6/v7 — the line is create
 *after* the snapshot it is labelled at, median 47. The as-of leak that deviations 44, 45 and 48
 describe is live and unchanged on v8.
 
-Nine of the thirteen blocks did clear, several of them decisively, and v8 is a substantially
-better world than v6 or v7 on almost every axis this audit measured. It does not clear the one
-block that gates training.
+Eight of the thirteen blocks clear outright, three are partial, and v8 is a substantially better
+world than v6 or v7 on almost every axis this audit measured. It does not clear the one block that
+the brief made the gate.
+
+*(B7 was recorded as CLEARED in the first filing and is corrected to PARTIAL here: the capacity
+columns are populated and the observability mechanism is right, but the grain is supplier-level,
+not the per-supplier-part grain §6 specifies. See deviation 60.)*
 
 | | block | verdict | the number that decided it | v6 / v7 for contrast |
 |---|---|---|---|---|
@@ -38,7 +42,7 @@ block that gates training.
 | | B4 contract heterogeneity | CLEARED | all 8 columns vary; e.g. `moq` **547 distinct, [1, 1631]** | every one a single constant |
 | | B5 min-volume period / penalty basis | **NOT CLEARED** | **neither column exists**; no period, no basis | absent |
 | | B6 qualification status | **PARTIAL** | genuine mix (**83.3 / 11.7 / 5.1%**) but `is_approved` still **constant 1** on all 16,072 channels | constant "qualified", constant 1 |
-| | B7 supplier capacity ceilings | CLEARED | `evidence_strength` **100% populated**; `revealed_capacity_est` populated on **100% of constrained months** | both 100% NULL |
+| | B7 supplier capacity ceilings | **PARTIAL** | populated (`evidence_strength` 100%; `revealed_capacity_est` on **100% of constrained months**) but the grain is **supplier x month, one nominal part**, not §6's supplier x part x month | both 100% NULL |
 | | B8 allocation coverage | CLEARED | **97.05%** of part-plants carry a recorded split | 19.5% / 25.7% |
 | **gate** | **B9** arrival labels on open PO lines | **NOT CLEARED** | **0.0000%** positive, 332,000 / 332,000 rows, all five seeds | 0% |
 | | B10 recorded vs event timestamps | **PARTIAL** | **0 negative lags** on 16 tables, `sd/\|mean\|` **0.23–2.61**; but 2 tables are not right-skewed | `sd/\|mean\|` 0.000, negative on 3 tables |
@@ -267,7 +271,7 @@ alternate-source path — which is the path 10.2 actually enumerates. But every 
 still approved, so deviation 40's "INERT" verdict stands for any constraint keyed on
 `sourcing_channels`. Half the mechanism arrived.
 
-### B7 — supplier capacity ceilings · **CLEARED**
+### B7 — supplier capacity ceilings · **PARTIAL** *(corrected from CLEARED — see the grain note)*
 
 *Pass: `revealed_capacity_est` and `evidence_strength` populated.*
 
@@ -284,7 +288,28 @@ specified: where ordered ≪ K the month carries no information about K, and obs
 outcome, never a setting. Declaring a number there would have been the defect.
 
 I checked the crosstab rather than the null rate, because a null rate alone would have read as a
-partial fix. **`reports/phase-10.md` §6.3 item 10 is delivered.**
+partial fix.
+
+**The grain, however, is not what §6 specifies, and this downgrades the verdict to PARTIAL.**
+`synthetic_rules.md` §6 defines the latent quantity as **K(supplier, part, month)**. Measured:
+
+| | v8 |
+|---|---|
+| `revealed_capacity_monthly` rows | 51,660 = **420 suppliers x 123 months** |
+| distinct supplier-part pairs in it | **420** — exactly **one nominal part per supplier** |
+| parts a supplier actually serves (`sourcing_channels`) | median **37**, range 21-53 |
+| `supplier_capacity.part_id` | **100% NULL** — grain is supplier x period |
+
+So the capacity figure is a **supplier-level** ceiling carried on an arbitrary single `part_id`,
+not a per-supplier-part ceiling. A supplier-level ceiling is physically defensible — a plant's
+capacity is shared across the parts it makes — but it is not what §6 asks for, and **10.2
+enumerates supplier-PART candidates**, so the constraint can only be applied by attributing one
+shared ceiling across a median of 37 parts. That is a modelling choice the phase must declare,
+not a constraint the data hands it.
+
+**What is delivered against `reports/phase-10.md` §6.3 item 10:** the columns exist, are
+populated, and the observability mechanism is correct. **What is not:** the per-part grain the
+constraint needs. Recorded as **deviation 60**.
 
 ### B8 — allocation coverage · **CLEARED**
 
@@ -404,8 +429,16 @@ store is empty of it. Anything that reads supplier-weekly performance reads zero
 `parts.introduced_date`, `parts.discontinued_date`, `products.introduced_date`,
 `products.discontinued_date`, `sourcing_channels.effective_to`, `supplier_capacity.part_id`.
 
-Several are benign (`effective_to` null means "current"). `bom.parent_part_id` and
-`supplier_capacity.part_id` all-null are **not** benign — they are join keys.
+Several are benign (`effective_to` null means "current").
+
+Two I initially called broken join keys, on re-examination:
+- **`bom.parent_part_id` is benign.** `bom_level` is constant 1 — the BOM is single-level,
+  180 products against a median 21.5 parts each — so `parent_part_id` is only meaningful at
+  level >= 2 and is correctly null. The real (milder) observation is that **the BOM is flat**, so
+  multi-level explosion is never exercised.
+- **`supplier_capacity.part_id` is a genuine limitation**, but of grain rather than of joining:
+  it makes that table supplier x period (420 x 123), which is the same grain issue B7 records as
+  deviation 60.
 
 **Single-valued (17):** `bom.bom_level`=1, `customers.is_active`=1, `dataset_coverage.available_years`=10.2,
 `grn_lines.receipt_sequence`=1, `grn_lines.is_final_receipt`=1, `parts.is_active`=1, `plants.is_active`=1,
@@ -658,6 +691,8 @@ Deviation 45's precondition ("labels must attach to lines already raised at t0")
 | **54** | `otd_rate_last13` is the decisive Level-3 arrival probe | **all-zero in `supplier_performance_weekly`** (224,700 rows), along with 6 other columns there. The probe passes only against the **channel** store, where the column is populated | §2 B11 |
 | **~~55~~** | ~~v6's zero-negative shortage premise does not reproduce~~ | **WITHDRAWN.** The premise is correct. I compared against the post-repair `training_labels.csv` and missed `training_labels.pre_fix`, which holds the pre-repair state: **45,942 rows, 0 zeros, 100% positive**. The defect was real, was repaired in the Phase 1 label fix, and **v8 is not credited with fixing it**. v8's genuine improvement is the positive rate **13.49% → 23.62%** | §2 B12 |
 | **56** | v8's event rates reproduce Rane's stated operational figures | **4×–6× over band on the normal-regime slice**: shortage 940.8/yr (180–250), line stops 153.6/yr (15–25), expedites 640.4/yr (100–150). §2.5's feedback arcs over-fired | §3.1 |
+| **60** | `revealed_capacity_est` gives a per-supplier-part ceiling, as `synthetic_rules.md` §6's K(supplier, part, month) specifies | **it does not.** `revealed_capacity_monthly` holds 420 supplier-part pairs for 420 suppliers — **one nominal part each**, 123 months — while a supplier serves a median of **37** parts; `supplier_capacity.part_id` is 100% NULL. The ceiling is supplier-level. 10.2 enumerates supplier-part candidates, so applying it means attributing one shared ceiling across 37 parts — a declared modelling choice, not a constraint the data supplies. B7 downgraded CLEARED -> PARTIAL | §2 B7 |
+| **59** | Phase 11's row-feature path is "default off" and "every existing configuration is bit-identically unchanged" (deviation 45) | **neither holds.** Commit `ef3048d` attached `line_age_weeks` / `line_recorded_ts` to the arrival labels frame **unconditionally**, while `phase5_heads.batches()` guards its as-of assertion on `"line_age_weeks" in rows`. Attaching is therefore indistinguishable from using, and the assertion fires for **every arrival cell on every world** — 244,000 of 244,000 rows on v6, v7 and v8 alike. Arrival training has been unrunnable since that commit; no baseline arrival cell was re-run after it. Fixed by gating the attachment, not the assertion | `reports/phase-0-1-v8.md` |
 | **58** | B9 blocks Phase 0/1 (this report's gate rule) | **it does not.** B9 describes the same condition v6/v7 carried, and Phases 1–11 trained on those worlds. B9 blocks only guide 11.2 (deviation 45), arrival ranking claims (32) and any deployable reading of the promise-date baseline (48) — all three already closed. Corrected rule: **B1 + B12 cleared → proceed**; B9 not cleared → assertion stays armed, no line-level feature in any head, promise-date comparison **retired, not reported as a loss** | §0, `reports/phase-0-1-v8.md` |
 | **57** | populating `revealed_capacity_est` is a clean fix | it is, and it **trips a Tier-1 type check**: the column is declared `INTEGER` and reads `float64` because 69.3% are now NULL. All non-null values are whole numbers | §3.2 |
 
@@ -672,7 +707,7 @@ Deviation 45's precondition ("labels must attach to lines already raised at t0")
 | **B1** | the Phase 9 stock roll-forward; 10.1's stock-balance form and safety-stock floor; 10.2's real objective. Deviation 39 is dischargeable on v8 |
 | **B2** | any multi-week delivery schedule. Deviation 38 no longer describes v8 |
 | **B4** | contract terms as **model features**. Explicitly *not* as quoted-optimiser inputs — the generator and `allocation_disclaimer.txt` both say so |
-| **B7** | 10.2's capacity-ceiling constraint |
+| **B7** (partial) | 10.2's capacity-ceiling constraint, **at supplier grain only** — one ceiling shared across a median 37 parts (deviation 60) |
 | **B8** | 10.2 has an incumbent to recommend against. Deviation 47's premise improves |
 | **B12** | shortage has a negative class; fill and capacity heads have real label distributions |
 | **B13** | the derived stores can be trusted against their sources |
@@ -684,7 +719,7 @@ Deviation 45's precondition ("labels must attach to lines already raised at t0")
 | **B9** | ~~Phase 0 and Phase 1 on v8~~ — **corrected, deviation 58: it does not.** B9 blocks only guide 11.2 (deviation 45), any arrival ranking claim (32) and any deployable reading of the promise-date baseline (48) |
 | **B3** | 10.1's objective (deviations 36, 37) and 10.2's shortage-cost objective (41). **Client ask, not a generator defect** |
 | **B5** | the min-volume constraint and its penalty remain unenforceable |
-| **B11** | anything reading `supplier_performance_weekly`; `bom.parent_part_id` and `supplier_capacity.part_id` as join keys |
+| **B11** | anything reading `supplier_performance_weekly` (7 identically-zero columns). `bom.parent_part_id` is benign (flat BOM); `supplier_capacity.part_id` is the B7 grain issue, deviation 60 |
 | **B6** (partial) | constraints keyed on `sourcing_channels.is_approved` stay inert (deviation 40). The alternate-source path *can* now bind |
 | **B10** (partial) | nothing hard; two tables' lag shapes are wrong rather than absent |
 
