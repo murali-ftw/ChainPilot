@@ -238,7 +238,11 @@ def draw_from_heads(world, t0, sub, W, N, rng):
         cidx = dists["arrival_week"]["cidx"]
         fill_mid = np.concatenate([[0.0], np.linspace(0.025, 0.975, 20), [1.0]])
         for i, chans in enumerate(sub.channels):
-            cl = [cidx[c] for c in (chans or []) if c in cidx]
+            # An orphan part-plant carries NaN, not an empty list, because the mapping is built
+            # by a reindex. It must be treated as "no channels" and carried with zero arrivals,
+            # never skipped -- dropping it would remove its shortage from the totals (D.5).
+            chl = chans if isinstance(chans, (list, tuple, np.ndarray)) else []
+            cl = [cidx[c] for c in chl if c in cidx]
             if not cl:
                 continue                      # orphan part-plant: no channel, no arrivals
             pw_ = P13[cl].mean(0); pw_ = pw_ / pw_.sum()
@@ -254,6 +258,52 @@ def draw_from_heads(world, t0, sub, W, N, rng):
     return arr, cons, meta
 
 
+# ------------------------------------------------------------------ D.1 full grid
+def run_all_snapshots(a, pp, sub, R):
+    """Every snapshot in the window, all part-plants, N paths. This is D.1's full grid."""
+    D = WORLDS[a.world]
+    snaps = pd.read_csv(f"{D}/snapshots.csv", usecols=["as_of_ts"])["as_of_ts"].tolist()
+    snaps = sorted(pd.Timestamp(s) for s in snaps)
+    if a.snapshot_window:
+        lo, hi = a.snapshot_window.split(":")
+        snaps = [s for s in snaps if pd.Timestamp(lo) <= s <= pd.Timestamp(hi)]
+    rng = np.random.default_rng(11)
+    print(f"\nD.1  FULL GRID: {len(sub):,} part-plants x {len(snaps)} snapshots "
+          f"x {HORIZON_WEEKS} weeks x N={a.paths}")
+    t_all = time.time()
+    per, orph_share = [], []
+    orphan = (sub.n_channels == 0).to_numpy()
+    for i, s in enumerate(snaps, 1):
+        t = time.time()
+        op = opening_position(a.world, s, sub)
+        I0 = op["qty_on_hand"].fillna(0).to_numpy(float)
+        safety = op["safety_stock_qty"].fillna(1).to_numpy(float)
+        arr, cons, _ = draw_from_heads(a.world, s, sub, HORIZON_WEEKS, a.paths, rng)
+        _, short = roll_forward(I0, arr, cons, safety)
+        tot = float(short.sum())
+        per.append(dict(snapshot=str(s.date()), seconds=round(time.time() - t, 2),
+                        total_shortfall=tot,
+                        pct_pp_short=round(100 * float((short.sum((1, 2)) > 0).mean()), 4),
+                        mean_short_per_pp=float(short.sum((1, 2)).mean())))
+        orph_share.append(float(short[orphan].sum()) / tot if tot > 0 else 0.0)
+        if i % 10 == 0 or i == len(snaps):
+            print(f"     {i}/{len(snaps)} snapshots  {time.time() - t_all:.1f}s elapsed")
+    wall = time.time() - t_all
+    R["full_grid"] = dict(
+        part_plants=int(len(sub)), snapshots=len(snaps), weeks=HORIZON_WEEKS, paths=a.paths,
+        cells=int(len(sub) * len(snaps) * HORIZON_WEEKS * a.paths),
+        wall_clock_seconds=round(wall, 1), wall_clock_minutes=round(wall / 60, 2),
+        estimate_minutes=R.get("full_grid_estimate", {}).get("total_minutes_all_snapshots"),
+        orphan_part_plants=int(orphan.sum()),
+        orphan_share_of_total_shortfall_pct=round(100 * float(np.mean(orph_share)), 4),
+        per_snapshot=per)
+    print(f"     WALL CLOCK {wall/60:.2f} min for "
+          f"{len(sub)*len(snaps)*HORIZON_WEEKS*a.paths:,} cells")
+    print(f"     orphan part-plants carried: {int(orphan.sum())}, "
+          f"{100*np.mean(orph_share):.4f}% of total projected shortfall")
+    return R
+
+
 # ------------------------------------------------------------------ CLI
 def main():
     ap = argparse.ArgumentParser()
@@ -262,6 +312,10 @@ def main():
     ap.add_argument("--part-plants", type=int, default=200)
     ap.add_argument("--paths", type=int, default=50)
     ap.add_argument("--json", default=None)
+    ap.add_argument("--all-snapshots", action="store_true",
+                    help="D.1: run every snapshot in the fit window, not just --t0")
+    ap.add_argument("--snapshot-window", default=None,
+                    help="restrict --all-snapshots to snapshots in LO:HI (e.g. 2025-01-01:2025-12-31)")
     a = ap.parse_args()
     R = {"world": a.world, "t0": a.t0, "n_part_plants": a.part_plants, "n_paths": a.paths}
 
@@ -281,7 +335,11 @@ def main():
               f"{'PASS' if g['PASS'] else 'FIRES'}")
 
     print("\nD.1  roll-forward on the subset")
-    sub = pp[pp.n_channels > 0].head(a.part_plants).reset_index(drop=True)
+    # D.5: the orphan part-plants are CARRIED, not dropped. They have no channel so they can
+    # receive nothing, and filtering them out would silently remove their projected shortage from
+    # the totals -- which is the opposite of conservative. The subset run took `n_channels > 0`;
+    # the full grid takes everything.
+    sub = (pp if a.part_plants >= len(pp) else pp[pp.n_channels > 0].head(a.part_plants)).reset_index(drop=True)
     open_pos = opening_position(a.world, a.t0, sub)
     I0 = open_pos["qty_on_hand"].fillna(0).to_numpy(float)
     safety = open_pos["safety_stock_qty"].fillna(1).to_numpy(float)
@@ -333,7 +391,10 @@ def main():
     print(f"     TOTAL full-grid compute: "
           f"{(roll_full+infer_per_snap)*FULL_SNAP/60:.1f} min")
 
-    print("\nD.5  STOPPING HERE. Full-grid Monte Carlo NOT run; Phase 9.2 copula NOT started.")
+    if a.all_snapshots:
+        run_all_snapshots(a, pp, sub, R)
+
+    print("\nD.5  Phase 9.2 copula NOT started.")
     if a.json:
         json.dump(R, open(a.json, "w"), indent=1, default=str)
         print(f"     json -> {a.json}")
