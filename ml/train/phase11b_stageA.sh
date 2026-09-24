@@ -17,7 +17,13 @@ PY=venv/bin/python; CFG=ml/configs/shipped.json
 
 cell() {  # tag world task arch depth lr seed [extra...]
   local tag=$1 world=$2 task=$3 arch=$4 depth=$5 lr=$6 seed=$7; shift 7
-  local f="$LOG/${tag}_${task}_${world}_s${seed}.log"
+  # The log name MUST carry arch, depth and any --graph-shuffle. Without them the real,
+  # shuffled and h0 arms of one world collide on a single filename, the first one's .done
+  # marker silently skips the other two, and the control quietly loses two of its three arms.
+  # That happened on the first run of this script and is why the suffix exists.
+  local extra="$*"; local shuf=""
+  [[ "$extra" == *"--graph-shuffle"* ]] && shuf="_shuf"
+  local f="$LOG/${tag}_${task}_${world}_${arch}h${depth}${shuf}_s${seed}.log"
   [[ -f "$f.done" ]] && { echo "[skip] $tag $task $world s$seed"; return; }
   echo "=== START $tag $task $world seed $seed  $(date +%H:%M:%S)"
   $PY -u ml/train/loop.py train --config $CFG --task "$task" --world "$world" --seed $seed \
