@@ -18,7 +18,8 @@ from __future__ import annotations
 import os, sys, glob, json, argparse, warnings
 warnings.filterwarnings("ignore")
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "models")]
+sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "models"),
+                os.path.join(HERE, "..", "train"), os.path.join(HERE, "..", "data")]
 import numpy as np
 import phase5_metrics as M
 
@@ -51,9 +52,21 @@ def capacity_pinball(path):
     return M.capacity_scores(z["P"], z["Y"], n_boot=2)["pinball_mean"][0]
 
 
-def fill_metric(path, which):
+def fill_metric(path, which, recal_dir=None):
+    """Fill's head must be scored RECALIBRATED, because that is what Phase 9A recorded.
+
+    Phase 9A's head figure for v6 o8 ECE-22 is 0.02404 -- `ece22_recal`. Scoring the bundle's raw
+    predictions instead gives 0.09166 and manufactures a 0.067 margin against baselines that ARE
+    recalibrated. The first version of this function did exactly that; the numbers disagreed with
+    the recorded at-risk margin by three orders of magnitude, which is what exposed it.
+    """
     z = np.load(path)
-    s = M.fill_scores(z["P"], z["Y"], "cells22", n_boot=2)
+    P = z["P"]
+    if recal_dir is not None:
+        import loop as LP
+        rec = json.load(open(os.path.join(recal_dir, "recalibration.json")))
+        P = LP.apply_recalibration(rec, "fill_rate", {"P": P.astype(float)})["P22"]
+    s = M.fill_scores(P, z["Y"], "cells22", n_boot=2)
     return s[which][0]
 
 
@@ -71,7 +84,7 @@ def cap_cell(world, origin):
 def fill_cell(world, origin, which):
     """head (5 seeds here) against its recalibrated LightGBM and B2 arms."""
     out = {}
-    out["head"] = band([fill_metric(p, which) for p in
+    out["head"] = band([fill_metric(p, which, recal_dir=os.path.dirname(p)) for p in
                         sorted(glob.glob(f"{BUND}/fill_rate/o{origin}/{world}_none_h0_*_s*/preds_test.npz"))])
     for arm, pat in (("lgbm22_id", f"{PREDS}/RECAL_{world}_fill_rate_o{origin}_lgbm22_id_s*_test.npz"),
                      ("b5flat22", f"{PREDS}/RECAL_{world}_fill_rate_o{origin}_b5flat22_s*_test.npz"),
