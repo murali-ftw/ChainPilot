@@ -446,4 +446,70 @@ untestable on v8 and must never be claimed as validated.**
 
 ## 6. Deviations and open items
 
-*Completed when Stage A lands.*
+### 6.1 Deviations, continuing the index
+
+| # | Prior statement | Measured | Where |
+|---|---|---|---|
+| **72** | 11A §3.1: `promise_only` and `naive_global_median` both score 0.75181 because ranking `prediction − promise` with a constant prediction *is* ranking by the promise | **the mechanism is wrong.** `ml/eval/phase7_score.py`'s `arrival_promise` branch SUBSTITUTES a constant for the promise arm's own prediction before computing lateness, so the two entries are **literally the same computation**. Scored honestly, `promise_only`'s lateness score is identically zero across 36,000 rows and its ROC-AUC is **0.5**. 11A's conclusion stands; its explanation does not | §4.1 |
+| **73** | a queue script cannot produce an artifact-identity collision | **mine did.** `phase11b_stageA.sh` named every arm's log `{tag}_{task}_{world}_s{seed}.log`, identical for the real, shuffled and h⁰ arms, so the first arm's `.done` marker silently skipped the other two and the control lost two of its three arms. Standing rule 2 one layer up — not two bundles on one path, but two queue entries on one marker. Caught on the first world, ~13 min lost, **no result contaminated** (the collision suppressed work rather than mixing it) | §2.6 |
+| **74** | 11A §6.4: Phase 9.1's head inference will run to "hours, not minutes" | **9.3 minutes.** The head pass runs once per snapshot over all 16,072 channels and does **not** scale with the part-plant grid; only the per-part-plant sampling does, and that is negligible. My estimate assumed the wrong scaling axis. Full-grid compute measured at **~9.7 min** total | §5.4 |
+| **75** | 11A deviation 64: the G4 disagreement cannot be called a refutation partly because "G4 varied dataset seeds where this varies model seeds, so a dataset-seed effect would not show here" | **that escape is closed.** The dataset-seed axis has now been run — 5 seeds × 3 arms × 2 tasks — and it agrees with the model-seed axis: **10 of 10 world-task combinations, real beats shuffled, every paired difference strictly positive.** What remains of the caveat is the instrument difference alone (validator_v8's model, MAE vs pinball, a different split) | §2.4 |
+| **76** | 11A's edge shares (71.7% capacity, 99.2% arrival) | **quoted against a 3-seed shuffled band while the real arms were at five.** Corrected against a 5-seed shuffled band, capacity's is **73.6%** — a +1.9 point change that alters no verdict. Disjointness holds at 5 v 5 | §2.5 |
+| **77** | 11A deviation 65: the arrival head's lateness advantage is not established on v8 | **narrowed, not withdrawn.** Against the *promise date* it remains unestablished and that comparison stays retired. Against a **t0-available** reference the head beats a naive constant, b5flat LightGBM **and** h⁰, all disjoint at five model seeds. The privileged metric was **concealing** the advantage, not inflating it | §4.5 |
+| **78** | a randomised neighbourhood is at worst uninformative | **on arrival it is harmful on 3 of 5 dataset seeds**, where the shuffled arm scores *below* h⁰ — so the edges account for **more than the whole** h⁴-over-h⁰ gap (edge share up to 115.8%) | §2.2b |
+
+### 6.2 Open items
+
+1. **Stage B's re-banding was deferred** and is the largest outstanding item. 26 cells carry a
+   margin under 2× their 3-seed spread; the 10 tightest are ~20 training runs. Until they are
+   run, **Phase 8's headline counts — capacity 10/16, fill 12/16, arrival 8/8 — rest on 3-seed
+   bands that deviation 67 showed to be optimistic by an unpredictable factor.** The list is in
+   `ml/eval/phase11b_atrisk.py` and its JSON output.
+2. **h⁰ arms are still at three model seeds** while real and shuffled are at five on dataset seed
+   1001. The bands do not overlap so no verdict is in doubt, but the asymmetry should be closed
+   before the edge shares are quoted to more precision than they are here.
+3. **The dataset-seed control used one model seed per world.** That is the right design for
+   isolating the dataset axis, but it means each world's number is a single draw. The direction
+   is unanimous across ten combinations, which is strong; a per-world band would be stronger.
+4. **v8's G4 remains unexplained rather than refuted.** Both seed axes now agree against it, so
+   the disagreement is down to the instrument. Running `validator_v8`'s own diagnostic against
+   this pipeline's panel — or this pipeline's quantile head against G4's MAE target — would
+   isolate which of model, metric or split is responsible.
+5. **The new lateness metric needs adopting formally.** §4.5 names reference (a); nothing in
+   `shipped.json` or the scorers has been changed to use it, and `phase7_score.py`'s
+   `arrival_promise` substitution (deviation 72) is still in place for anyone who reruns it.
+6. **Phase 9.1 is built but not run.** The full grid is ~9.7 min of compute; what remains is
+   validating the draws against held-out outcomes and wiring 9.2's copula — whose group
+   structure is **untestable on v8** (§5.5) and must never be claimed as validated.
+7. **`part_demand_weekly` is the consumption stream** in the simulation because no demand head
+   exists in the shipped set. If Phase 9 is to carry a demand-uncertainty claim, that head has to
+   exist first; the current construction propagates a point forecast with a uniform jitter, which
+   is a placeholder and is labelled as one in the module.
+
+---
+
+## 7. Compliance
+
+- **`ml/configs/shipped.json` is unchanged.** Stage A found the graph carries information and
+  Stage C found the arrival head has a real lateness advantage under a corrected metric; **neither
+  was allowed to edit the config**, as the brief requires.
+- **No assertion was disabled or weakened.** The Phase 11 as-of assertion stays armed and no
+  line-level feature was added to any head. The shuffle falsification, its per-dataset-seed
+  repeat, the as-of receipt assertion (three failure modes), the panel-width assertion and both
+  Phase 9 gates were each demonstrated capable of failing.
+- **Selection on validation only.** Every Stage A verdict is decided on validation pinball or
+  validation C-index; test figures appear beside them and never choose.
+- **No learning rate was retuned.** Every cell took its rate from `shipped.json`.
+- **Five model seeds is the floor for anything newly quoted** (deviation 67). Stage C's arms are
+  at five. Stage A's dataset-seed control is one model seed per world by design — that is the
+  axis under test — and is reported as such, not as a five-seed band.
+- **`inventory_position_weekly` was read**, and here is where and why: `ml/sim/montecarlo.py`'s
+  `opening_position` (the simulation's opening balance) and `run_gate` (9.1's acceptance
+  reference), plus §5.3's gate demonstration. It is no longer forbidden on v8 — B1 reconciled it
+  at 100.000000% on 2,253,420 rows — and it is read **only** on those sanctioned Phase 9 paths,
+  never as a model feature.
+- **Protected paths untouched:** `db/gen_v6/**`, `db/gen_v7/**`, `db/gen_v8/**`,
+  `db/validator.py`, `docs/specs/**`, `db/dataset_structure.md`, and every pre-existing report
+  including `phase-11a.md` — whose §3.1 error is corrected **here** rather than edited there.
+- **Full-grid Monte Carlo not run. Phase 9.2 copula not started.**
+- **Commit before running**; nothing stamped `+dirty`.
