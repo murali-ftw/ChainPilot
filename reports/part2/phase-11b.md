@@ -137,7 +137,34 @@ instrument difference alone: `validator_v8.py`'s own model rather than this repo
 MAE rather than pinball, and a different split. Those are real and I am not claiming to have
 eliminated them; I am recording that the seed-axis explanation is gone.
 
-### 2.5 A defect in the queue, caught on the first world
+### 2.5 A.3 / A.5 — the shuffled arm widened to five model seeds, and the corrected edge share
+
+11A quoted its edge shares against a **3-seed** shuffled band while the real arms were already at
+five (11A open item 2). Dataset seed 1001's shuffled capacity arm is now at five model seeds:
+
+| arm | seeds | mean | band |
+|---|---|---|---|
+| real | 5 | 0.06981 | [0.06879, 0.07035] |
+| **shuffled** | **5** | 0.07367 | **[0.07306, 0.07420]** (was [0.07306, 0.07400] at 3) |
+| h⁰ | 3 | 0.07506 | [0.07475, 0.07544] |
+
+**real vs shuffled remains DISJOINT at 5 against 5**, and shuffled vs h⁰ remains disjoint.
+
+**The corrected decomposition of the 0.00525 h⁴-over-h⁰ gap:**
+
+| source | 11A (3-seed shuffled) | **corrected (5-seed shuffled)** |
+|---|---|---|
+| **the EDGES** | 71.7% | **73.6%** |
+| depth and parameters | 28.3% | **26.4%** |
+
+The correction is **+1.9 points** and changes no verdict. 11A's figure was quoted against a
+narrower band than it should have been; the direction and magnitude survive.
+
+**h⁰ is still at three seeds** and was not widened here — its band [0.07475, 0.07544] sits clear
+of the shuffled maximum 0.07420, so the comparison is not in doubt, but the asymmetry is real and
+is carried as an open item.
+
+### 2.6 A defect in the queue, caught on the first world
 
 The first run of `ml/train/phase11b_stageA.sh` named every arm's log
 `{tag}_{task}_{world}_s{seed}.log` — **identical for the real, shuffled and h0 arms of a world**.
