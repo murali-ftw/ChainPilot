@@ -10,7 +10,13 @@ validation 2024, test 2025. Selection on validation only.
 
 ## 1. Verdict per stage
 
-### Stage A — the dataset-seed control *(running at the time of writing; §2)*
+### Stage A — the dataset-seed control: **VERDICT (i) GENERALISES** *(capacity complete; arrival running)*
+
+On `capacity_strain`, across **all five dataset seeds** with the model seed fixed at 7, the real
+graph beats the degree-preserving shuffle on **5 of 5**, and the shuffle beats h0 on **5 of 5**.
+The paired difference is strictly positive on every world. **v8's G4 is therefore not reproduced
+on this pipeline on either axis** — 11A varied model seeds, this varies the dataset seeds G4
+itself used, and the answer is the same. §2.
 
 ### Stage B — re-banding: **the at-risk list is delivered; the re-banding is DEFERRED**
 
@@ -45,8 +51,6 @@ Carlo not run; Phase 9.2 copula not started. §5.
 
 ## 2. Stage A — the dataset-seed control
 
-*Running at the time of writing.*
-
 **Why this stage exists.** 11A varied MODEL seeds with dataset seed 1001 fixed and reached
 verdict (i) — the edges carry information. v8's own G4 varied DATASET seeds 1001–1005 and reached
 the opposite. **A dataset-seed effect could not have appeared in 11A at all.** This runs the three
@@ -71,7 +75,69 @@ own**, exactly as v6, v7 and v8 are never borrowed from each other.
 Each is declared individually in `config.EXPECTED_PANEL_D` so the width assertion still fires on a
 mismatch rather than defaulting. All four caches build clean at T = 535, panel complete.
 
-### 2.2 A defect in the queue, caught on the first world
+### 2.2 A.1 / A.4 — capacity across all five dataset seeds
+
+Three arms per world, **model seed fixed at 7**, validation pinball (the selection surface, lower
+is better):
+
+| dataset seed | real | shuffled | h0 | real < shuffled | shuffled < h0 | edge share |
+|---|---|---|---|---|---|---|
+| **v8 (1001)** | **0.07035** | 0.07400 | 0.07475 | ✓ | ✓ | 83.1% |
+| **v8s1002** | **0.05946** | 0.06254 | 0.06546 | ✓ | ✓ | 51.4% |
+| **v8s1003** | **0.05912** | 0.06225 | 0.06460 | ✓ | ✓ | 57.1% |
+| **v8s1004** | **0.06123** | 0.06349 | 0.06693 | ✓ | ✓ | 39.6% |
+| **v8s1005** | **0.05616** | 0.06032 | 0.06458 | ✓ | ✓ | 49.4% |
+
+**Real beats shuffled on 5 of 5. Shuffled beats h0 on 5 of 5.**
+
+Each dataset seed is its own world, so the comparison that matters is the **paired difference
+within a world**, never a band pooled across them:
+
+```
+shuffled - real, per world:  [0.00365, 0.00309, 0.00313, 0.00226, 0.00416]
+all strictly positive: True    min 0.00226    mean 0.00326
+```
+
+The absolute levels vary widely between worlds — 0.056 to 0.070, a 25% spread — which is exactly
+why bands are never borrowed. **The ordering does not vary at all.** The edge share of the
+h⁴-over-h⁰ gap runs **39.6% to 83.1%, mean 56.2%**: substantial on every world, and its size is
+world-dependent in a way the direction is not.
+
+### 2.3 A.2 — the control re-falsified on every dataset seed
+
+Soundness on seed 1001 does not imply soundness on 1005, so the shuffle was falsified per world:
+
+| world | supplier | part | plant | total | degree distributions |
+|---|---|---|---|---|---|
+| v8 (1001) | 99.764% | 99.795% | 86.007% | **95.188%** | identical |
+| v8s1002 | 99.776% | 99.876% | 85.509% | **95.053%** | identical |
+| v8s1003 | 99.733% | 99.851% | 85.378% | **94.987%** | identical |
+| v8s1004 | 99.770% | 99.801% | 85.932% | **95.168%** | identical |
+| v8s1005 | 99.708% | 99.764% | 85.335% | **94.935%** | identical |
+
+(percentage of edges whose endpoint changed; plant's ~85.5% is chance for 7 plants, 100 − 14.29)
+
+**All three degenerate mutations — identity shuffle, 90% preserved, all-to-one — fire on all five
+dataset seeds.** The control is sound on every world it was used on, not merely on the first.
+
+### 2.4 A.4 — the verdict, in the brief's own terms
+
+**Form (i): real beats shuffled outside the bands ACROSS DATASET SEEDS, so verdict (i)
+generalises.** It is not a property of dataset seed 1001.
+
+**v8's own G4 is therefore not reproduced by this pipeline on either axis.** 11A varied model
+seeds with the dataset fixed; this stage varies the dataset seeds G4 itself varied, with the
+model seed fixed. Both return the opposite of G4.
+
+**Deviation 64's caveat narrows accordingly.** In 11A I wrote that the disagreement could not be
+called a refutation because, among other differences, *"G4 varied dataset seeds where this varies
+model seeds, so a dataset-seed effect would not show here."* **That specific escape is now
+closed** — the dataset-seed axis has been run and it agrees. What remains of the caveat is the
+instrument difference alone: `validator_v8.py`'s own model rather than this repo's quantile head,
+MAE rather than pinball, and a different split. Those are real and I am not claiming to have
+eliminated them; I am recording that the seed-axis explanation is gone.
+
+### 2.5 A defect in the queue, caught on the first world
 
 The first run of `ml/train/phase11b_stageA.sh` named every arm's log
 `{tag}_{task}_{world}_s{seed}.log` — **identical for the real, shuffled and h0 arms of a world**.
