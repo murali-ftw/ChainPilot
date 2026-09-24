@@ -198,9 +198,31 @@ five (11A open item 2). Dataset seed 1001's shuffled capacity arm is now at five
 The correction is **+1.9 points** and changes no verdict. 11A's figure was quoted against a
 narrower band than it should have been; the direction and magnitude survive.
 
-**h⁰ is still at three seeds** and was not widened here — its band [0.07475, 0.07544] sits clear
-of the shuffled maximum 0.07420, so the comparison is not in doubt, but the asymmetry is real and
-is carried as an open item.
+**Arrival, same treatment:**
+
+| arm | seeds | mean | band |
+|---|---|---|---|
+| real | 5 | 0.67067 | [0.66904, 0.67193] |
+| **shuffled** | **5** | 0.65319 | **[0.65075, 0.65507]** |
+| h⁰ | 3 | 0.65364 | [0.65313, 0.65435] |
+
+real vs shuffled remains **DISJOINT**. **shuffled vs h⁰ is NOT disjoint** — the bands overlap.
+
+| source | 11A (3-seed shuffled) | **corrected (5-seed shuffled)** |
+|---|---|---|
+| **the EDGES** | 99.2% | **102.6%** |
+| depth and parameters | 0.8% | **−2.6%, not distinguishable from zero** |
+
+The edge share exceeds 100% because the shuffled mean now sits marginally *below* h⁰'s. **That is
+not a claim that depth hurts**: the two bands overlap, so the depth-and-parameters contribution is
+**not distinguishable from zero** and is reported as such. What the five-seed measurement
+sharpens is the positive claim — on arrival, essentially the entire h⁴-over-h⁰ advantage is
+attributable to the edges, with nothing measurable left for depth.
+
+**h⁰ is still at three seeds** on both tasks. On capacity its band [0.07475, 0.07544] sits clear
+of the shuffled maximum 0.07420, so that comparison is not in doubt. On arrival it overlaps the
+shuffled band, which is precisely why the depth share there is reported as indistinguishable
+rather than as a number. Widening h⁰ is open item 2.
 
 ### 2.6 A defect in the queue, caught on the first world
 
@@ -454,7 +476,7 @@ untestable on v8 and must never be claimed as validated.**
 | **73** | a queue script cannot produce an artifact-identity collision | **mine did.** `phase11b_stageA.sh` named every arm's log `{tag}_{task}_{world}_s{seed}.log`, identical for the real, shuffled and h⁰ arms, so the first arm's `.done` marker silently skipped the other two and the control lost two of its three arms. Standing rule 2 one layer up — not two bundles on one path, but two queue entries on one marker. Caught on the first world, ~13 min lost, **no result contaminated** (the collision suppressed work rather than mixing it) | §2.6 |
 | **74** | 11A §6.4: Phase 9.1's head inference will run to "hours, not minutes" | **9.3 minutes.** The head pass runs once per snapshot over all 16,072 channels and does **not** scale with the part-plant grid; only the per-part-plant sampling does, and that is negligible. My estimate assumed the wrong scaling axis. Full-grid compute measured at **~9.7 min** total | §5.4 |
 | **75** | 11A deviation 64: the G4 disagreement cannot be called a refutation partly because "G4 varied dataset seeds where this varies model seeds, so a dataset-seed effect would not show here" | **that escape is closed.** The dataset-seed axis has now been run — 5 seeds × 3 arms × 2 tasks — and it agrees with the model-seed axis: **10 of 10 world-task combinations, real beats shuffled, every paired difference strictly positive.** What remains of the caveat is the instrument difference alone (validator_v8's model, MAE vs pinball, a different split) | §2.4 |
-| **76** | 11A's edge shares (71.7% capacity, 99.2% arrival) | **quoted against a 3-seed shuffled band while the real arms were at five.** Corrected against a 5-seed shuffled band, capacity's is **73.6%** — a +1.9 point change that alters no verdict. Disjointness holds at 5 v 5 | §2.5 |
+| **76** | 11A's edge shares (71.7% capacity, 99.2% arrival) | **quoted against a 3-seed shuffled band while the real arms were at five.** Corrected against a 5-seed shuffled band: capacity **73.6%** (+1.9), arrival **102.6%** (+3.4). real-vs-shuffled disjointness holds at 5 v 5 on both. On arrival the depth share becomes −2.6% and the shuffled/h⁰ bands OVERLAP, so it is reported as **not distinguishable from zero**, not as depth being harmful | §2.5 |
 | **77** | 11A deviation 65: the arrival head's lateness advantage is not established on v8 | **narrowed, not withdrawn.** Against the *promise date* it remains unestablished and that comparison stays retired. Against a **t0-available** reference the head beats a naive constant, b5flat LightGBM **and** h⁰, all disjoint at five model seeds. The privileged metric was **concealing** the advantage, not inflating it | §4.5 |
 | **78** | a randomised neighbourhood is at worst uninformative | **on arrival it is harmful on 3 of 5 dataset seeds**, where the shuffled arm scores *below* h⁰ — so the edges account for **more than the whole** h⁴-over-h⁰ gap (edge share up to 115.8%) | §2.2b |
 
