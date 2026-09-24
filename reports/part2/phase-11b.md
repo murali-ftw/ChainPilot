@@ -10,13 +10,14 @@ validation 2024, test 2025. Selection on validation only.
 
 ## 1. Verdict per stage
 
-### Stage A — the dataset-seed control: **VERDICT (i) GENERALISES** *(capacity complete; arrival running)*
+### Stage A — the dataset-seed control: **VERDICT (i) GENERALISES**
 
-On `capacity_strain`, across **all five dataset seeds** with the model seed fixed at 7, the real
-graph beats the degree-preserving shuffle on **5 of 5**, and the shuffle beats h0 on **5 of 5**.
-The paired difference is strictly positive on every world. **v8's G4 is therefore not reproduced
-on this pipeline on either axis** — 11A varied model seeds, this varies the dataset seeds G4
-itself used, and the answer is the same. §2.
+On **both** `capacity_strain` and `arrival_week`, across **all five dataset seeds** with the model
+seed fixed at 7, the real graph beats the degree-preserving shuffle — **10 of 10 world-task
+combinations, every paired difference strictly positive.** On arrival the shuffled arm is *worse
+than h⁰* on 3 of 5 worlds. **v8's G4 is therefore not reproduced on this pipeline on either
+axis** — 11A varied model seeds, this varies the dataset seeds G4 itself used, and the answer is
+the same. §2.
 
 ### Stage B — re-banding: **the at-risk list is delivered; the re-banding is DEFERRED**
 
@@ -103,6 +104,33 @@ why bands are never borrowed. **The ordering does not vary at all.** The edge sh
 h⁴-over-h⁰ gap runs **39.6% to 83.1%, mean 56.2%**: substantial on every world, and its size is
 world-dependent in a way the direction is not.
 
+### 2.2b A.1 — arrival across all five dataset seeds
+
+Three arms per world, **model seed fixed at 7**, validation C-index (higher is better):
+
+| dataset seed | real | shuffled | h⁰ | real > shuffled | shuffled vs h⁰ | edge share |
+|---|---|---|---|---|---|---|
+| **v8 (1001)** | **0.67114** | 0.65507 | 0.65344 | ✓ | shuf better | 90.8% |
+| **v8s1002** | **0.66855** | 0.65303 | 0.65378 | ✓ | **shuf WORSE** | 105.1% |
+| **v8s1003** | **0.67270** | 0.65757 | 0.65791 | ✓ | **shuf WORSE** | 102.3% |
+| **v8s1004** | **0.67284** | 0.65577 | 0.65810 | ✓ | **shuf WORSE** | 115.8% |
+| **v8s1005** | **0.66451** | 0.65253 | 0.65073 | ✓ | shuf better | 86.9% |
+
+**Real beats shuffled on 5 of 5.** Paired differences within world:
+
+```
+real - shuffled, per world:  [0.01607, 0.01552, 0.01513, 0.01707, 0.01199]
+all strictly positive: True    min 0.01199    mean 0.01516
+```
+
+**Edge share mean 100.2%, range 86.9%–115.8%**, and on **3 of 5 worlds the shuffled arm is WORSE
+than h⁰** — a randomised neighbourhood costs more than having none at all. That reproduces on the
+dataset-seed axis what 11A found on seed 1001's test fold: forcing the encoder to aggregate over
+misleading neighbours is actively harmful, not merely uninformative.
+
+Arrival's effect is larger and less variable than capacity's: the edge share sits near 100% on
+every world (86.9–115.8%) where capacity's ranged 39.6–83.1%.
+
 ### 2.3 A.2 — the control re-falsified on every dataset seed
 
 Soundness on seed 1001 does not imply soundness on 1005, so the shuffle was falsified per world:
@@ -124,6 +152,16 @@ dataset seeds.** The control is sound on every world it was used on, not merely 
 
 **Form (i): real beats shuffled outside the bands ACROSS DATASET SEEDS, so verdict (i)
 generalises.** It is not a property of dataset seed 1001.
+
+**On BOTH tasks, on all five dataset seeds, without exception:**
+
+| task | real beats shuffled | shuffled worse than h⁰ | edge share |
+|---|---|---|---|
+| capacity_strain | **5 / 5** | 0 / 5 | 39.6–83.1%, mean 56.2% |
+| arrival_week | **5 / 5** | **3 / 5** | 86.9–115.8%, mean 100.2% |
+
+Ten world-task combinations, ten in the same direction, every paired difference strictly
+positive.
 
 **v8's own G4 is therefore not reproduced by this pipeline on either axis.** 11A varied model
 seeds with the dataset fixed; this stage varies the dataset seeds G4 itself varied, with the
