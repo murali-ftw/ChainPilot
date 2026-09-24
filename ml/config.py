@@ -8,6 +8,12 @@ WORLDS = {
     "v7": os.path.join(REPO, "db", "gen_v7", "seed_1001"),
     "v8": os.path.join(REPO, "db", "gen_v8", "seed_1001"),
 }
+# Phase 11B Stage A: v8's OTHER FOUR DATASET SEEDS, addressable as worlds in their own right.
+# This is the axis v8's own G4 varied and Phase 11A did not. A dataset seed is a DIFFERENT WORLD
+# -- its bands are its own and are never borrowed, exactly as v6/v7/v8 are never borrowed from
+# each other. "v8" remains dataset seed 1001 so every Phase 0-11A number keeps its meaning.
+WORLDS.update({f"v8s{s}": os.path.join(REPO, "db", "gen_v8", f"seed_{s}")
+               for s in (1002, 1003, 1004, 1005)})
 WORLDS_SEED2 = {
     "v6": os.path.join(REPO, "db", "gen_v6", "seed_1002"),
     "v7": os.path.join(REPO, "db", "gen_v7", "seed_1002"),
@@ -24,6 +30,10 @@ DEFAULT_WORLD = "v7"
 # more value channel (reports/v8-clearance.md deviation 53). cache.build_panel derives the set by
 # measuring the world it is loading and asserts the result against this table.
 EXPECTED_PANEL_D = {"v6": 14, "v7": 14, "v8": 15}
+# Measured per dataset seed, not assumed: `revision_count` is live in all five (2.15-3.33%
+# non-zero) and the other three candidates are constant zero in all five, so every v8 dataset
+# seed is 15 wide. Declared individually so the width assertion still fires on a mismatch.
+EXPECTED_PANEL_D.update({f"v8s{s}": 15 for s in (1002, 1003, 1004, 1005)})
 
 # Frozen across runs 5-7 and every phase here. Do not change.
 SPLIT = {"train_end": "2023-12-31", "val_end": "2024-12-31"}
