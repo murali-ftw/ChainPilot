@@ -91,11 +91,21 @@ def score_job(spec):
     elif kind == "arrival_point":
         out = M.arrival_scores(P, Y, EV, AUX)
     elif kind == "arrival_promise":
-        # C-index ranks on the promise week itself; lateness ranks on (constant - promise), i.e. an earlier promise
-        # is more likely to be missed -- both through the same scorer, as two calls
+        # DEVIATION 72 / Phase 11C Stage A. This branch used to overwrite `roc_auc_late` with the
+        # score of a SUBSTITUTED constant. Because lateness ranks on `pl = ET - AUX`, any constant
+        # ET ranks on -AUX, so the promise arm and a naive constant arm became the same number and
+        # Phase 8 S5's "beyond the promise date" was measured against a constant on all 8 cells.
+        #
+        # The arm now scores its OWN prediction, like every other arm. The constant ranker is a
+        # legitimate baseline and is NOT deleted -- it is emitted under its own explicit name so
+        # it can never again be read as "the promise date".
         out = M.arrival_scores(P, Y, EV, AUX)
-        late = M.arrival_scores(np.full(len(Y), float(spec["const"])), Y, EV, AUX)
-        out["roc_auc_late"] = late["roc_auc_late"]
+        if spec.get("const") is not None:
+            aux_rank = M.arrival_scores(np.full(len(Y), float(spec["const"])), Y, EV, AUX)
+            out["roc_auc_late_CONSTANT_RANKER"] = aux_rank["roc_auc_late"]
+            out["_constant_ranker_note"] = (
+                "ranks on -AUX; identical for ANY constant prediction, so this is a "
+                "constant-predictor baseline and NOT the promise date's own forecast")
     elif kind in ("cells22", "legacy20"):
         out = M.fill_scores(P, Y, kind)
     elif kind == "quantile":
