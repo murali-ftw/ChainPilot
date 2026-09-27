@@ -167,14 +167,14 @@ FILL_MID = np.concatenate([[0.0], np.linspace(0.025, 0.975, 20), [1.0]])
 _HEADS = {}
 
 
-def read_heads(world, t0):
+def read_heads(world, t0, fill_seed=7):
     """Recalibrated arrival (13-cell) and fill (22-cell) distributions per channel, read AS-OF t0 from the shipped
     bundles. Cached per (world, snapshot actually read). Shared by the placeholder draw and ml/opt/order_policy."""
     import torch
     import loop as LP, phase5_heads as P5
     dists, meta = {}, {}
     for task, bundle in (("arrival_week", "ml/artifacts/bundles/arrival_week/v8_lite_h4_lr0.00025_s7"),
-                         ("fill_rate", "ml/artifacts/bundles/fill_rate/v8_none_h0_lr0.000125_s7")):
+                         ("fill_rate", f"ml/artifacts/bundles/fill_rate/v8_none_h0_lr0.000125_s{fill_seed}")):
         if world != "v8" or not os.path.exists(bundle):
             meta[task] = "bundle unavailable for this world -- draws fall back to the panel"
             continue
@@ -186,7 +186,7 @@ def read_heads(world, t0):
         assert cand, f"no snapshot at or before t0 {t0} -- cannot read the head as-of"
         s_use = max(cand)
         assert pd.Timestamp(s_use) <= snap, "as-of violation: head read at a snapshot after t0"
-        key = (world, task, str(pd.Timestamp(s_use).date()))
+        key = (world, task, str(pd.Timestamp(s_use).date()), bundle)
         if key not in _HEADS:
             Din = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
                                    graph_shuffle=cfg.get("graph_shuffle"))

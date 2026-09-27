@@ -258,7 +258,7 @@ def simulate(I0, cons, par, pmf, pfill, pipe_sched, W, rng, form="rop", fill_mid
 
 
 # ------------------------------------------------------------------ the simulation arm
-def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=True, block=800):
+def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=True, block=800, fill_seed=7):
     """-> a draw(world, t0, sub, W, N, rng, op) for ml/sim/phase12_b2_validate.py and montecarlo's grid.
     Part-plants are processed in blocks so the full grid at N=1000 fits in memory."""
     cache = {}
@@ -269,7 +269,7 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
             cache[world] = Tables(world)
         T = cache[world]
         keys = list(zip(sub.part_id, sub.plant_id))
-        heads = MC.read_heads(world, t0)
+        heads = MC.read_heads(world, t0, fill_seed=fill_seed)
         plan = MC.forward_requirement(world, t0, sub, W)             # [P, W]
         cons = (plan[:, :, None] * np.clip(rng.normal(1.0, plan_sd, (len(sub), W, N)), 0, None)).astype(np.float32)
         par = params(T, t0, keys, plan.mean(1))
@@ -296,7 +296,7 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
                 agg.setdefault(k, []).append((v, n))
         meta = {k: float(sum(v * n for v, n in xs) / sum(n for _, n in xs)) for k, xs in agg.items()}
         meta.update(lead=lmeta, fill=fmeta, pipeline=pmeta, form=form, plan_sd=plan_sd, use_pipeline=use_pipeline,
-                    consumption_basis="plan x N(1, 0.1265): PLAN error, not demand uncertainty -- no demand head")
+                    fill_seed=fill_seed, consumption_basis="plan x N(1, 0.1265): PLAN error, not demand uncertainty -- no demand head")
         return arr, cons, meta
 
     return draw
@@ -304,6 +304,7 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
 
 SIM_ARMS = {"policy_rop": make_draw("rop"), "policy_ss": make_draw("ss"),
             "policy_rop_nopipe": make_draw("rop", use_pipeline=False)}
+SIM_ARMS.update({f"policy_rop_fill_s{s}": make_draw("rop", fill_seed=s) for s in (17, 27, 37, 47)})
 
 
 # ------------------------------------------------------------------ the deterministic plan, for schedule_lp
