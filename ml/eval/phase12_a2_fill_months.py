@@ -55,6 +55,7 @@ def reproduce_stored(m, D, lb, te, seed):
 
 
 def cell_table(P, y):
+    P = np.asarray(P, np.float64)
     obs = np.bincount(fill_cell(y), minlength=K) / len(y)
     return P.mean(0), obs
 
@@ -65,6 +66,7 @@ def interior_err(P, y):
 
 
 def month_decomp(P, y, month):
+    P = np.asarray(P, np.float64)
     p, o = cell_table(P, y)
     sgn = np.sign(p - o)
     E = float(np.abs(p - o)[INTERIOR].sum())
@@ -82,7 +84,7 @@ def month_decomp(P, y, month):
         Sm = float(np.abs(pm - om)[INTERIOR].sum())
         out[mo] = dict(row_share=float(w), contribution=Km, share_of_E=Km / E if E else np.nan,
                        own_interior_err=Sm, n_rows=int(mk.sum()))
-    assert abs(sum(v["contribution"] for v in out.values()) - E) < 1e-9, "decomposition does not sum to E"
+    assert abs(sum(v["contribution"] for v in out.values()) - E) < 1e-10, "decomposition does not sum to E"
     return E, out
 
 
