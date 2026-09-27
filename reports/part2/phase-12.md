@@ -9,9 +9,9 @@ Selection on validation only. No training in Wave A.
 **Path note:** the brief names `reports/part2/observation1.md`; it exists at `results/observation1.md`
 (untracked). It was read there and not moved.
 
-**Status of this document: WAVES A AND B — AT THE HARD CHECKPOINT.** Wave A was reported at its
-boundary (commit `4ef6f51`). Wave B follows in §3. Wave C has **not** started. The brief makes it
-conditional on B2's ratio, and that decision is §3.3's.
+**Status of this document: COMPLETE.** Wave A was reported at its boundary (`4ef6f51`), and Wave B at the
+hard checkpoint (`9defd43`). After "run all": B3 (transfers, §3.4) and Wave C's C3 (§4). C1 and C2 stay
+cancelled by their gates.
 
 ---
 
@@ -29,9 +29,9 @@ conditional on B2's ratio, and that decision is §3.3's.
 | **B3 — inter-plant transfers** (after the checkpoint) | **BUILT, DOES NOT CLOSE THE GAP.** Frequency moves 0.04; magnitude overshoots the other way | ratio **1.435× [1.424, 1.447]** against 1.475× without; shortfall when short 298 → **20** against 91 observed. Part-plant rebalancing cannot reproduce the data's channel-level rescues |
 | **B2 — the order policy** | **BUILT, WIRED INTO BOTH CONSUMERS, VALIDATED ON OBSERVED 2025 OUTCOMES. The ratio closes most of the way; it is NOT calibrated** | part-plant-weeks below SS **5.29× → 1.475× [1.464, 1.487]** (5 fill-head seeds); replacement **82.5% → 100.3%**; shortfall when short 564 → 298 against 91 observed. The residual points at **inter-plant transfers**, which the simulation omits (20% of consumption flows) |
 
-**C1 and C2 are both cancelled by their gates. C3 runs regardless** (Wave C). C4 is replaced by
-A2.4's proposals. **Wave C has not started:** B2's ratio did not reach 1.0, so the brief's checkpoint
-applies (§3.3).
+| **C3 — part-relation ablation** | **NO MEASURABLE PART PATH.** Removing the part relation at fixed depth changes nothing outside the five-seed bands, on either task, on any surface. Shuffle control (C3.2) **not triggered** | part path's share of the h⁴-over-h⁰ gap: arrival **+1.4%** (val C-index), −1.0% (test); capacity **+1.5%** (val pinball), −5.2% (test). The ablated arm stays **disjoint from h⁰ and from the shuffled graph** on every surface |
+
+**C1 and C2 are cancelled by their gates. C3 ran.** C4 is replaced by A2.4's proposals, which are not built.
 
 Three items found in Wave A change earlier reports' numbers, not only this phase's:
 
@@ -823,8 +823,84 @@ figure (1.475×).** The transfer arm is a labelled sensitivity. It is not adopte
 
 ## 4. Wave C
 
-*Not started — held at the hard checkpoint (§3.3).* **C3 runs** per §2.3's specification when released. **C1 is cancelled** (§2.1) and **C2 is
-cancelled** (§2.2). **C4 is replaced** by A2.4's proposals (§2.2), which are not built in this phase.
+**C1: cancelled** (§2.1). **C2: cancelled** (§2.2), and so **C4 is replaced** by A2.4's proposals, which are
+not built in this phase. **C3 ran**, released by "run all" after the checkpoint.
+
+### 4.1 C3 — the part-relation ablation (Test 1.2, as respecified in §2.3)
+
+**The ablation was shown real before any arm trained** (`ml/eval/phase12_c3_checks.py` →
+`phase12_c3_checks.json`, commit `76d8698`, clean):
+
+| check | result |
+|---|---|
+| `assert_relation_dropped` on the real graph (nothing dropped) | **FIRES**: 16,072 part edges survive |
+| … on a one-direction removal (channel→part only) | **FIRES**: type 4 survives |
+| … on a removal that also takes plant edges | **FIRES**: "touched a relation it must not" |
+| … on edges removed but the part map left visible to the encoders | **FIRES** |
+| … on the real ablation | passes: 96,432 → 64,288 edges, exactly 32,144 removed |
+| **gradients:** the ablated arm's zero-gradient set = the full model's own zero-gradient set + the part weights | **holds**, arrival (SHARE-lite) and capacity (HeteroMP) |
+| **the ablation bites:** the shipped full-graph h⁴ fed the ablated world | 100% of outputs change (mean \|Δ\| 0.133 arrival, 0.125 capacity) |
+
+**A correction to §2.3's parameter figure, found by the gradient check (deviation 107).** The first version
+demanded non-zero gradient on every non-part weight and failed. The shipped SHARE-lite model has
+**structurally dead weights of its own**: in the last layer, messages into supplier, part and plant nodes
+never reach the channel readout. That is 3 × 16,384 = **49,152 parameters of the shipped arrival encoder
+that can never receive gradient**. The ablation therefore newly removes **114,688** effective parameters
+from arrival (21.5% of 533,004), not 131,072. The part slice of the last layer was already dead.
+Capacity's HeteroMP has no dead weights, and the ablation removes 16,640 as stated.
+
+**Training** (`ml/train/phase12_c3.sh`, two queues, 15:50 → 19:12): 10 ablated cells, plus h⁰ widened from
+3 to 5 seeds on both tasks (4 cells). **All 14 patience-stopped; none cap-bound; every bundle stamped clean.**
+
+**C3.1 / C3.3 — results, five model seeds every arm** (`ml/eval/phase12_c3_score.py` →
+`phase12_c3_scores.json`, commit `802db7f`, clean):
+
+*Arrival* (higher is better):
+
+| arm | validation C-index | test C-index | test lateness ROC-AUC (adopted t0 metric) |
+|---|---|---|---|
+| full h⁴ | 0.67067 [0.66904, 0.67193] | 0.67442 [0.67344, 0.67551] | 0.70905 [0.70645, 0.71298] |
+| **h⁴ without the part relation** | **0.67042 [0.66957, 0.67112]** | **0.67454 [0.67359, 0.67544]** | **0.71324 [0.70444, 0.71857]** |
+| h⁰ (now 5 seeds) | 0.65359 [0.65313, 0.65435] | 0.66135 [0.66109, 0.66170] | 0.69992 [0.69842, 0.70133] |
+| shuffled graph (Phase 11) | 0.65319 [0.65075, 0.65507] | 0.65595 [0.65274, 0.65922] | 0.68261 [0.67061, 0.69508] |
+
+*Capacity* (mean pinball, lower is better):
+
+| arm | validation | test |
+|---|---|---|
+| full h⁴ | 0.06981 [0.06879, 0.07035] | 0.07277 [0.07213, 0.07408] |
+| **h⁴ without the part relation** | **0.06989 [0.06936, 0.07038]** | **0.07257 [0.07180, 0.07378]** |
+| h⁰ (now 5 seeds) | 0.07495 [0.07434, 0.07544] | 0.07675 [0.07652, 0.07694] |
+| shuffled graph (Phase 11) | 0.07367 [0.07306, 0.07420] | 0.07673 [0.07599, 0.07694] |
+
+| | full vs no-part | no-part vs h⁰ | no-part vs shuffled | **part share of the h⁴-over-h⁰ gap** |
+|---|---|---|---|---|
+| arrival, validation | overlap | **disjoint** | **disjoint** | **+1.4%** |
+| arrival, test C-index | overlap | disjoint | disjoint | −1.0% |
+| arrival, test lateness | overlap | disjoint | disjoint | −46% (the no-part band is wide: 0.704–0.719) |
+| capacity, validation | overlap | **disjoint** | **disjoint** | **+1.5%** |
+| capacity, test | overlap | disjoint | disjoint | −5.2% |
+
+For comparison, the **whole** graph's edges account for 75.1% (capacity, validation) and 102% (arrival,
+validation) of the same gap at five seeds.
+
+**Verdict.** The part path's share is **indistinguishable from zero** on both tasks and every surface. Its
+point estimates straddle zero (+1.5% to −5%), and no full-versus-ablated comparison is disjoint. Removing
+the part relation keeps the model disjointly better than h⁰ and than the shuffled graph everywhere. **The
+graph's value lives in the supplier and plant relations.**
+
+- **For arrival, the hypothesis that motivated the test is not supported.** The part node's 26 neighbours
+  give SHARE-lite's attention something to choose between, and the model gets nothing measurable from it.
+- **For capacity** (HeteroMP, no attention) the part path also carries nothing measurable.
+- On the test lateness metric the no-part arm is nominally *higher* (0.713 vs 0.709), but its band is 2.2×
+  wider and overlaps. **No claim follows** in either direction.
+
+**C3.2 — the shuffle control on the reduced graph: NOT RUN, by the brief's own condition.** It runs "if and
+only if the ablation shows a disjoint gap", and none exists.
+
+**Caveat carried:** this is the *marginal* value of the part relation given supplier and plant. A path can be
+redundant with the others (parts share suppliers heavily) without being uninformative on its own. The
+test answers "does the model need it", not "does it carry any information in isolation".
 
 ## 5. Proposed ship-table changes — PROPOSALS; `shipped.json` untouched
 
@@ -834,7 +910,7 @@ From Wave A only:
 |---|---|
 | fill_rate | **no model change.** Build the b5flat22 serving loader (A2.4 option 3, deviation 46) so the configuration describes what runs. The interior reparameterisation is a next-phase build |
 | allocation (not in `shipped.json`) | if allocation is shown at all, show it at **price_weight = 0** with the label "most reliable supplier — price not weighted in this decision". Quote only deduplicated, band-surviving recommendations, and the strain-P90 caveat travels with every row. **Do not show v8 allocation** until the qualification-constraint semantics (deviation 91) are settled |
-| arrival_week | unchanged |
+| arrival_week | unchanged. C3: the part relation adds nothing measurable at five seeds. A leaner encoder without it is a legitimate simplification **to test**, not a ship change: it would need its own five-seed validation and the lateness claim re-established |
 | capacity_strain | **unchanged, and the interval caveat now has a mechanism:** the median tracks only 51–74% of a level shift, and interval-only conformal widening does not fix coverage on the next window (B1). "Do not quote a capacity interval" stands. Proposed next: refit the quantile heads on a trailing window (retrains the median) |
 | shortage_qty (simulation) | **not shipped.** It moved from "unusable (5.29×)" to "over-projects 1.48× [1.46, 1.49], mechanism named". No quantity from it is quotable until the transfer path is modelled and the ratio re-validated. If a figure is shown internally it carries: ratio 1.48×, plan-error-only intervals, transfers not modelled |
 
@@ -864,9 +940,12 @@ From Wave A only:
 | **101** | A5: the hazard curve, re-anchored by the lateness offset, can be the lead-from-order | **it cannot.** Re-anchored T is within ±1 wk of the empirical lead for 1.9% of part-plants (raw T: 0.0%; median 12 wk vs 4). The simulation's lead is the as-of empirical pmf | §3.2 |
 | **102** | observation 1 §6.1: "the board, the dice and the scorekeeping are all correct. One player instruction is wrong" | **three instructions were wrong** (the trigger/quantity, the lead definition, the missing pipeline) **and one mechanism is missing**: inter-plant transfers, 20% of consumption flows, aimed at short part-plants. With the three fixed the ratio is 1.48×; the transfers are the named residual | §3.2 |
 | **103** | `montecarlo.py --policy rop` runs the policy end to end | **the grid does; the D.1/D.4 subset-timing block in `main()` still calls the placeholder `draw_from_heads`.** Its timing lines describe the placeholder. The grid and every validation number are the policy's | §3.2 |
+| **104** | Phase 11C: the full grid takes 5.16 min | under the policy it takes **11.67 min**: the endogenous order loop and the pipeline scheduling. Still minutes | §3.2 |
 | **105** | §3.2 (B2.7): transfers IN are 301 per part-plant per horizon, and 2.7% of weeks are above SS only because of them | **gross, not net.** 30% of gross transfer-in moves between channels of the SAME part-plant and nets to zero there. On NET transfers: 2.61% of weeks rescued, pre-transfer below-SS 10.95%, bound ≈ 1.14×. The conclusion survives; the number is corrected | §3.4 |
 | **106** | §3.3: modelling inter-plant transfers is the step "whose expected effect is known to be large" | **it was not, at part-plant granularity.** The ratio moves 1.475× → 1.435×, and the magnitude goes from 3.3× over to 4.6× under. The realised rate is 1.45–1.98× the part-plant-visible transferable pool. The residual is channel-level dynamics, which a part-plant state cannot carry | §3.4 |
-| **104** | Phase 11C: the full grid takes 5.16 min | under the policy it takes **11.67 min**: the endogenous order loop and the pipeline scheduling. Still minutes | §3.2 |
+
+| **107** | §2.3 (A3.2): removing the part relation leaves 131,072 arrival parameters without gradient | **114,688.** The shipped SHARE-lite arrival encoder already has **49,152 structurally dead parameters**: last-layer messages into entity nodes never reach the channel readout, including that layer's part slice. Found because a gradient check demanding non-zero gradient on every non-part weight failed; the check now compares against the full model's own pattern | §4.1 |
+| **108** | Phase 11A/11B's shuffled-graph arms are all clean bundles | **`v8_mp_h4_lr0.00025_s7_shuf7` is stamped `dc2d506+dirty`**, found by C3's scorer. It enters §4.1 only as context (the shuffled band), and no C3 verdict depends on it. The 11A/11B edge-share figures that use it carry this flag | §4.1 |
 
 ### 6.2 Open items
 
@@ -889,8 +968,13 @@ From Wave A only:
    term in the median. It retrains the median, so it is a next-phase test.
 10. **h⁴ capacity backtest bundles are at 3 seeds in 12 of 16 cells.** B1's verdict does not depend on
     them (it fails for every class, including B5 at five fits), but those rows are three-seed rows.
-11. **The magnitude gap** (298 simulated vs 91 observed shortfall when short) needs its own check after
-    transfers are modelled.
+11. **The magnitude gap.** Without transfers the simulation's shortfall when short is 298 (3.3× over);
+    with part-plant transfers it is 20 (4.6× under); observed is 91. Neither arm is right.
+12. **Channel-level simulation** (deviation 106). The residual 1.4–1.5× lives below part-plant granularity.
+    Closing it means restating the simulation's state per channel: stock, SS and rebalancing. That is a
+    structural change and the next candidate for the first calibrated forecast.
+13. **A leaner arrival encoder**: 49,152 dead parameters (deviation 107), and a part relation that adds
+    nothing (C3). Both are simplifications to test, not ship changes.
 
 ---
 
@@ -944,6 +1028,13 @@ From Wave A only:
     reference**). It is the store B1 reconciled at 100.000000%, and in none of these is it a model
     feature. `inventory_transactions` and `expedite_events` were read by the residual diagnostic,
     as evaluation references only.
+- **After the checkpoint (B3, C3).** `shipped.json` is unchanged. **No learning rate was retuned**: the ablated
+  arms train at the shipped 2.5×10⁻⁴. No assertion was weakened. Added: `assert_relation_dropped` (4
+  failures shown firing), the gradient-pattern check, and the transfer conservation check. **Five model seeds
+  for every C3 arm, h⁰ included** (widened from 3). **All 14 C3 bundles are stamped clean.** The transfer
+  work was developed in a separate git worktree so that no training cell could start on an uncommitted `ml/`.
+  `inventory_position_weekly` and `inventory_transactions` were read by `order_policy.transfer_frames`,
+  as-of at row level, to estimate the transfer rate. Never as a model feature.
 - **Protected paths untouched:** `db/gen_v6/**`, `db/gen_v7/**`, `db/gen_v8/**` (the generator was
   *read*, not modified), `db/validator.py`, `docs/specs/**`, `db/dataset_structure.md`, and every
   existing report.
