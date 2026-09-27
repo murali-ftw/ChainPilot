@@ -23,6 +23,14 @@ THE RULE (reports/part2/phase-12.md section 2.5, corrected against the brief wit
             an unreceived old line is indistinguishable from a pending one. Timing comes from the part-plant's
             recent unreceived lines, each drawn from the lead pmf CONDITIONAL ON ITS AGE, P(L = a + k | L > a).
   carry     arrivals landing beyond the horizon stay in IP (so they are not re-ordered) and are reported.
+  transfer  (Phase 12 B3) inter-plant rebalancing, every week, per PART across its plants, after receipts:
+            surplus_p = max(0, I - LEND x SS), deficit_p = max(0, SS - I), moved = rate x min(sum surplus, sum deficit),
+            taken from surplus and given to deficit in proportion. The 2025 ledger moves 20% of consumption this way,
+            aimed at short part-plants, and B2's validation named it as the residual. LEND = 1.25 is taken from the
+            generator source (a policy parameter a client would state -- an ASK, not a measurement). The RATE is
+            ESTIMATED AS-OF from the ledger: realised transfer-in over min(sum surplus, sum deficit) on PRE-transfer
+            positions, trailing 52 weeks, recorded <= t0. Net transfers enter the returned arrivals so the two-ledgers
+            check still holds; gross volumes are reported.
 
 WHAT THIS IS NOT. A reorder-point rule gives a FEASIBLE schedule, not an OPTIMAL one. It answers "when must I order
 to avoid a stockout", not "when should I order to minimise cost"; those coincide only when holding cost is zero.
@@ -48,6 +56,8 @@ MIN_RECEIPTS = 20
 LEAD_LOOKBACK_W = 104
 QTY_LOOKBACK_W = 26
 PIPE_MAX_AGE_W = 26          # unreceived lines older than this are treated as zero-delivery closures
+LEND = 1.25                  # lend above 1.25 x SS: generator section 4's threshold -- a stated policy parameter (client ask)
+RATE_LOOKBACK_W = 52
 
 
 def _asof(df, col, t0):
@@ -79,6 +89,69 @@ class Tables:
                           usecols=["part_id", "plant_id", "week_start", "open_po_qty", "recorded_ts"])
         ipw["recorded_ts"] = pd.to_datetime(ipw.recorded_ts)
         self.ipw = ipw
+        self._rate_tbl = None
+
+    def transfer_frames(self):
+        """Ledger transfers (both directions) and the store, kept at ROW level so as-of can be applied per row."""
+        if self._rate_tbl is not None:
+            return self._rate_tbl
+        D = WORLDS[self.world]
+        tx = pd.read_csv(f"{D}/inventory_transactions.csv",
+                         usecols=["part_id", "plant_id", "txn_type", "qty", "event_ts", "recorded_ts"])
+        tx = tx[tx.txn_type.isin(["transfer_in", "transfer_out"])].copy()
+        tx["week"] = pd.to_datetime(tx.event_ts).dt.to_period("W-SUN").dt.start_time
+        tx["rec"] = pd.to_datetime(tx.recorded_ts)
+        pw = pd.read_csv(f"{D}/inventory_position_weekly.csv",
+                         usecols=["part_id", "plant_id", "week_start", "qty_on_hand", "safety_stock_qty", "recorded_ts"])
+        pw["week"] = pd.to_datetime(pw.week_start); pw["rec"] = pd.to_datetime(pw.recorded_ts)
+        self._rate_tbl = (tx, pw)
+        return self._rate_tbl
+
+
+def transfer_rate(T: "Tables", t0, lend=LEND):
+    """As-of estimate of the fraction of min(sum surplus, sum deficit) moved per week, at PART-PLANT level.
+
+    Uses NET transfer per part-plant-week: the generator moves stock between CHANNELS, and ~30% of the ledger's gross
+    transfer-in is shuffling between channels of the same part-plant, which nets to zero there and is invisible to a
+    part-plant model. Only rows RECORDED <= t0 enter (row-level as-of; weekly store rows lag by weeks)."""
+    t0 = pd.Timestamp(t0)
+    tx, pw = T.transfer_frames()
+    lo = t0 - pd.Timedelta(weeks=RATE_LOOKBACK_W)
+    x = tx[(tx.rec <= t0) & (tx.week > lo) & (tx.week <= t0)]
+    p = pw[(pw.rec <= t0) & (pw.week > lo) & (pw.week <= t0)]
+    assert len(x) and len(p) and (x.rec <= t0).all() and (p.rec <= t0).all(), "as-of violation or empty history"
+    net = x.groupby(["part_id", "plant_id", "week"]).qty.sum().rename("net")
+    p = p.join(net, on=["part_id", "plant_id", "week"]).fillna({"net": 0.0})
+    pre = p.qty_on_hand - p.net
+    p = p.assign(sur=np.maximum(0, pre - lend * p.safety_stock_qty), dfc=np.maximum(0, p.safety_stock_qty - pre))
+    g = p.groupby(["week", "part_id"])[["sur", "dfc"]].sum()
+    movable = float(np.minimum(g.sur, g.dfc).sum())
+    moved = float(p.net.clip(lower=0).sum())
+    r = moved / max(movable, 1e-9)
+    return float(np.clip(r, 0.0, 1.0)), dict(weeks=int(p.week.nunique()), moved_net_in=moved, movable=movable,
+                                             rate_unclipped=r)
+
+
+def rebalance(I, part_codes, ss, rate, lend=LEND):
+    """One week of inter-plant transfers, per part across its plants. I [P, N]; part_codes [P] int; ss [P].
+    Conserves each part's total exactly (up to flooring). -> (I_new, gross_moved [P, N] given to each deficit)."""
+    if rate <= 0:
+        return I, np.zeros_like(I)
+    sur = np.maximum(0.0, I - lend * ss[:, None])
+    dfc = np.maximum(0.0, ss[:, None] - I)
+    npart = int(part_codes.max()) + 1
+    N = I.shape[1]
+    Ssur = np.zeros((npart, N)); Sdef = np.zeros((npart, N))
+    np.add.at(Ssur, part_codes, sur); np.add.at(Sdef, part_codes, dfc)
+    mov = np.minimum(Ssur, Sdef) * rate
+    take = np.floor(sur * mov[part_codes] / np.maximum(Ssur[part_codes], 1e-9))
+    give = np.floor(dfc * mov[part_codes] / np.maximum(Sdef[part_codes], 1e-9))
+    # flooring can leave give > take within a part by < 1 unit per plant: cap give at what was taken
+    T_ = np.zeros((npart, N)); G_ = np.zeros((npart, N))
+    np.add.at(T_, part_codes, take); np.add.at(G_, part_codes, give)
+    scale = np.where(G_ > T_, T_ / np.maximum(G_, 1e-9), 1.0)
+    give = np.floor(give * scale[part_codes])
+    return I - take + give, give
 
 
 def params(T: Tables, t0, keys, weekly_req):
@@ -205,7 +278,8 @@ def pipeline_arrivals(total, lines, pmf, N, H, rng):
 
 
 # ------------------------------------------------------------------ the policy loop
-def simulate(I0, cons, par, pmf, pfill, pipe_sched, W, rng, form="rop", fill_mid=None):
+def simulate(I0, cons, par, pmf, pfill, pipe_sched, W, rng, form="rop", fill_mid=None,
+             part_codes=None, ss_store=None, rate=0.0, lend=LEND):
     """Roll stock forward under the policy. Arrivals are ENDOGENOUS (they depend on the stock path), so the loop owns
     the roll-forward; montecarlo.roll_forward on the returned arrivals must reproduce `pos` exactly (asserted by the
     caller). cons [P, W, N]; pipe_sched [P, H, N] ordered units; returns arrivals [P, W, N], positions [P, W, N] and
@@ -226,9 +300,14 @@ def simulate(I0, cons, par, pmf, pfill, pipe_sched, W, rng, form="rop", fill_mid
     arr_out = np.zeros((P, W, N), np.float32)
     n_orders = np.zeros((P, N))
     units_ordered = np.zeros((P, N))
+    moved = np.zeros((P, N))
     for w in range(W):
         arr_out[:, w] = arriving[:, w]
         I = I + arriving[:, w] - cons[:, w]
+        if rate > 0 and part_codes is not None:
+            I2, give = rebalance(I, part_codes, ss_store, rate, lend)
+            arr_out[:, w] += (I2 - I).astype(np.float32)      # NET transfer enters the arrivals: two ledgers agree
+            I = I2; moved += give
         pos[:, w] = I
         pending = ordered[:, w + 1:].sum(1)
         IP = I + pending
@@ -252,13 +331,15 @@ def simulate(I0, cons, par, pmf, pfill, pipe_sched, W, rng, form="rop", fill_mid
             n_orders += trig; units_ordered += Q
     post = arriving[:, W:].sum(1)
     return arr_out, pos, dict(orders_per_pp=float(n_orders.mean()), units_ordered_per_pp=float(units_ordered.mean()),
+                              transfer_in_per_pp=float(moved.mean()),
                               post_horizon_per_pp=float(post.mean()),
                               pipeline_units_per_pp=float(pipe_sched.sum(1).mean()),
                               L90_median=float(np.median(L90)))
 
 
 # ------------------------------------------------------------------ the simulation arm
-def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=True, block=800, fill_seed=7):
+def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=True, block=800, fill_seed=7,
+              transfers=False, lend=LEND):
     """-> a draw(world, t0, sub, W, N, rng, op) for ml/sim/phase12_b2_validate.py and montecarlo's grid.
     Part-plants are processed in blocks so the full grid at N=1000 fits in memory."""
     cache = {}
@@ -279,15 +360,26 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
         if not use_pipeline:
             total = np.zeros_like(total)
         I0 = op["qty_on_hand"].fillna(0).to_numpy(float)
+        ss_store = op["safety_stock_qty"].fillna(0).to_numpy(float)
+        rate, rmeta = transfer_rate(T, t0, lend) if transfers else (0.0, dict(rate=0.0))
         H = W + carry_weeks
         arr = np.zeros_like(cons)
         agg = {}
-        for b0 in range(0, len(sub), block):
-            sl = slice(b0, b0 + block)
-            sched = pipeline_arrivals(total[sl], lines[sl], pmf[sl], N, H, rng)
+        # blocks hold WHOLE PARTS, so a transfer can reach every plant of the part
+        codes_all = pd.factorize(sub.part_id)[0]
+        order = np.argsort(codes_all, kind="stable")
+        bounds, start = [], 0
+        while start < len(order):
+            end = min(start + block, len(order))
+            while end < len(order) and codes_all[order[end]] == codes_all[order[end - 1]]:
+                end += 1
+            bounds.append(order[start:end]); start = end
+        for sl in bounds:
+            sched = pipeline_arrivals(total[sl], [lines[i] for i in sl], pmf[sl], N, H, rng)
             assert_pipeline_identity(sched.sum(1).mean(1), total[sl])
-            a, pos, m = simulate(I0[sl], cons[sl], par.iloc[sl], pmf[sl], pfill[sl], sched, W, rng,
-                                 form=form, fill_mid=MC.FILL_MID)
+            pc = pd.factorize(codes_all[sl])[0]
+            a, pos, m = simulate(I0[sl], cons[sl], par.iloc[sl].reset_index(drop=True), pmf[sl], pfill[sl], sched, W, rng,
+                                 form=form, fill_mid=MC.FILL_MID, part_codes=pc, ss_store=ss_store[sl], rate=rate, lend=lend)
             pos2, _ = MC.roll_forward(I0[sl], a, cons[sl], np.ones(len(a)))
             assert np.allclose(pos2, pos, atol=1e-2, rtol=1e-5), "policy loop and roll_forward disagree -- two ledgers"
             arr[sl] = a
@@ -296,6 +388,7 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
                 agg.setdefault(k, []).append((v, n))
         meta = {k: float(sum(v * n for v, n in xs) / sum(n for _, n in xs)) for k, xs in agg.items()}
         meta.update(lead=lmeta, fill=fmeta, pipeline=pmeta, form=form, plan_sd=plan_sd, use_pipeline=use_pipeline,
+                    transfers=bool(transfers), transfer_rate=rate, transfer_rate_meta=rmeta, lend_multiple=lend,
                     fill_seed=fill_seed, consumption_basis="plan x N(1, 0.1265): PLAN error, not demand uncertainty -- no demand head")
         return arr, cons, meta
 
@@ -305,6 +398,10 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
 SIM_ARMS = {"policy_rop": make_draw("rop"), "policy_ss": make_draw("ss"),
             "policy_rop_nopipe": make_draw("rop", use_pipeline=False)}
 SIM_ARMS.update({f"policy_rop_fill_s{s}": make_draw("rop", fill_seed=s) for s in (17, 27, 37, 47)})
+SIM_ARMS.update({"policy_rop_xfer": make_draw("rop", transfers=True),
+                 # UPPER BOUND: lend everything above SS itself -- the most generous physically consistent rebalancing
+                 "policy_rop_xfer_lend100": make_draw("rop", transfers=True, lend=1.0)})
+SIM_ARMS.update({f"policy_rop_xfer_fill_s{s}": make_draw("rop", fill_seed=s, transfers=True) for s in (17, 27, 37, 47)})
 
 
 # ------------------------------------------------------------------ the deterministic plan, for schedule_lp

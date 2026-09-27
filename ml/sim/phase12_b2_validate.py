@@ -106,6 +106,9 @@ def run_arm(world, snaps, sub, N, draw, seed=11, label=""):
                         post_horizon_per_pp=float(meta.get("post_horizon_per_pp", 0.0)),
                         orders_per_pp=float(meta.get("orders_per_pp", 0.0)),
                         pipeline_units_per_pp=float(meta.get("pipeline_units_per_pp", 0.0)),
+                        transfer_in_per_pp=float(meta.get("transfer_in_per_pp", 0.0)),
+                        transfer_rate=float(meta.get("transfer_rate", 0.0)),
+                        transfer_rate_unclipped=float(meta.get("transfer_rate_meta", {}).get("rate_unclipped", 0.0)),
                         seconds=round(time.time() - t, 1)))
         print(f"   [{label}] {s.date()} below-SS {100*per[-1]['below_ss']:.2f}%  replacement "
               f"{100*per[-1]['replacement']:.1f}%  ({per[-1]['seconds']}s)", flush=True)
