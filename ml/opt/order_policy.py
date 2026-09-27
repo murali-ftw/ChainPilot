@@ -304,3 +304,59 @@ def make_draw(form="rop", plan_sd=PLAN_SD, carry_weeks=LMAX + 13, use_pipeline=T
 
 SIM_ARMS = {"policy_rop": make_draw("rop"), "policy_ss": make_draw("ss"),
             "policy_rop_nopipe": make_draw("rop", use_pipeline=False)}
+
+
+# ------------------------------------------------------------------ the deterministic plan, for schedule_lp
+def receipt_plan(world, t0, keys, plan, T: Tables = None, form="rop"):
+    """The policy's TIMING on the expected path, for ml/opt/schedule_lp.py's mode="policy".
+
+    Expected consumption = the plan; the pipeline lands on its EXPECTED week (age-conditional mean, rounded); each
+    triggered order lands at placement + the MEDIAN lead. Returns per part-plant: opening level (as-of store),
+    expected pipeline receipts per horizon week, the weeks in which a receipt may land (allowed[w]), and the policy's
+    own order-up-to quantities (for comparison with the MILP's batching). Timing only: the MILP owns quantity."""
+    T = T or Tables(world)
+    t0 = pd.Timestamp(t0)
+    P, W = plan.shape
+    pmf, _ = lead_pmf(T, t0, keys)
+    L50 = np.maximum(pmf_median(pmf), 1)
+    L90 = pmf_quantile(pmf, 0.90)
+    par = params(T, t0, keys, plan.mean(1))
+    total, lines, _ = pipeline(T, t0, keys)
+    iv = T.ipw[T.ipw.recorded_ts <= t0]
+    D = WORLDS[world]
+    oh = pd.read_csv(f"{D}/inventory_position_weekly.csv", usecols=["part_id", "plant_id", "week_start",
+                                                                    "qty_on_hand", "recorded_ts"])
+    oh = oh[pd.to_datetime(oh.recorded_ts) <= t0].sort_values("week_start").groupby(["part_id", "plant_id"]).tail(1)
+    I0 = oh.set_index(["part_id", "plant_id"]).qty_on_hand.reindex(keys).fillna(0).to_numpy(float)
+    out = []
+    for i in range(P):
+        pipe = np.zeros(W + LMAX + 1)
+        ages, w = lines[i]
+        if total[i] > 0:
+            if len(ages) == 0:
+                ages, w = np.zeros(1, int), np.ones(1)
+            w = w / w.sum() * total[i]
+            for a, q in zip(ages, w):
+                tail = pmf[i, a + 1:]
+                k = 1 + int(round(float((np.arange(len(tail)) * tail).sum() / tail.sum()))) if tail.sum() > 0 else 2
+                pipe[min(k, len(pipe)) - 1] += q
+        allowed = np.zeros(W, bool)
+        own_q = np.zeros(W)
+        sched = pipe.copy()
+        I = I0[i]
+        tgt = par.rop[i] + par.cover_w[i] * max(plan[i].mean(), 1e-9)
+        for wk in range(W):
+            I = I + sched[wk] - plan[i, wk]
+            IP = I + sched[wk + 1:].sum()
+            trig = IP <= par.rop[i] if form == "rop" else (IP - plan[i].mean() * L90[i]) <= par.ss[i]
+            if trig:
+                Q = max(par.moq[i], par.lot[i] * np.ceil(max(tgt - IP, 0) / par.lot[i]))
+                k = wk + int(L50[i])
+                if k < len(sched):
+                    sched[k] += Q
+                if k < W:
+                    allowed[k] = True; own_q[k] += Q
+        out.append(dict(I0=float(I0[i]), pipeline=pipe[:W].tolist(), allowed=allowed.tolist(),
+                        policy_qty=own_q.tolist(), L50=int(L50[i]), L90=int(L90[i]),
+                        ss=float(par.ss[i]), rop=float(par.rop[i])))
+    return out

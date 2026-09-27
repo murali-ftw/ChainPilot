@@ -35,14 +35,21 @@ which week the solver picks is tie-breaking, not economics. That is why the guid
 (see `gates.py`), and why nothing in this module should be read as a claim about WHEN to order.
 
 As-of discipline: every table is filtered on its recorded/as-of column (`as_of_date`, `effective_from`,
-`valid_from`) at t0, never on an event date. `inventory_position_weekly` is never read.
+`valid_from`) at t0, never on an event date. This module never reads `inventory_position_weekly` itself.
+
+PHASE 12 B2.6 -- mode="policy" (v8). TIMING comes from ml/opt/order_policy.py (the ONE order policy, shared with the
+simulation): receipts may land only in the weeks the reorder-point rule schedules on the expected path, from the as-of
+opening level and the as-of pipeline (order_policy reads the reconciled store for both). The MILP keeps QUANTITY and
+BATCHING only: lot multiples, MOQ, weekly cap, and the safety-stock floor as a heavily penalised soft constraint
+(slack is reported, never hidden). A reorder-point schedule is FEASIBLE, not OPTIMAL: with no holding or ordering cost
+in the data it answers "when must I order", not "when should I".
 
   python ml/opt/schedule_lp.py --world v6 --parts 3
 """
 from __future__ import annotations
 import os, sys, json, argparse
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data")]
+sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data"), os.path.join(HERE, "..", "sim")]
 import numpy as np, pandas as pd
 from scipy.optimize import milp, LinearConstraint, Bounds
 from config import WORLDS, ARTIFACTS
@@ -125,6 +132,68 @@ def load_inputs(world, t0, horizon_weeks=13, n_parts=None, seed=0, series="forwa
                         freight_per_unit=float(c.freight_cost_inr) if c is not None else 0.0,
                         unit_cost=float(c.unit_cost_inr) if c is not None else 0.0))
     return out
+
+
+SLACK_PENALTY = 1e6          # per unit below safety stock, policy mode: makes the floor bind whenever it can
+
+
+def attach_policy(parts, world, t0, form="rop"):
+    """Mode "policy": join order_policy's timing to each part's MILP inputs. No ordering logic here."""
+    import order_policy as OP
+    keys = [(p["part_id"], p["plant_id"]) for p in parts]
+    W = max(len(p["demand"]) for p in parts)
+    plan = np.zeros((len(parts), W))
+    for i, p in enumerate(parts):
+        plan[i, :len(p["demand"])] = p["demand"]
+    for p, r in zip(parts, OP.receipt_plan(world, t0, keys, plan, form=form)):
+        n = len(p["demand"])
+        p.update(i0=r["I0"], pipeline=r["pipeline"][:n], allowed=r["allowed"][:n], policy_qty=r["policy_qty"][:n],
+                 safety_stock=r["ss"], lead_p50=r["L50"], lead_p90=r["L90"])
+    return parts
+
+
+def solve_policy(part, time_limit=10.0, disable=()):
+    """Quantity and batching at the policy's timing. Variables: q_w (lots), y_w (order), s_w (slack below SS)."""
+    disable = set(disable)
+    d = np.asarray(part["demand"], float); T = len(d)
+    lot, moq, cap = part["lot_size"], part["moq"], part["weekly_cap"]
+    pipe = np.asarray(part["pipeline"], float)
+    allowed = np.asarray(part["allowed"], bool)
+    if "timing" in disable:
+        allowed = np.ones(T, bool)                       # broken: the policy's timing is ignored
+    qmax = int(np.ceil(cap / lot)) if np.isfinite(cap) else int(np.ceil(max(d.sum(), 1) / lot)) + 50
+    n = 3 * T
+    c = np.zeros(n); c[:T] = part["freight_per_unit"] * lot; c[2 * T:] = SLACK_PENALTY
+    A, lo, hi = [], [], []
+    for w in range(T):
+        r = np.zeros(n); r[w] = lot; r[T + w] = -moq; A.append(r); lo.append(0.0); hi.append(np.inf)
+        r = np.zeros(n); r[w] = lot; r[T + w] = -(cap if np.isfinite(cap) else qmax * lot); A.append(r); lo.append(-np.inf); hi.append(0.0)
+        # I_w + s_w >= SS, I_w = i0 + cum(pipe) - cum(d) + lot * cum(q)
+        r = np.zeros(n); r[:w + 1] = lot; r[2 * T + w] = 1.0
+        A.append(r); lo.append(part["safety_stock"] - part["i0"] - pipe[:w + 1].sum() + d[:w + 1].sum()); hi.append(np.inf)
+    ub = np.concatenate([np.where(allowed, qmax, 0.0), np.where(allowed, 1.0, 0.0), np.full(T, np.inf)])
+    if "feasible" not in disable:
+        for w, ok in enumerate(part["feasible"]):
+            if not ok:
+                ub[w] = 0.0; ub[T + w] = 0.0
+    integ = np.concatenate([np.ones(2 * T), np.zeros(T)])
+    res = milp(c=c, constraints=LinearConstraint(np.array(A), lo, hi), integrality=integ,
+               bounds=Bounds(np.zeros(n), ub), options=dict(time_limit=time_limit))
+    out = dict(part_id=part["part_id"], plant_id=part["plant_id"], mode="policy", success=bool(res.success),
+               message=res.message, weeks=part["weeks"], allowed=part["allowed"])
+    if res.success:
+        x = np.round(res.x[:T]) * lot; s = res.x[2 * T:]
+        out.update(receipts=x.tolist(), order_weeks=[part["weeks"][w] for w in range(T) if x[w] > 0],
+                   policy_qty=part["policy_qty"], slack_below_ss=s.tolist(), total_slack=float(s.sum()),
+                   receipts_outside_policy_weeks=int(((x > 0) & ~np.asarray(part["allowed"], bool)).sum()))
+    return out
+
+
+def assert_policy_timing(rows):
+    """Gate: no receipt outside the policy's weeks. Fires when the timing constraint is removed."""
+    bad = sum(r.get("receipts_outside_policy_weeks", 0) for r in rows)
+    assert bad == 0, f"{bad} receipts land outside order_policy's weeks -- the MILP is choosing timing"
+    return True
 
 
 def solve(part, mode="coverage", c_hold=None, c_order=None, i0=None, time_limit=10.0, disable=()):
@@ -232,6 +301,8 @@ def binding_constraints(part, x, y, R, mode, i0):
 
 def main(a):
     parts = load_inputs(a.world, a.t0, a.horizon, a.parts, series=a.series)
+    if a.mode == "policy":
+        return main_policy(a, parts)
     rows = [solve(p, mode=a.mode) for p in parts]
     ok = [r for r in rows if r["success"]]
     status = {}
@@ -257,6 +328,30 @@ def main(a):
     print(f"\n-> {out}")
 
 
+def main_policy(a, parts):
+    parts = attach_policy(parts, a.world, a.t0)
+    rows = [solve_policy(p) for p in parts]
+    ok = [r for r in rows if r["success"]]
+    assert_policy_timing(ok)
+    broken = [solve_policy(p, disable=("timing",)) for p in parts]
+    try:
+        assert_policy_timing([r for r in broken if r["success"]]); fires = False
+    except AssertionError:
+        fires = True
+    summ = dict(parts=len(rows), solved=len(ok), with_any_receipt=sum(1 for r in ok if r["order_weeks"]),
+                with_slack=sum(1 for r in ok if r["total_slack"] > 1e-6),
+                receipts_outside_policy_weeks=sum(r["receipts_outside_policy_weeks"] for r in ok),
+                timing_gate_fires_when_removed=fires,
+                milp_vs_policy_qty_ratio_median=float(np.median([sum(r["receipts"]) / max(sum(r["policy_qty"]), 1e-9)
+                                                                 for r in ok if sum(r["policy_qty"]) > 0] or [np.nan])))
+    print(json.dumps(summ, indent=1))
+    out = os.path.join(ARTIFACTS, f"phase12_schedule_{a.world}_policy.json")
+    json.dump(dict(world=a.world, t0=a.t0, horizon_weeks=a.horizon, mode="policy", summary=summ, rows=rows,
+                   claim="FEASIBLE, not optimal: no holding/ordering cost exists; timing is the reorder-point rule's"),
+              open(out, "w"), indent=1, default=float)
+    print(f"-> {out}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--world", default="v6")
@@ -264,7 +359,7 @@ if __name__ == "__main__":
     ap.add_argument("--horizon", type=int, default=13)
     ap.add_argument("--parts", type=int, default=3)
     ap.add_argument("--show", type=int, default=3)
-    ap.add_argument("--mode", default="coverage", choices=["coverage", "balance"])
+    ap.add_argument("--mode", default="coverage", choices=["coverage", "balance", "policy"])
     ap.add_argument("--series", default="forward", choices=["forward", "observed"],
                     help="forward = the true (one-week) planning horizon; observed = past weeks, a mechanism demo only")
     main(ap.parse_args())
