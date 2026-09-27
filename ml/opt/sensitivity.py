@@ -23,10 +23,31 @@ from allocation import load, candidates, constraint_report, ReducedScorer, suppl
 SWEEP = (100.0, 300.0, 1000.0, 3000.0, 10000.0)
 
 
-def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP, price_weight=1.0):
+def dedupe_candidates(cands):
+    """Collapse candidates whose SPLITS are identical (e.g. 'cap at 70%' when no supplier exceeds 70% IS the
+    incumbent). Phase 12 A4 found every exact top-2 tie in the Phase 11 sweep was such a duplicate: the
+    'runner-up' was the winner under another name, a zero margin that fails the band check by construction.
+    Returns (unique candidates, {kept name: [aliases]})."""
+    out, alias = [], {}
+    for name, split in cands:
+        for kept, ks in out:
+            if all(abs(split.get(k, 0.0) - ks.get(k, 0.0)) < 1e-12 for k in set(split) | set(ks)):
+                alias.setdefault(kept, []).append(name)
+                break
+        else:
+            out.append((name, split))
+    return out, alias
+
+
+def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP, price_weight=1.0, dedupe=False):
+    """price_weight defaults to 1.0 HERE (not the scorer's 0.0) so this module keeps reproducing Phase 11's sweep.
+    dedupe=False likewise reproduces Phase 11; dedupe=True is the corrected count (Phase 12 A4)."""
     qual, cands = candidates(L, part, plant)
     if len(qual) < 2:
         return None
+    aliases = {}
+    if dedupe:
+        cands, aliases = dedupe_candidates(cands)
     inc = dict(cands[0][1])
     feasible = {}
     for name, split in cands:
@@ -63,6 +84,7 @@ def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP, price_weight=1.0):
         ranges[w] = [min(cs), max(cs)]
     return dict(part_id=part, plant_id=plant, requirement=float(req), n_qualified=len(qual),
                 price_weight=float(price_weight), decision_basis=price_label(price_weight),
+                deduped=bool(dedupe), n_distinct_candidates=len(cands), aliases=aliases,
                 n_feasible=int(sum(feasible.values())), sweep=rows, winners=winners,
                 winner_stable_across_sweep=stable, survives_bands_at_every_cost=survives_everywhere,
                 quotable=bool(stable and survives_everywhere), winner_ranges=ranges)

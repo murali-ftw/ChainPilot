@@ -45,11 +45,11 @@ def phase11_keys(L, a_parts=60):
     return named + rest, req
 
 
-def sweep_world(L, sig, keys, req, price_weight):
+def sweep_world(L, sig, keys, req, price_weight, dedupe=False):
     unit = L["costs"].groupby(["part_id", "supplier_id"]).unit_cost_inr.mean().to_dict()
     out = []
     for part, plant in keys:
-        r = evaluate(L, sig, unit, part, plant, float(req[(part, plant)]), price_weight=price_weight)
+        r = evaluate(L, sig, unit, part, plant, float(req[(part, plant)]), price_weight=price_weight, dedupe=dedupe)
         if r:
             out.append(r)
     return out
@@ -174,6 +174,7 @@ def main(a):
         r1 = sweep_world(L, sig, keys, req, 1.0)
         r0 = sweep_world(L, sig, keys, req, 0.0)
         reg = regression(r1, os.path.join(ARTIFACTS, f"phase11_sensitivity_{w}.json"))
+        r1d, r0d = sweep_world(L, sig, keys, req, 1.0, True), sweep_world(L, sig, keys, req, 0.0, True)
         fire = invariance_check(r1)                  # MUST fire: weight 1 is known to flip winners
         inv = invariance_check(r0)                   # must NOT fire
         cur = {(r["part_id"], r["plant_id"]): r["sweep"][2]["winner"] for r in r1}      # c_short = 1000
@@ -182,9 +183,15 @@ def main(a):
                       invariance_check_fires_on_pw1=dict(n_flagged=len(fire), capable_of_failing=len(fire) > 0),
                       invariance_pw0=dict(n_flagged=len(inv), holds=len(inv) == 0, part_plants=len(r0)),
                       summary_pw1=summarise(r1), summary_pw0=summarise(r0),
+                      summary_pw1_deduped=summarise(r1d), summary_pw0_deduped=summarise(r0d),
+                      invariance_pw0_deduped=dict(n_flagged=len(invariance_check(r0d))),
+                      duplicate_candidates=dict(part_plants_with_any=sum(1 for r in r0d if r["aliases"]),
+                                                zero_margin_top2_before=sum(1 for r in r0 if r["sweep"][2]["margin"] == 0),
+                                                zero_margin_top2_after=sum(1 for r in r0d if r["sweep"][2]["margin"] == 0)),
                       pw0_winner_differs_from_current_at_1000=changed,
                       smoke=smoke_price(L, sig, keys[:a.smoke_parts], req),
-                      rows_pw0=r0, decision_basis=price_label(0.0))
+                      rows_pw0=r0, rows_pw0_deduped=r0d, decision_basis=price_label(0.0))
+        print(w, "DEDUPED pw1", res[w]["summary_pw1_deduped"], "pw0", res[w]["summary_pw0_deduped"], res[w]["duplicate_candidates"])
         print(w, "regression diffs", reg["n_differences"], "| pw1 flagged", len(fire), "| pw0 flagged", len(inv),
               "| pw1", res[w]["summary_pw1"], "| pw0", res[w]["summary_pw0"], flush=True)
 
@@ -195,6 +202,7 @@ def main(a):
     r1 = sweep_world(L, sig, keys, req, 1.0)
     r0 = sweep_world(L, sig, keys, req, 0.0)
     fire, inv = invariance_check(r1), invariance_check(r0)
+    r1d, r0d = sweep_world(L, sig, keys, req, 1.0, True), sweep_world(L, sig, keys, req, 0.0, True)
     cur = {(r["part_id"], r["plant_id"]): r["sweep"][2]["winner"] for r in r1}
     res["v8"] = dict(t0=a.v8_t0, seeds=list(C.V8_SEEDS),
                      signals=[{k: v for k, v in s.items() if k not in ("fill", "strain")} |
@@ -202,10 +210,17 @@ def main(a):
                      invariance_check_fires_on_pw1=dict(n_flagged=len(fire), capable_of_failing=len(fire) > 0),
                      invariance_pw0=dict(n_flagged=len(inv), holds=len(inv) == 0, part_plants=len(r0)),
                      summary_pw1=summarise(r1), summary_pw0=summarise(r0),
+                     summary_pw1_deduped=summarise(r1d), summary_pw0_deduped=summarise(r0d),
+                     invariance_pw0_deduped=dict(n_flagged=len(invariance_check(r0d))),
+                     duplicate_candidates=dict(part_plants_with_any=sum(1 for r in r0d if r["aliases"]),
+                                               zero_margin_top2_before=sum(1 for r in r0 if r["sweep"][2]["margin"] == 0),
+                                               zero_margin_top2_after=sum(1 for r in r0d if r["sweep"][2]["margin"] == 0)),
+                     rows_pw0_deduped=r0d,
                      pw0_winner_differs_from_current_at_1000=sum(
                          1 for r in r0 if r["winners"][0] != cur[(r["part_id"], r["plant_id"])]),
                      smoke=smoke_price(L, sig, keys[:a.smoke_parts], req),
                      rows_pw0=r0, decision_basis=price_label(0.0))
+    print("v8 DEDUPED pw1", res["v8"]["summary_pw1_deduped"], "pw0", res["v8"]["summary_pw0_deduped"], res["v8"]["duplicate_candidates"])
     print("v8 | pw1 flagged", len(fire), "| pw0 flagged", len(inv), "| pw1", res["v8"]["summary_pw1"],
           "| pw0", res["v8"]["summary_pw0"], flush=True)
     res["caveat"] = ("ReducedScorer measures expected UNMET DEMAND IN PERIOD, not stockout; its strain_penalty "
