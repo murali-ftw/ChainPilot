@@ -18,12 +18,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data")]
 import numpy as np, pandas as pd
 from config import ARTIFACTS
-from allocation import load, candidates, constraint_report, ReducedScorer, supplier_signals
+from allocation import load, candidates, constraint_report, ReducedScorer, supplier_signals, price_label
 
 SWEEP = (100.0, 300.0, 1000.0, 3000.0, 10000.0)
 
 
-def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP):
+def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP, price_weight=1.0):
     qual, cands = candidates(L, part, plant)
     if len(qual) < 2:
         return None
@@ -36,7 +36,8 @@ def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP):
     for cost in sweep:
         per_seed = {}
         for s in sig:
-            sc = ReducedScorer(s["fill"], s["strain"], unit, shortage_cost_per_unit=cost)
+            sc = ReducedScorer(s["fill"], s["strain"], unit, shortage_cost_per_unit=cost,
+                               price_weight=price_weight)
             for name, split in cands:
                 if not feasible[name]:
                     continue
@@ -61,6 +62,7 @@ def evaluate(L, sig, unit, part, plant, req, sweep=SWEEP):
         cs = [r["shortage_cost"] for r in rows if r["winner"] == w]
         ranges[w] = [min(cs), max(cs)]
     return dict(part_id=part, plant_id=plant, requirement=float(req), n_qualified=len(qual),
+                price_weight=float(price_weight), decision_basis=price_label(price_weight),
                 n_feasible=int(sum(feasible.values())), sweep=rows, winners=winners,
                 winner_stable_across_sweep=stable, survives_bands_at_every_cost=survives_everywhere,
                 quotable=bool(stable and survives_everywhere), winner_ranges=ranges)

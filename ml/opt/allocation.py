@@ -16,6 +16,15 @@ quotable. Empirical 80% coverage runs 0.72-0.81 and is below nominal in 12 of 16
 class. ReducedScorer consumes a capacity-strain quantile, so its capacity term inherits that miscalibration and any
 ranking it produces carries the same caveat.
 
+PRICE IS NOT WEIGHTED BY DEFAULT (Phase 12 Test 5.1). `ReducedScorer(price_weight=0.0)` is the default. The score is
+then  requirement * sum_s share_s * (1 - E[fill_s]) * strain_penalty_s * c_short , and c_short is one constant
+multiplier across every candidate for a part-plant -- so the ranking is INVARIANT TO THE SHORTAGE COST, the parameter
+that flipped a fifth of Phase 11's recommendations. That invariance is proved empirically in
+ml/opt/phase12_a4_price.py, not assumed. The honest label for a weight-0 recommendation is "most reliable supplier",
+NOT "best value": PRICE IS NOT WEIGHTED IN THIS DECISION. `price_term` is still computed and logged per option.
+The ranking still consumes a capacity-strain P90 (strain_penalty), so it STILL inherits the non-quotable capacity
+intervals above (80% coverage 0.72-0.81). price_weight=1.0 reproduces the Phase 10/11 objective exactly.
+
   python ml/opt/allocation.py --world v6 --parts 5
 """
 from __future__ import annotations
@@ -26,6 +35,11 @@ import numpy as np, pandas as pd
 from config import WORLDS, ARTIFACTS
 
 FORBIDDEN = "inventory_position_weekly"
+PRICE_LABEL = {0.0: "price not weighted in this decision -- most reliable supplier, not best value"}
+
+
+def price_label(price_weight):
+    return PRICE_LABEL.get(float(price_weight), f"price weighted at {price_weight:g} x purchase cost")
 
 # Constraint parameters the DATA CANNOT EXPRESS. Each is injectable, each defaults to a stated assumption, and each
 # is an explicit ask of Rane (report section 6). Nothing here was measured.
@@ -193,9 +207,13 @@ class ReducedScorer:
     inherits the interval miscalibration recorded in the module docstring.
     """
 
-    def __init__(self, fill_by_supplier, strain_by_supplier, unit_cost, shortage_cost_per_unit=1000.0):
+    def __init__(self, fill_by_supplier, strain_by_supplier, unit_cost, shortage_cost_per_unit=1000.0,
+                 price_weight=0.0):
         self.fill, self.strain, self.cost = fill_by_supplier, strain_by_supplier, unit_cost
         self.shortage_cost = shortage_cost_per_unit          # ASSUMPTION: no shortage-cost column exists
+        # Phase 12 Test 5.1: 0.0 by default -> price is NOT weighted and the ranking cannot depend on shortage_cost.
+        # 1.0 reproduces the Phase 10/11 objective. The purchase term is computed and logged at every weight.
+        self.price_weight = float(price_weight)
 
     def __call__(self, L, part, plant, split, requirement):
         unmet = purchase = 0.0
@@ -210,8 +228,11 @@ class ReducedScorer:
             unmet += q * (1.0 - fill) * penalty
             purchase += q * float(self.cost.get((part, s), np.nan) if np.isfinite(
                 self.cost.get((part, s), np.nan)) else np.nanmean(list(self.cost.values())))
+        price_term = self.price_weight * purchase
         return dict(expected_unmet_units=float(unmet), purchase_cost=float(purchase),
-                    score=float(unmet * self.shortage_cost + purchase))
+                    price_weight=self.price_weight, price_term=float(price_term),
+                    score=float(unmet * self.shortage_cost + price_term),
+                    decision_basis=price_label(self.price_weight))
 
 
 def supplier_signals(world, seeds=(7, 17, 27)):
@@ -321,7 +342,7 @@ def main(a):
         inc = dict(cands[0][1])
         scored = []
         for seed_sig in sig:
-            sc = ReducedScorer(seed_sig["fill"], seed_sig["strain"], unit)
+            sc = ReducedScorer(seed_sig["fill"], seed_sig["strain"], unit, price_weight=a.price_weight)
             for name, split in cands:
                 ok, viol, inert = constraint_report(L, part, plant, split, inc)
                 v = sc(L, part, plant, split, R)
@@ -360,8 +381,11 @@ def main(a):
           f"{broken['candidates_allowed_through']} leaked -> {'FAIL (as required)' if not broken['passes'] else 'still passes -- VACUOUS'}")
     print(f"    CAN IT FAIL: {'yes, shown' if real['passes'] and not broken['passes'] else 'NO -- vacuous'}")
 
-    out = os.path.join(ARTIFACTS, f"phase10_allocation_{a.world}.json")
+    out = os.path.join(ARTIFACTS, f"phase10_allocation_{a.world}.json" if a.price_weight == 1.0
+                       else f"phase12_allocation_{a.world}_pw{a.price_weight:g}.json")
+    print(f"DECISION BASIS: {price_label(a.price_weight)}")
     json.dump(dict(world=a.world, t0=a.t0, scope=multi, client_parameters=CLIENT_PARAMS, rows=rows,
+                   price_weight=a.price_weight, decision_basis=price_label(a.price_weight),
                    tooling_gate=dict(real=real, broken=broken,
                                      can_fail=bool(real["passes"] and not broken["passes"])),
                    caveat="ReducedScorer measures expected UNMET DEMAND IN PERIOD, not stockout against inventory; "
@@ -375,4 +399,6 @@ if __name__ == "__main__":
     ap.add_argument("--world", default="v6")
     ap.add_argument("--t0", default="2025-04-27")
     ap.add_argument("--parts", type=int, default=5)
+    ap.add_argument("--price-weight", type=float, default=0.0,
+                    help="0 (default): price NOT weighted -- 'most reliable supplier'. 1: the Phase 10/11 objective")
     main(ap.parse_args())
