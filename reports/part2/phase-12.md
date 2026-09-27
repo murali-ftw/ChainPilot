@@ -26,6 +26,7 @@ conditional on B2's ratio, and that decision is §3.3's.
 | **A5 — one order policy** | **SPECIFIED**, with three corrections to the brief's rule, each measured | the brief's trigger double-counts lead-time demand (ROP − SS is **1.6–2.3×** planning-lead demand); the hazard head's T is **not** a lead time; the simulation omits an open pipeline that already covers **0.55–1.03×** the 13-week requirement |
 
 | **B1 — Test 3.1** (conformal widening, v6/v7) | **FAILS, and the premise does not hold.** CQR hits nominal on its own window (16/16) and makes the next window **worse** for h⁴ (in band 9 → **5** of 16). ρ does not move | ρ(P90 exceedance, level gap) **0.65 → 0.65** (h⁴), 0.80 → 0.80 (h⁰), 0.83 → 0.83 (B5). The median lags the level: P50 moves **51–74%** of the label shift, and that lag explains post-CQR exceedance at **Spearman 0.96** |
+| **B3 — inter-plant transfers** (after the checkpoint) | **BUILT, DOES NOT CLOSE THE GAP.** Frequency moves 0.04; magnitude overshoots the other way | ratio **1.435× [1.424, 1.447]** against 1.475× without; shortfall when short 298 → **20** against 91 observed. Part-plant rebalancing cannot reproduce the data's channel-level rescues |
 | **B2 — the order policy** | **BUILT, WIRED INTO BOTH CONSUMERS, VALIDATED ON OBSERVED 2025 OUTCOMES. The ratio closes most of the way; it is NOT calibrated** | part-plant-weeks below SS **5.29× → 1.475× [1.464, 1.487]** (5 fill-head seeds); replacement **82.5% → 100.3%**; shortfall when short 564 → 298 against 91 observed. The residual points at **inter-plant transfers**, which the simulation omits (20% of consumption flows) |
 
 **C1 and C2 are both cancelled by their gates. C3 runs regardless** (Wave C). C4 is replaced by
@@ -763,6 +764,63 @@ but not to 1.0. **Wave C has not been started, and the decision is yours.** My r
    specified, not because it moves anything a planner reads.
 3. **C1 and C2 stay cancelled** (§2.1, §2.2).
 
+### 3.4 B3 — inter-plant transfers (run after the checkpoint, on "run all")
+
+**What was built.** `order_policy.rebalance`, running every simulated week per **part** across its plants
+after receipts, follows generator §4's form:
+
+- surplus_p = max(0, I − 1.25·SS), deficit_p = max(0, SS − I);
+- moved = rate × min(Σ surplus, Σ deficit), taken and given in proportion;
+- the part total is conserved exactly (unit-tested on a constructed case).
+
+Two parameters, stated separately:
+
+- **LEND = 1.25** comes from the generator source. It is a stated policy parameter and a client ask.
+- **The rate is estimated as-of from the ledger**: realised net transfer-in over min(Σ surplus, Σ deficit),
+  computed on pre-transfer positions over the trailing 52 weeks, with only rows recorded ≤ t0.
+
+Net transfers enter the returned arrivals, so the two-ledgers check still holds. The work was built in a
+separate worktree (`p12-transfers`, `5716e95`, merged as `dc68562`), so that no C3 training cell could stamp
+`+dirty`.
+
+**A correction to §3.2 found on the way (deviation 105).** B2's residual table used **gross** transfer-in
+(301 per part-plant). The generator moves stock between **channels**, and 30% of gross transfer-in is
+shuffling between channels of the *same* part-plant, which nets to zero there. Re-measured on **net**
+transfers:
+
+- 2.61% of 2025 part-plant-weeks were lifted above SS by that week's net transfer (gross gave 2.7%);
+- pre-transfer below-SS is 10.95%, so the bound becomes 12.47 / 10.95 ≈ **1.14×**.
+
+The conclusion stands; the number is corrected.
+
+**Second finding: the realised rate exceeds what a part-plant model can move.** Realised net inflow runs
+**1.45–1.98×** min(Σ surplus, Σ deficit) at part-plant level, at every t0 tested. At that granularity, with
+that lending threshold, there is not enough visible surplus to carry the flows the ledger shows, so the rate
+clips at 1.0.
+
+**Result** (9 snapshots × 200 paths; five fill-head seeds for the primary transfer arm):
+
+| arm | below SS | ratio vs 8.38% | shortfall when short |
+|---|---|---|---|
+| B2 primary, no transfers (5 seeds) | 12.27–12.47% | **1.475× [1.464, 1.487]** | 298 |
+| **+ transfers, LEND 1.25, as-of rate (5 seeds)** | 11.94–12.13% | **1.435× [1.424, 1.447]** | **19.5–19.9** |
+| + transfers, LEND 1.0 (seed 7; bound on lending) | 12.45% | 1.485× | 15.2 |
+| observed 2025 | 8.38% | — | 91 |
+
+**Verdict: transfers at part-plant granularity do NOT close the gap.** The bands are disjoint, but the ratio
+moves by only 0.04. The mechanism also **distorts the magnitude**: proportional top-ups turn deep shortfalls
+into shallow ones (298 → 20) and rarely lift a part-plant back **above** SS, so the magnitude goes from 3.3×
+over to **4.6× under**. Lending more (LEND 1.0) does not help either; it pushes the lenders below their own
+SS. In the data, transfers rescue weeks outright, because the generator tops up individual **channels**.
+A simulation whose state is the part-plant cannot represent that (deviation 106).
+
+**What this means for the residual.** The 1.4–1.5× over-projection is now localised to **sub-part-plant
+(channel-level) dynamics**: channel stocks, channel-level safety stock, channel-level rebalancing. The
+simulation aggregates all of those away. Fixing it would mean re-stating the simulation at channel
+granularity, a structural change and not a parameter. **B2's ROP arm without transfers stays the primary
+figure (1.475×).** The transfer arm is a labelled sensitivity. It is not adopted, because it trades a
+0.04 frequency gain for a magnitude error.
+
 ## 4. Wave C
 
 *Not started — held at the hard checkpoint (§3.3).* **C3 runs** per §2.3's specification when released. **C1 is cancelled** (§2.1) and **C2 is
@@ -806,6 +864,8 @@ From Wave A only:
 | **101** | A5: the hazard curve, re-anchored by the lateness offset, can be the lead-from-order | **it cannot.** Re-anchored T is within ±1 wk of the empirical lead for 1.9% of part-plants (raw T: 0.0%; median 12 wk vs 4). The simulation's lead is the as-of empirical pmf | §3.2 |
 | **102** | observation 1 §6.1: "the board, the dice and the scorekeeping are all correct. One player instruction is wrong" | **three instructions were wrong** (the trigger/quantity, the lead definition, the missing pipeline) **and one mechanism is missing**: inter-plant transfers, 20% of consumption flows, aimed at short part-plants. With the three fixed the ratio is 1.48×; the transfers are the named residual | §3.2 |
 | **103** | `montecarlo.py --policy rop` runs the policy end to end | **the grid does; the D.1/D.4 subset-timing block in `main()` still calls the placeholder `draw_from_heads`.** Its timing lines describe the placeholder. The grid and every validation number are the policy's | §3.2 |
+| **105** | §3.2 (B2.7): transfers IN are 301 per part-plant per horizon, and 2.7% of weeks are above SS only because of them | **gross, not net.** 30% of gross transfer-in moves between channels of the SAME part-plant and nets to zero there. On NET transfers: 2.61% of weeks rescued, pre-transfer below-SS 10.95%, bound ≈ 1.14×. The conclusion survives; the number is corrected | §3.4 |
+| **106** | §3.3: modelling inter-plant transfers is the step "whose expected effect is known to be large" | **it was not, at part-plant granularity.** The ratio moves 1.475× → 1.435×, and the magnitude goes from 3.3× over to 4.6× under. The realised rate is 1.45–1.98× the part-plant-visible transferable pool. The residual is channel-level dynamics, which a part-plant state cannot carry | §3.4 |
 | **104** | Phase 11C: the full grid takes 5.16 min | under the policy it takes **11.67 min**: the endogenous order loop and the pipeline scheduling. Still minutes | §3.2 |
 
 ### 6.2 Open items
