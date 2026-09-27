@@ -43,6 +43,22 @@ def cqr(Pcal, ycal, alpha=ALPHA):
     return float(np.sort(E)[k - 1])
 
 
+def cqr_normalised(Pcal, ycal, alpha=ALPHA):
+    """Pre-declared SECONDARY: nonconformity scaled by the predicted interval width, so the widening
+    grows wherever the model's own interval grows (Romano et al. sec. 6 / Sesia & Candes)."""
+    w = np.maximum(Pcal[:, 2] - Pcal[:, 0], 1e-6)
+    E = np.maximum(Pcal[:, 0] - ycal, ycal - Pcal[:, 2]) / w
+    n = len(E); k = int(np.ceil((n + 1) * (1 - alpha)))
+    return float(np.sort(E)[k - 1])
+
+
+def widen_norm(P, q):
+    W = P.astype(np.float64).copy()
+    w = np.maximum(W[:, 2] - W[:, 0], 1e-6)
+    W[:, 0] -= q * w; W[:, 2] += q * w
+    return W
+
+
 def widen(P, q):
     W = P.astype(np.float64).copy()
     W[:, 0] -= q
@@ -96,6 +112,13 @@ def cell(world, o, lb):
                      raw_cov_calib=coverage(Pv, yv),
                      cqr_cov_calib=coverage(Wv, yv), cqr_cov_eval=coverage(Wt, yt), cqr_exc_eval=exceed(Wt, yt),
                      width_raw=float((Pt[:, 2] - Pt[:, 0]).mean()), width_cqr=float((Wt[:, 2] - Wt[:, 0]).mean()))
+            qn = cqr_normalised(Pv, yv); Wn = widen_norm(Pt, qn); assert_p50_identical(Pt, Wn)
+            r.update(qhat_norm=qn, cqrn_cov_eval=coverage(Wn, yt), cqrn_exc_eval=exceed(Wn, yt),
+                     # PREMISE CHECK (B1.6): does the model's own median follow the level? Label-free on the
+                     # prediction side: the P50 shift between windows vs the realised label shift.
+                     p50_shift=float(Pt[:, 1].mean() - Pv[:, 1].mean()),
+                     p50_bias_eval=float(Pt[:, 1].mean() - yt.mean()),
+                     p50_bias_calib=float(Pv[:, 1].mean() - yv.mean()))
             if aligned:
                 q6 = cqr(Pv[trail6], yv[trail6])
                 r.update(qhat_trail6=q6, cqr6_cov_eval=coverage(widen(Pt, q6), yt),
@@ -161,6 +184,14 @@ def main():
         if "cqr6_cov_eval" in df and df.cqr6_cov_eval.notna().all():
             s["in_band_cqr6_next"] = inband(df.cqr6_cov_eval)
             r, p = stats.spearmanr(df.cqr6_exc_eval, df.gap); s["rho_exceed_vs_gap_cqr6"] = [float(r), float(p)]
+        s["in_band_cqrn_next"] = inband(df.cqrn_cov_eval)
+        r, p = stats.spearmanr(df.cqrn_exc_eval, df.gap); s["rho_exceed_vs_gap_cqrn"] = [float(r), float(p)]
+        s["premise"] = dict(
+            corr_p50_shift_vs_label_gap=float(np.corrcoef(df.p50_shift, df.gap)[0, 1]),
+            slope_p50_shift_on_gap=float(np.polyfit(df.gap, df.p50_shift, 1)[0]),
+            corr_eval_bias_vs_gap=float(np.corrcoef(df.p50_bias_eval, df.gap)[0, 1]),
+            slope_eval_bias_on_gap=float(np.polyfit(df.gap, df.p50_bias_eval, 1)[0]),
+            rho_exceed_cqr_vs_eval_bias=[float(x) for x in stats.spearmanr(df.cqr_exc_eval, -df.p50_bias_eval)])
         s["coverage_pass"] = s["in_band_cqr_next"] >= PASS_WINDOWS
         s["rho_pass"] = bool(abs(s["rho_exceed_vs_gap_cqr"][0]) <= 0.4 and s["rho_exceed_vs_gap_cqr"][1] >= 0.05)
         summ[arm] = s
