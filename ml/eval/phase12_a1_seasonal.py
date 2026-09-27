@@ -174,6 +174,41 @@ def raw_lead_seasonality():
                                                           min=float(yr_corr.min()), max=float(yr_corr.max())))
 
 
+def pooled_lag_test(mt, mv, n_perm=20000, seed=0):
+    """Both folds' snapshots pooled (17), residual against the generator's LAGGED seasonal shape.
+    The shape is fixed a priori from generator_v8.season(), so this is one pre-specified contrast,
+    far more powerful than the 5-month replication. Permutation p over snapshot labels."""
+    m = pd.concat([mt, mv])
+    out = {}
+    rng = np.random.default_rng(seed)
+    for col in ("resid_centered", "e_late_centered"):
+        x, y = m.lag_season.values, m[col].values
+        r0 = float(np.corrcoef(x, y)[0, 1])
+        rs = np.array([np.corrcoef(x, rng.permutation(y))[0, 1] for _ in range(n_perm)])
+        out[col] = dict(r=r0, p_perm_one_sided=float((rs >= r0).mean()), n_snapshots=int(len(m)),
+                        slope_per_unit_lag_season=float(np.polyfit(x, y, 1)[0]))
+    return out
+
+
+def val_fitted_seasonal_shift(dva, dte, seeds):
+    """The CEILING of a month-level seasonal correction, measured without training.
+    Fit resid ~ b * lag_season(month) on VALIDATION ONLY (selection on validation), shift every test
+    prediction by b * lag_season(month), rescore lateness ROC-AUC per seed. A seasonal branch can do
+    more than a month-level shift (per-supplier timing), so this bounds the month-level part only."""
+    res = {}
+    for s in seeds:
+        xv = np.array([lag_season(int(m)) for m in dva.month])
+        b = float(np.polyfit(xv, dva[f"resid_{s}"].values, 1)[0])
+        xt = np.array([lag_season(int(m)) for m in dte.month])
+        base = roc_auc(dte.yl.values, dte[f"P_{s}"].values - dte.R.values)
+        adj = roc_auc(dte.yl.values, dte[f"P_{s}"].values + b * xt - dte.R.values)
+        res[str(s)] = dict(slope_val=b, auc_base=float(base), auc_shifted=float(adj), delta=float(adj - base))
+    d = [v["delta"] for v in res.values()]
+    return dict(per_seed=res, delta_mean=float(np.mean(d)), delta_range=[float(min(d)), float(max(d))],
+                base_band=[float(min(v["auc_base"] for v in res.values())), float(max(v["auc_base"] for v in res.values()))],
+                shifted_band=[float(min(v["auc_shifted"] for v in res.values())), float(max(v["auc_shifted"] for v in res.values()))])
+
+
 def main():
     st = C.require_clean()
     lb = P5.labels("v8", "arrival_week")
@@ -219,6 +254,8 @@ def main():
             meanY_range_weeks=float(m.mean_Y.max() - m.mean_Y.min()),
             resid_range_weeks=float(m.resid_centered.max() - m.resid_centered.min()))
     raw = raw_lead_seasonality()
+    pooled = pooled_lag_test(mt, mv)
+    ceiling = val_fitted_seasonal_shift(dva, dte, seeds)
 
     # power, stated before the result (A1.3)
     dec = mt[mt.month == 12].iloc[0]
@@ -249,7 +286,7 @@ def main():
                power=power, per_month=pd.concat([mt, mv]).to_dict("records"),
                null_tests=tests, seed_profile_corr=dict(mean=float(seed_prof_corr.mean()),
                                                         min=float(seed_prof_corr.min())),
-               replication=rep, generator_path=path, raw_lead_seasonality=raw)
+               replication=rep, pooled_lag_test=pooled, month_shift_ceiling=ceiling, generator_path=path, raw_lead_seasonality=raw)
     print(C.dump(out, "phase12_a1.json"))
 
 
