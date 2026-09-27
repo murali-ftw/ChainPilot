@@ -36,7 +36,7 @@ from __future__ import annotations
 import os, sys, time, json, argparse, warnings
 warnings.filterwarnings("ignore")
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data"),
+sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data"), os.path.join(HERE, "..", "opt"),
                 os.path.join(HERE, "..", "models"), os.path.join(HERE, "..", "train"),
                 os.path.join(HERE, "..", "eval")]
 import numpy as np, pandas as pd
@@ -163,25 +163,16 @@ def run_gate(world: str, t0, part_plants):
 
 
 # ------------------------------------------------------------------ D.1 head draws
-def draw_from_heads(world, t0, sub, W, N, rng):
-    """Arrival timing and fill quantity drawn per path FROM THE SHIPPED HEADS.
+FILL_MID = np.concatenate([[0.0], np.linspace(0.025, 0.975, 20), [1.0]])
+_HEADS = {}
 
-    Arrival: the hazard head emits a 13-cell distribution per channel-snapshot; a path samples an
-    arrival week from it. Fill: the binned CDF head emits 22 cells; a path samples a fill
-    fraction. Both are read at t0 through the normal as-of path -- the encoder's window ends at
-    t0 (verified in Phase 1 S4.3), so no future week reaches them.
 
-    Consumption is taken from `part_demand_weekly`'s forward requirement as of t0 (B2 cleared it:
-    12-26 periods per version, 100% forward), NOT from a head -- there is no demand head in the
-    shipped set, and inventing one would be fabricating an input.
-    """
+def read_heads(world, t0):
+    """Recalibrated arrival (13-cell) and fill (22-cell) distributions per channel, read AS-OF t0 from the shipped
+    bundles. Cached per (world, snapshot actually read). Shared by the placeholder draw and ml/opt/order_policy."""
     import torch
-    import loop as LP, phase5_heads as P5, folds as FO
-    D = WORLDS[world]
-    meta = {}
-
-    # --- fill and arrival distributions per channel, from the shipped bundles -----------
-    dists = {}
+    import loop as LP, phase5_heads as P5
+    dists, meta = {}, {}
     for task, bundle in (("arrival_week", "ml/artifacts/bundles/arrival_week/v8_lite_h4_lr0.00025_s7"),
                          ("fill_rate", "ml/artifacts/bundles/fill_rate/v8_none_h0_lr0.000125_s7")):
         if world != "v8" or not os.path.exists(bundle):
@@ -190,65 +181,101 @@ def draw_from_heads(world, t0, sub, W, N, rng):
         B = LP.load_bundle(bundle); cfg = B["cfg"]
         lb = P5.labels(cfg["world"], task)
         tr, va, te = LP.split_of(cfg, lb.snapshot_date)
-        Din = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
-                               graph_shuffle=cfg.get("graph_shuffle"))
-        model = LP._materialise(B, Din)
-        Wd = Din["W"]
         snap = pd.Timestamp(t0)
         cand = [s for s in np.unique(lb.snapshot_date) if pd.Timestamp(s) <= snap]
         assert cand, f"no snapshot at or before t0 {t0} -- cannot read the head as-of"
         s_use = max(cand)
         assert pd.Timestamp(s_use) <= snap, "as-of violation: head read at a snapshot after t0"
-        t0w = P5.t0_of(Wd, s_use)
-        idx = torch.arange(len(Wd["cidx"]), dtype=torch.long, device=P5.DEV)
-        with torch.no_grad():
-            pr = LP._head_outputs(task, P5.forward(model, Din, t0w, idx), 0.0, 1.0)
-            rc = LP.apply_recalibration(B["rec"], task, pr)
-        dists[task] = dict(P=(rc.get("P13") if task == "arrival_week" else rc.get("P22")),
-                           cidx=Wd["cidx"], snapshot=str(pd.Timestamp(s_use).date()))
-        meta[task] = dict(bundle=bundle, read_at_snapshot=str(pd.Timestamp(s_use).date()),
-                          channels=len(Wd["cidx"]), recalibrated=True)
+        key = (world, task, str(pd.Timestamp(s_use).date()))
+        if key not in _HEADS:
+            Din = P5.device_inputs(cfg["world"], np.sort(lb.snapshot_date[tr].unique()), cfg["wsla"],
+                                   graph_shuffle=cfg.get("graph_shuffle"))
+            model = LP._materialise(B, Din)
+            Wd = Din["W"]
+            t0w = P5.t0_of(Wd, s_use)
+            idx = torch.arange(len(Wd["cidx"]), dtype=torch.long, device=P5.DEV)
+            with torch.no_grad():
+                pr = LP._head_outputs(task, P5.forward(model, Din, t0w, idx), 0.0, 1.0)
+                rc = LP.apply_recalibration(B["rec"], task, pr)
+            _HEADS[key] = dict(P=(rc.get("P13") if task == "arrival_week" else rc.get("P22")),
+                               cidx=Wd["cidx"], snapshot=key[2])
+        dists[task] = _HEADS[key]
+        meta[task] = dict(bundle=bundle, read_at_snapshot=key[2], channels=len(dists[task]["cidx"]), recalibrated=True)
+    return dict(dists=dists, meta=meta)
 
-    # --- forward requirement as of t0, the consumption stream --------------------------
+
+def forward_requirement(world, t0, sub, W, return_meta=False):
+    """part_demand_weekly's forward gross requirement p50 as of t0, [P, W]. NOT a demand head -- none exists."""
+    D = WORLDS[world]
     pdw = pd.read_csv(f"{D}/part_demand_weekly.csv",
-                      usecols=["part_id", "plant_id", "week_start", "as_of_date",
-                               "gross_requirement_p50"])
+                      usecols=["part_id", "plant_id", "week_start", "as_of_date", "gross_requirement_p50"])
     pdw = pdw[pd.to_datetime(pdw.as_of_date) <= pd.Timestamp(t0)]
     assert_asof(pdw, "as_of_date", t0, "part_demand_weekly")
     latest = pdw.as_of_date.max()
     pdw = pdw[pdw.as_of_date == latest].sort_values("week_start")
-    meta["consumption"] = dict(source="part_demand_weekly.gross_requirement_p50",
-                               as_of_version=str(latest), note="no demand head exists in the "
-                               "shipped set; inventing one would fabricate an input")
-
-    Pn = len(sub)
-    cons = np.zeros((Pn, W, N), np.float32)
     req = pdw.set_index(["part_id", "plant_id"]).groupby(level=[0, 1])["gross_requirement_p50"].apply(list)
+    out = np.zeros((len(sub), W), np.float32)
     for i, (pid, pl) in enumerate(zip(sub.part_id, sub.plant_id)):
         v = req.get((pid, pl), [])
-        base = np.array((list(v) + [0.0] * W)[:W], np.float32)
-        cons[i] = base[:, None] * rng.uniform(0.85, 1.15, (W, N)).astype(np.float32)
+        out[i] = np.array((list(v) + [0.0] * W)[:W], np.float32)
+    meta = dict(source="part_demand_weekly.gross_requirement_p50", as_of_version=str(latest),
+                note="no demand head exists in the shipped set; inventing one would fabricate an input")
+    return (out, meta) if return_meta else out
 
-    # --- arrivals: sample a week from the hazard head, a fill from the CDF head ---------
+
+def _channels_of(chans, cidx):
+    # An orphan part-plant carries NaN, not an empty list, because the mapping is built by a reindex. It must be
+    # treated as "no channels" and carried with zero arrivals, never skipped (D.5).
+    chl = chans if isinstance(chans, (list, tuple, np.ndarray)) else []
+    return [cidx[c] for c in chl if c in cidx]
+
+
+def fill_by_part_plant(heads, sub):
+    """Mean recalibrated 22-cell fill distribution over each part-plant's channels; orphans get the global mean
+    (they receive nothing, so it is never used for them)."""
+    d = heads["dists"]["fill_rate"]
+    P22 = np.asarray(d["P"], float)
+    g = P22.mean(0); g /= g.sum()
+    out = np.tile(g, (len(sub), 1))
+    n_orphan = 0
+    for i, chans in enumerate(sub.channels):
+        cl = _channels_of(chans, d["cidx"])
+        if cl:
+            pf = P22[cl].mean(0); out[i] = pf / pf.sum()
+        else:
+            n_orphan += 1
+    return out, dict(orphans=n_orphan)
+
+
+def draw_from_heads(world, t0, sub, W, N, rng):
+    """THE PHASE 9.1 PLACEHOLDER, kept so Phase 11C's 5.29x can be reproduced. Superseded by ml/opt/order_policy.py.
+
+    Arrival: one lump order of 'roughly the horizon's requirement' per part-plant, its week sampled from the hazard
+    head (weeks from the SNAPSHOT, not from an order), its fill from the CDF head. No open pipeline. Consumption:
+    plan x uniform(0.85, 1.15). Every one of these is a known defect (reports/part2/phase-12.md deviations 93-95).
+    """
+    meta = {}
+    heads = read_heads(world, t0)
+    dists = heads["dists"]; meta.update(heads["meta"])
+    base_all, meta["consumption"] = forward_requirement(world, t0, sub, W, return_meta=True)
+    Pn = len(sub)
+    cons = np.zeros((Pn, W, N), np.float32)
+    for i in range(Pn):
+        cons[i] = base_all[i][:, None] * rng.uniform(0.85, 1.15, (W, N)).astype(np.float32)
     arr = np.zeros((Pn, W, N), np.float32)
     ordered = cons.mean(2).sum(1)            # order roughly the horizon's requirement
     if "arrival_week" in dists and "fill_rate" in dists:
         P13 = np.asarray(dists["arrival_week"]["P"], float)
         P22 = np.asarray(dists["fill_rate"]["P"], float)
         cidx = dists["arrival_week"]["cidx"]
-        fill_mid = np.concatenate([[0.0], np.linspace(0.025, 0.975, 20), [1.0]])
         for i, chans in enumerate(sub.channels):
-            # An orphan part-plant carries NaN, not an empty list, because the mapping is built
-            # by a reindex. It must be treated as "no channels" and carried with zero arrivals,
-            # never skipped -- dropping it would remove its shortage from the totals (D.5).
-            chl = chans if isinstance(chans, (list, tuple, np.ndarray)) else []
-            cl = [cidx[c] for c in chl if c in cidx]
+            cl = _channels_of(chans, cidx)
             if not cl:
                 continue                      # orphan part-plant: no channel, no arrivals
             pw_ = P13[cl].mean(0); pw_ = pw_ / pw_.sum()
             pf = P22[cl].mean(0); pf = pf / pf.sum()
             wk = rng.choice(len(pw_), size=N, p=pw_)
-            fr = fill_mid[rng.choice(len(pf), size=N, p=pf)]
+            fr = FILL_MID[rng.choice(len(pf), size=N, p=pf)]
             qty = ordered[i] * fr
             ok = wk < W
             arr[i, wk[ok], np.arange(N)[ok]] += qty[ok].astype(np.float32)
@@ -259,7 +286,7 @@ def draw_from_heads(world, t0, sub, W, N, rng):
 
 
 # ------------------------------------------------------------------ D.1 full grid
-def run_all_snapshots(a, pp, sub, R):
+def run_all_snapshots(a, pp, sub, R, draw=None):
     """Every snapshot in the window, all part-plants, N paths. This is D.1's full grid."""
     D = WORLDS[a.world]
     snaps = pd.read_csv(f"{D}/snapshots.csv", usecols=["as_of_ts"])["as_of_ts"].tolist()
@@ -278,7 +305,10 @@ def run_all_snapshots(a, pp, sub, R):
         op = opening_position(a.world, s, sub)
         I0 = op["qty_on_hand"].fillna(0).to_numpy(float)
         safety = op["safety_stock_qty"].fillna(1).to_numpy(float)
-        arr, cons, _ = draw_from_heads(a.world, s, sub, HORIZON_WEEKS, a.paths, rng)
+        if draw is None:
+            arr, cons, _ = draw_from_heads(a.world, s, sub, HORIZON_WEEKS, a.paths, rng)
+        else:
+            arr, cons, _ = draw(a.world, s, sub, HORIZON_WEEKS, a.paths, rng, op)
         _, short = roll_forward(I0, arr, cons, safety)
         tot = float(short.sum())
         per.append(dict(snapshot=str(s.date()), seconds=round(time.time() - t, 2),
@@ -314,6 +344,8 @@ def main():
     ap.add_argument("--json", default=None)
     ap.add_argument("--all-snapshots", action="store_true",
                     help="D.1: run every snapshot in the fit window, not just --t0")
+    ap.add_argument("--policy", default="rop", choices=["placeholder", "rop", "ss"],
+                    help="order policy for the grid: ml/opt/order_policy.py (rop/ss) or the Phase 9.1 placeholder")
     ap.add_argument("--snapshot-window", default=None,
                     help="restrict --all-snapshots to snapshots in LO:HI (e.g. 2025-01-01:2025-12-31)")
     a = ap.parse_args()
@@ -392,7 +424,12 @@ def main():
           f"{(roll_full+infer_per_snap)*FULL_SNAP/60:.1f} min")
 
     if a.all_snapshots:
-        run_all_snapshots(a, pp, sub, R)
+        draw = None
+        if a.policy != "placeholder":
+            import order_policy as OP                      # THE order policy -- no ordering logic lives here
+            draw = OP.make_draw(a.policy)
+        R["policy"] = a.policy
+        run_all_snapshots(a, pp, sub, R, draw=draw)
 
     print("\nD.5  Phase 9.2 copula NOT started.")
     if a.json:
