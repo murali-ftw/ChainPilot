@@ -9,8 +9,9 @@ Selection on validation only. No training in Wave A.
 **Path note:** the brief names `reports/part2/observation1.md`; it exists at `results/observation1.md`
 (untracked). It was read there and not moved.
 
-**Status of this document: WAVE A ONLY.** The brief requires a report at the Wave A boundary before
-Wave B starts. §3–§5 are placeholders until Waves B and C run.
+**Status of this document: WAVES A AND B — AT THE HARD CHECKPOINT.** Wave A was reported at its
+boundary (commit `4ef6f51`). Wave B follows in §3. Wave C has **not** started. The brief makes it
+conditional on B2's ratio, and that decision is §3.3's.
 
 ---
 
@@ -24,8 +25,12 @@ Wave B starts. §3–§5 are placeholders until Waves B and C run.
 | **A4 — Test 5.1** price_weight = 0 | **BUILT. Invariance to the shortage cost PROVED on data** (0 of 183 part-plants change winner across 100 → 10,000; the same check flags 38 at weight 1). **The unlock is small** | quotable rises **25% → 31.7%** on v6/v7 (3 seeds) and **4.8% → 9.5%** on v8 (5 seeds), but **actionable** recommendations barely move: **17.5% → 19.2%** (v6/v7), **3.2% → 7.9%** (v8) |
 | **A5 — one order policy** | **SPECIFIED**, with three corrections to the brief's rule, each measured | the brief's trigger double-counts lead-time demand (ROP − SS is **1.6–2.3×** planning-lead demand); the hazard head's T is **not** a lead time; the simulation omits an open pipeline that already covers **0.55–1.03×** the 13-week requirement |
 
+| **B1 — Test 3.1** (conformal widening, v6/v7) | **FAILS, and the premise does not hold.** CQR hits nominal on its own window (16/16) and makes the next window **worse** for h⁴ (in band 9 → **5** of 16). ρ does not move | ρ(P90 exceedance, level gap) **0.65 → 0.65** (h⁴), 0.80 → 0.80 (h⁰), 0.83 → 0.83 (B5). The median lags the level: P50 moves **51–74%** of the label shift, and that lag explains post-CQR exceedance at **Spearman 0.96** |
+| **B2 — the order policy** | **BUILT, WIRED INTO BOTH CONSUMERS, VALIDATED ON OBSERVED 2025 OUTCOMES. The ratio closes most of the way; it is NOT calibrated** | part-plant-weeks below SS **5.29× → 1.475× [1.464, 1.487]** (5 fill-head seeds); replacement **82.5% → 100.3%**; shortfall when short 564 → 298 against 91 observed. The residual points at **inter-plant transfers**, which the simulation omits (20% of consumption flows) |
+
 **C1 and C2 are both cancelled by their gates. C3 runs regardless** (Wave C). C4 is replaced by
-A2.4's proposals.
+A2.4's proposals. **Wave C has not started:** B2's ratio did not reach 1.0, so the brief's checkpoint
+applies (§3.3).
 
 Three items found in Wave A change earlier reports' numbers, not only this phase's:
 
@@ -511,17 +516,256 @@ comparison. An optimiser's schedule would not be.
 
 ## 3. Wave B
 
-*Not started. Wave A reported first, per the brief.*
+### 3.1 B1 — conformalised quantile regression on capacity intervals (v6/v7)
 
-- **B1** (v6/v7, conformal widening): unchanged from the brief.
-- **B2** (order policy): builds §2.5's specification, not the brief's A5.2 as written. Three things
-  change: the trigger comparator (ROP with IP, or SS with the P90 lead), the lead-time re-anchoring
-  gate, and the open pipeline with its identity gate. The observed-outcome metric (B2.3) is
-  unchanged.
+`ml/eval/phase12_b1_conformal.py` → `ml/artifacts/phase12_b1.json`, commit `9da7933`, clean.
+No training: stored predictions from the Phase 8 backtest bundles.
+
+**B1.1 — the method, fixed before any result.** CQR (Romano, Patterson & Candès 2019), with
+`E_i = max(q_lo − y, y − q_hi)` and `Q̂` = the ⌈(n+1)(1−α)⌉-th smallest, applied as `[q_lo − Q̂, q_hi + Q̂]`.
+**α = 0.20** (the P10–P90 interval). **Calibration window: the origin's own 12-month validation
+slice**, which ends the day before the evaluation half-year begins. A trailing 6-month sub-window and
+a width-normalised CQR (E / (q_hi − q_lo)) are pre-declared **sensitivities**. Nothing is selected on
+the evaluation window.
+
+The finite-sample guarantee requires calibration and evaluation rows to be **exchangeable**. Phase 8
+§8D.4 is the evidence that they are not whenever utilisation shifts. Two further caveats apply on the
+own window: rows are correlated (supplier-months recur across snapshots), and the validation slice
+also chose the early-stopping epoch.
+
+**B1.2 — P50 is byte-identical**, asserted on every seed of every arm and cell, validation and
+evaluation. The assertion **fires** on a 10⁻¹² change to a single P50.
+
+**The implementation is shown correct before the result is read.** Split each calibration window at
+random, calibrate on one half and cover the other. That gives **0.797–0.805 in all 48 arm-cells**
+(exchangeable data, as the guarantee predicts). At α = 0.5 the same check gives 0.495–0.509. So the
+procedure is sound. What fails below is its premise.
+
+**Seeds.** h⁴ is at **5 seeds in 4 cells** (v6 o3, o4, o7; v7 o3) and **3 seeds in the other 12**,
+the only bundles that exist. h⁰ is at **3** everywhere and B5 at **5** fits everywhere. Taking h⁴ to
+five everywhere would need about 26 training runs (≈5 h), above B1's 3 h ceiling. **Every figure below
+is the seed mean; the h⁴ rows at three seeds are the twelve not listed above.**
+
+**B1.3 / B1.5 — 80% coverage per window, band 0.80 ± 0.02 = [0.78, 0.82], pass ≥ 14 of 16 on the NEXT window.**
+
+| world | origin | h⁴ seeds | raw, next window | **CQR, own window** | **CQR, next window** [seed range] | Q̂ | level gap (eval − calib) |
+|---|---|---|---|---|---|---|---|
+| v6 | 1 | 3 | 0.807 | 0.800 | 0.834 [0.829, 0.843] | +0.012 | −0.029 |
+| v6 | 2 | 3 | 0.800 | 0.800 | **0.807** [0.803, 0.811] | +0.003 | −0.012 |
+| v6 | 3 | 5 | 0.789 | 0.800 | 0.776 [0.749, 0.806] | −0.005 | −0.089 |
+| v6 | 4 | 5 | 0.768 | 0.800 | 0.777 [0.761, 0.804] | +0.003 | −0.008 |
+| v6 | 5 | 3 | 0.718 | 0.800 | 0.774 [0.773, 0.776] | +0.017 | −0.006 |
+| v6 | 6 | 3 | 0.806 | 0.800 | 0.829 [0.818, 0.839] | +0.010 | +0.085 |
+| v6 | 7 | 5 | 0.761 | 0.800 | 0.770 [0.746, 0.790] | +0.004 | +0.040 |
+| v6 | 8 | 3 | 0.770 | 0.800 | 0.779 [0.769, 0.787] | +0.005 | +0.073 |
+| v7 | 1 | 3 | 0.804 | 0.800 | 0.821 [0.814, 0.831] | +0.011 | −0.042 |
+| v7 | 2 | 3 | 0.798 | 0.800 | **0.818** [0.805, 0.833] | +0.013 | +0.037 |
+| v7 | 3 | 5 | 0.751 | 0.800 | 0.754 [0.735, 0.764] | +0.001 | −0.192 |
+| v7 | 4 | 3 | 0.735 | 0.800 | 0.759 [0.731, 0.787] | +0.010 | −0.022 |
+| v7 | 5 | 3 | 0.800 | 0.800 | **0.786** [0.780, 0.790] | −0.007 | −0.022 |
+| v7 | 6 | 3 | 0.808 | 0.800 | **0.818** [0.815, 0.823] | +0.006 | +0.200 |
+| v7 | 7 | 3 | 0.744 | 0.800 | 0.767 [0.762, 0.774] | +0.016 | +0.050 |
+| v7 | 8 | 3 | 0.783 | 0.800 | **0.781** [0.759, 0.793] | −0.001 | +0.116 |
+
+| arm (seeds) | in band, raw | in band, **own** window | **in band, NEXT window** | below / above band | 6-month window | width-normalised | **pass (≥ 14)** |
+|---|---|---|---|---|---|---|---|
+| **h⁴** (3–5) | 9 | 16 | **5** | 8 / 3 | 7 | 5 | **FAIL** |
+| h⁰ (3) | 12 | 16 | **11** | 2 / 3 | 10 | 11 | **FAIL** |
+| B5 (5) | 7 | 16 | **9** | 3 / 4 | 7 | 9 | **FAIL** |
+
+**On its own window CQR is at 0.800 in 48 of 48 arm-cells, by construction** (B1.5). That is not
+counted. **On the next window it fails for every model class.** For h⁴ it is worse than doing
+nothing (9 → 5 in band): Q̂ is tiny (−0.007 to +0.017) and overshoots in low-level windows as often
+as it helps in high-level ones.
+
+**B1.4 — ρ between P90 exceedance and the level gap** (Spearman over 16 windows, seed means):
+
+| arm | raw | CQR (12-month) | CQR (6-month) | width-normalised |
+|---|---|---|---|---|
+| h⁴ | +0.653 (p = 0.006) | **+0.650** (0.006) | +0.694 (0.003) | +0.641 (0.007) |
+| h⁰ | +0.797 (< 0.001) | **+0.803** (< 0.001) | +0.850 | +0.803 |
+| B5 | +0.832 (< 0.001) | **+0.826** (< 0.001) | +0.829 | +0.821 |
+
+The raw column **reproduces Phase 8 §8D.4's validation→evaluation shift correlations exactly**
+(h⁴ +0.65, h⁰ +0.80, B5 +0.83), which is the check that the level-gap variable is the same one.
+**ρ does not fall at all.** This is not even the cosmetic outcome B1.4 warned about, because coverage
+did not improve either.
+
+**B1.6 — premise re-checked (well inside the 3 h ceiling).** The brief's premise is that the
+intervals are too narrow and widening fixes them. Measured on the same 16 windows:
+
+| | h⁴ | h⁰ | B5 |
+|---|---|---|---|
+| correlation, model's own P50 shift (eval − calib) vs the realised label shift | 0.72 | 0.82 | 0.90 |
+| **slope: P50 moves this fraction of the level shift** | **0.51** | **0.74** | **0.65** |
+| P50 bias on the evaluation window vs level gap (slope) | −0.60 | −0.57 | −0.34 |
+| **Spearman, post-CQR P90 exceedance vs P50 evaluation bias** | **0.96** | **0.91** | **0.76** |
+
+**The intervals are not too narrow; they are in the wrong place.** Every model's median follows a
+level shift only halfway, so when utilisation rises the whole interval sits low. P90 exceedance is
+then almost entirely the median's lag (ρ = 0.96 for h⁴). A widening calibrated on the previous level
+cannot anticipate a shift it has not seen, and B1.2 forbids moving the median. **Interval-only
+conformal widening cannot pass this test on this data.** The fix belongs in level tracking: refit the
+quantile heads on a trailing window, which is observation 1 §4.5's alternative (b), or add an
+explicit level term to the median. Both retrain the median, so both are out of B1's scope. Proposed,
+not built (deviation 98).
+
+### 3.2 B2 — the order policy, built and validated
+
+**Code.** `ml/opt/order_policy.py` is the single policy. `ml/sim/montecarlo.py` (refactored:
+`read_heads`, `forward_requirement` and `fill_by_part_plant` are now shared; the Phase 9.1 placeholder
+is kept, labelled, only to reproduce 11C) and `ml/opt/schedule_lp.py` (`mode="policy"`) both import it.
+`ml/tests/test_single_order_policy.py` **passes, and FIRES** when a reorder-point reference is injected
+into `schedule_lp.py` or the placeholder heuristic is copied outside its sanctioned function.
+Validation harness: `ml/sim/phase12_b2_validate.py` (commit `077a779`; five-seed arms `9e2d59d`).
+
+#### The comparison had to be rebuilt first (deviation 99)
+
+11C Stage D.3's comparison script was **never committed**; its numbers existed only in the report.
+The harness rebuilds it, and the unchanged placeholder must reproduce it before anything else is
+believed:
+
+| | Phase 11C reported | **rebuilt, placeholder** |
+|---|---|---|
+| simulated part-plant-weeks below SS (9 snapshots × 200 paths) | 44.36% [33.25, 55.53] | **44.35% [33.26, 55.52]** |
+| observed, 2025 store, on hand < SS | 8.38% | **8.38%** (219,024 part-plant-weeks) |
+| ratio | 5.29× | **5.29×** |
+| simulated mean shortfall when short | 564 | **564** |
+| replacement, arrivals / consumption | 85.4% | **85.4% on the first snapshot; 82.5% over all nine** |
+
+It reproduces. 11C's 85.4% is the 2025-01-06 snapshot alone; 82.5% is the nine-snapshot figure and
+is used below. After the `montecarlo` refactor the placeholder still gives 44.348% (to ≈10⁻⁸).
+
+**The reference, stated precisely.** "Observed" is the 2025 store's `qty_on_hand < safety_stock_qty`,
+the same quantity the simulation's I₀ and roll-forward represent. Using `qty_available` gives 15.84%,
+but that nets reservations the simulation does not model, so it is not like-for-like. A
+**horizon-matched** reference (the 13 weeks each snapshot projects) is also reported: 8.00%.
+
+#### The gates, each shown capable of failing
+
+| gate | on the real input | on the constructed failure |
+|---|---|---|
+| **9.1 identity** (B2.2), full scale | correct replay: **0 mismatched, PASS** | one unit wrong in one row: **FIRES (1)**; scrap netted: FIRES (1,971,853); opening omitted: FIRES (1,971,853); SS in place of level: FIRES (1,978,220) |
+| **lead gate** (A5): median within ±1 wk of the as-of empirical lead for ≥ 80% of part-plants, validation snapshot 2024-06-10 | empirical median **4 wk** | raw hazard T: **0.0% within, FIRES** (median 12 wk); **re-anchored T − 4.571: 1.9% within, also FAILS** |
+| **pipeline identity** (simulated pipeline at t0 = store `open_po_qty`, per part-plant) | passes on every block of every snapshot | fires if a part-plant's pipeline is dropped |
+| **two ledgers**: `montecarlo.roll_forward` on the policy's arrivals must reproduce the policy loop's positions | holds (atol 10⁻²) on every block | — |
+| **single policy** (A5.1) | PASS | FIRES on injected logic |
+| **schedule timing**: no receipt outside `order_policy`'s weeks | 0 of 200 part-plants | **FIRES** with the timing constraint removed |
+
+**Two corrections to the Wave A specification, both forced by data:**
+
+- **The hazard head cannot supply a lead-from-order, even re-anchored** (deviation 101). Its median is
+  12 weeks from the snapshot, against an empirical lead of 4, and subtracting the lateness offset
+  leaves only 1.9% of part-plants within a week. The simulation therefore uses the **as-of empirical
+  lead distribution**: full pmf, receipts recorded ≤ t0, trailing 104 weeks, per part-plant, shrunk to
+  the global pmf below 20 receipts. That was A5's fallback. It is now the only admissible source.
+- **The line-level pipeline cannot reproduce the store** (deviation 100). About 2% of PO lines close
+  with **zero** delivery and write **no GRN row at all**: there are 0 zero-quantity GRN rows among
+  1,029,846. So an old unreceived line is indistinguishable, as-of, from a pending one. Unrestricted,
+  the reconstruction totals 8.3 M against the store's 4.1 M; restricted to lines ≤ 26 weeks old, it
+  is 3.96 M, with 65% of part-plants exact at 2025-06-23. The pipeline **total** comes from the as-of
+  store. **Timing** comes from each part-plant's recent unreceived lines, drawn from P(L = a + k | L > a).
+
+#### B2.3 / B2.4 — the result, against held-out 2025 observed outcomes
+
+v8, all 4,212–4,340 part-plants, nine 2025 snapshots, 200 paths. Consumption is the plan ×
+N(1, **0.1265**), which is B2.5's measured dispersion. **It still represents PLAN error, not demand
+uncertainty: no demand head exists.** Fill is drawn from the neural fill head, as in 11C.
+
+| arm | below SS | **ratio vs 8.38%** | horizon-matched | per-snapshot ratio | replacement | shortfall when short | orders / pp / 13 wk |
+|---|---|---|---|---|---|---|---|
+| placeholder (11C) | 44.35% | **5.29×** | 5.54× | 3.56–10.56 | 82.5% | 564 | 1 lump |
+| policy, no pipeline | 23.30% | 2.78× | 2.91× | 1.99–4.77 | 92.5% | 377 | 5.4 |
+| **policy, ROP form (primary)** | **12.47%** | **1.49×** | 1.56× | **1.14–2.11** | **100.3%** | **298** | 4.1 |
+| policy, SS form (sensitivity) | 12.98% | 1.55× | 1.62× | 1.16–2.47 | 92.6% | 299 | 3.6 |
+| *observed, 2025 store* | *8.38% (8.00% horizon-matched)* | | | | *receipts / issue 101.2%* | *91* | |
+
+**Five fill-head seeds** (B2 primary arm; the arrival head no longer enters the simulation):
+
+| fill seed | 7 | 17 | 27 | 37 | 47 | **band** |
+|---|---|---|---|---|---|---|
+| below SS | 12.47% | 12.27% | 12.28% | 12.45% | 12.35% | **[12.27%, 12.47%]** |
+| ratio | 1.487 | 1.464 | 1.465 | 1.485 | 1.472 | **1.475× [1.464, 1.487]** |
+
+**Attribution** (each step is a measured arm):
+
+- **5.29× → 2.78×:** order rule + lead-from-order + widened jitter.
+- **2.78× → 1.49×:** the open pipeline at t0.
+- On a log scale the policy closes **77%** of the gap to 1.0.
+- Replacement moves from 82.5% to **100.3%**, against the store's receipts/issue of 101.2%. **The
+  horizon no longer drains by construction.** That was 11C's proximate cause, and it is gone.
+- Shortfall when short falls 564 → 298 against an observed 91. The **magnitude is still 3.3× over**,
+  worse than the frequency.
+
+**B2.2 — the full grid under the policy.** 4,340 part-plants × 61 snapshots (2019–2025) × 13 weeks ×
+1,000 paths = **3,441,620,000 cells in 11.67 min**, against 5.16 min for the placeholder. The policy
+loop is the cost. The 9.1 gate passes and all five failures fire at full scale. The 113 orphan
+part-plants are carried with zero arrivals: 0.042% of projected shortfall.
+(`ml/artifacts/phase12_b2_fullgrid.json`, commit `9e2d59d`, clean. `montecarlo.main`'s D.1/D.4
+subset-timing block still exercises the placeholder; only the grid uses `--policy`, see deviation 103.)
+
+**B2.6 — `schedule_lp.py` on the same module.** `mode="policy"`, v8, t0 = 2025-06-23, 200 random
+part-plants:
+
+- **Timing from `order_policy.receipt_plan`.** The expected path from the as-of opening level and
+  pipeline, with receipts at placement + median lead.
+- **The MILP owns only lot multiples, MOQ, capacity and a penalised safety-stock floor.**
+- **200 of 200 solved; 175 receive at least one order; 0 receipts outside the policy's weeks.**
+- **43 of 200 cannot hold safety stock at the policy's timing.** Their slack is reported, not hidden.
+- **The MILP batches to a median 0.59× the policy's own order-up-to quantity.** It buys only what the
+  13-week floor needs, because it has no end-of-horizon target.
+- **This is a FEASIBLE schedule, not an OPTIMAL one** (A5.3). There is still no holding or ordering
+  cost.
+
+#### B2.7 — verdict: the ratio closes most of the way; this is NOT yet a calibrated forecast
+
+**5.29× → 1.475× [1.464, 1.487]**, disjoint from 1.0 on every seed and above 1.0 on every one of the
+nine snapshots (1.14–2.11). The first calibrated forecast in the project **has not been reached**.
+
+**What the residual implicates**, measured in the held-out 2025 ledger over the same horizons
+(`ml/sim/phase12_b2_residual.py`, commit `9e2d59d`):
+
+| flow per part-plant per 13-week horizon | observed 2025 | simulation |
+|---|---|---|
+| consumption (issue to production) | 1,485 | 1,542 (the plan): **+3.8%** |
+| supplier receipts | 1,503 | 1,547: +2.9% |
+| **inter-plant transfers IN** | **301 (20% of consumption)** | **0: not modelled** |
+| inter-plant transfers OUT | 292 | 0 |
+| expedited quantity | 10.5 | 0 |
+| **part-plant-weeks above SS only because of that week's transfer-in** | **2.7%** | — |
+| observed below SS if that week's transfer-in is removed | **≥ 10.7%** | 12.5% |
+
+1. **Inter-plant transfers (primary).** Net transfer is small (+9.6 per part-plant), but the gross
+   flow is 20% of consumption, and generator §4 sends it from surplus plants **to short ones**. It is
+   a replenishment path aimed exactly at the part-plant-weeks this metric counts. Removing only the
+   same-week transfers already lifts observed below-SS to ≥ 10.7%, i.e. a ratio **≤ 1.16×**. Earlier
+   weeks' transfers help too, so that bound is loose.
+2. **Plan above actual consumption by 3.8%.** The plan is the only consumption input, and no demand
+   head exists.
+3. **The magnitude gap (3.3×) is consistent with (1).** Transfers top up the deepest shortfalls first.
+
+**This is a more informative failure than 11C's**, as B2.7 anticipated. The drain is gone. What
+remains is a named mechanism the data carries (`inventory_transactions.transfer_in/out`), not a
+placeholder.
+
+### 3.3 The hard checkpoint
+
+The brief: *"If B2's ratio does not close, Wave C is deprioritised."* It closed from 5.29× to 1.48×
+but not to 1.0. **Wave C has not been started, and the decision is yours.** My recommendation:
+
+1. **Next: model inter-plant transfers in `order_policy`** as a rebalancing step from as-of surplus
+   (on hand above 1.25 × SS, the generator's own threshold) to short part-plants of the same part.
+   Then re-validate. It is estimated at 2–3 h. It is the only item whose expected effect is known to
+   be large (≤ 1.16× from the same-week bound alone). The same run should carry the 3.8% plan bias as
+   a stated residual.
+2. **C3 (part-relation ablation, ≈2.5 h)** is independent of B2 and can run in parallel on the other
+   queue. Its ceiling is the 0.004-scale headroom. It is worth running because it is cheap and fully
+   specified, not because it moves anything a planner reads.
+3. **C1 and C2 stay cancelled** (§2.1, §2.2).
 
 ## 4. Wave C
 
-*Not started.* **C3 runs** per §2.3's specification. **C1 is cancelled** (§2.1) and **C2 is
+*Not started — held at the hard checkpoint (§3.3).* **C3 runs** per §2.3's specification when released. **C1 is cancelled** (§2.1) and **C2 is
 cancelled** (§2.2). **C4 is replaced** by A2.4's proposals (§2.2), which are not built in this phase.
 
 ## 5. Proposed ship-table changes — PROPOSALS; `shipped.json` untouched
@@ -532,7 +776,9 @@ From Wave A only:
 |---|---|
 | fill_rate | **no model change.** Build the b5flat22 serving loader (A2.4 option 3, deviation 46) so the configuration describes what runs. The interior reparameterisation is a next-phase build |
 | allocation (not in `shipped.json`) | if allocation is shown at all, show it at **price_weight = 0** with the label "most reliable supplier — price not weighted in this decision". Quote only deduplicated, band-surviving recommendations, and the strain-P90 caveat travels with every row. **Do not show v8 allocation** until the qualification-constraint semantics (deviation 91) are settled |
-| arrival_week, capacity_strain | unchanged by Wave A |
+| arrival_week | unchanged |
+| capacity_strain | **unchanged, and the interval caveat now has a mechanism:** the median tracks only 51–74% of a level shift, and interval-only conformal widening does not fix coverage on the next window (B1). "Do not quote a capacity interval" stands. Proposed next: refit the quantile heads on a trailing window (retrains the median) |
+| shortage_qty (simulation) | **not shipped.** It moved from "unusable (5.29×)" to "over-projects 1.48× [1.46, 1.49], mechanism named". No quantity from it is quotable until the transfer path is modelled and the ratio re-validated. If a figure is shown internally it carries: ratio 1.48×, plan-error-only intervals, transfers not modelled |
 
 ## 6. Deviations and open items
 
@@ -554,7 +800,15 @@ From Wave A only:
 | **96** | `part_plant.reorder_point_qty` is a static policy parameter effective from 2016 | it is the generator's **end-of-run** ROP (`generator_v8.py:1675`), a snapshot of a weekly-varying policy stamped `effective_from 2016-01-01` — a later value presented as an early one for any t0 before 2025 | §2.5 |
 | **97** | A2's month decomposition sums exactly to E | **it did not on the first run**: float32 means broke the 10⁻⁹ identity check. The check fired and the decomposition now runs in float64. Recorded because the check is what caught it | §2.2 |
 
-### 6.2 Open items (Wave A)
+| **98** | observation 1 §4.5: conformal widening keyed to recent drift is "the one deferred model change whose premise still holds" | **the premise does not hold.** CQR is exact on its own window (48/48) and fails on the next for every class (h⁴ 5/16, h⁰ 11/16, B5 9/16 in [0.78, 0.82]); ρ unchanged (0.65 / 0.80 / 0.83). Each model's P50 follows only **51–74%** of a level shift, and that lag explains post-CQR exceedance at Spearman 0.96 (h⁴). The fault is the median's level tracking, which an interval-only method may not touch | §3.1 |
+| **99** | Phase 11C D.3's 44.36% / 8.38% / 5.29× / 85.4% | **the script that produced them was never committed.** Rebuilt; reproduces 44.35% [33.26, 55.52], 8.38%, 5.29×, 564. **85.4% is the first snapshot's replacement rate**; over all nine it is 82.5% | §3.2 |
+| **100** | A5's pipeline identity: Σ unreceived line quantity = `open_po_qty` | **unattainable line by line:** ~2% of PO lines close with zero delivery and write no GRN (0 zero-quantity rows in 1,029,846), so they look open forever. The total comes from the as-of store; timing from recent unreceived lines. The identity gate is re-pointed at the simulated total, and it can still fail | §3.2 |
+| **101** | A5: the hazard curve, re-anchored by the lateness offset, can be the lead-from-order | **it cannot.** Re-anchored T is within ±1 wk of the empirical lead for 1.9% of part-plants (raw T: 0.0%; median 12 wk vs 4). The simulation's lead is the as-of empirical pmf | §3.2 |
+| **102** | observation 1 §6.1: "the board, the dice and the scorekeeping are all correct. One player instruction is wrong" | **three instructions were wrong** (the trigger/quantity, the lead definition, the missing pipeline) **and one mechanism is missing**: inter-plant transfers, 20% of consumption flows, aimed at short part-plants. With the three fixed the ratio is 1.48×; the transfers are the named residual | §3.2 |
+| **103** | `montecarlo.py --policy rop` runs the policy end to end | **the grid does; the D.1/D.4 subset-timing block in `main()` still calls the placeholder `draw_from_heads`.** Its timing lines describe the placeholder. The grid and every validation number are the policy's | §3.2 |
+| **104** | Phase 11C: the full grid takes 5.16 min | under the policy it takes **11.67 min**: the endogenous order loop and the pipeline scheduling. Still minutes | §3.2 |
+
+### 6.2 Open items
 
 1. **Allocation's qualification semantics on v8** (deviation 91). Decide whether `alternate_sources`
    status applies to incumbents. Until then, no v8 allocation output is quotable.
@@ -567,10 +821,20 @@ From Wave A only:
    small. If a future metric scores arrival-week *level* rather than lateness ranking, revisit it.
    Under the adopted metric it is worth nothing measurable.
 6. `results/observation1.md` is untracked and sits outside `reports/`. Moving it is the owner's call.
+7. **Model inter-plant transfers** in `order_policy` and re-validate B2 (§3.3, item 1). This is the gate on
+   the first calibrated simulation.
+8. **The simulation's fill is the neural head**, while `shipped.json` names b5flat22 (deviation 46).
+   B2's five-seed band is over the neural head's seeds.
+9. **Capacity level tracking** (deviation 98): a trailing-window refit of the quantile heads, or a level
+   term in the median. It retrains the median, so it is a next-phase test.
+10. **h⁴ capacity backtest bundles are at 3 seeds in 12 of 16 cells.** B1's verdict does not depend on
+    them (it fails for every class, including B5 at five fits), but those rows are three-seed rows.
+11. **The magnitude gap** (298 simulated vs 91 observed shortfall when short) needs its own check after
+    transfers are modelled.
 
 ---
 
-## 7. Compliance (Wave A)
+## 7. Compliance (Waves A and B)
 
 - **`ml/configs/shipped.json` is unchanged.** Verified by an empty `git diff` on the file. §5 is
   proposals only.
@@ -599,6 +863,27 @@ From Wave A only:
   measure the open pipeline and the inventory position the trigger will use. That is the same
   sanctioned use the simulation already makes (B1 reconciled the store at 100.000000%). It was never
   read as a model feature, and never in A1–A4.
+- **Wave B additions.**
+  - **`shipped.json` is still unchanged.**
+  - **No assertion was weakened.** The 9.1 identity gate ran armed at full scale. The as-of assertions
+    in `montecarlo` (`assert_asof`) and in `order_policy` (lead history, line quantities, pipeline)
+    all require recorded ≤ t0 and a non-empty set.
+  - **Assertions added:** P50 byte-identity (B1); pipeline identity; the two-ledgers check; the lead
+    gate; the single-policy test; the schedule timing gate. **Each is shown firing in §3.1–§3.2.**
+  - **No learning rate retuned. No training ran in Wave B.** B1 is post-hoc on stored predictions; B2
+    runs inference on the shipped heads.
+  - **Seeds.** B1's h⁴ and h⁰ rows are at three seeds except the four h⁴ cells at five; B5 is at five.
+    **B2's headline ratio is at five fill-head seeds.**
+  - **Every Wave B artifact is stamped clean:** B1 `9da7933`; B2 validation `077a779`; seeds and
+    residual `9e2d59d`; the full grid ran at `9e2d59d` with a clean tree. The `montecarlo` CLI does
+    not stamp its JSON; the commit is recorded here.
+  - **`inventory_position_weekly` in Wave B** was read only by `montecarlo.opening_position` and
+    `run_gate` (opening level; the 9.1 reference), by `order_policy.Tables` / `pipeline` /
+    `receipt_plan` (`open_po_qty` and `qty_on_hand`, as-of t0, for the pipeline total and opening
+    level), and by `phase12_b2_validate.observed` (2025 weeks, as the **held-out evaluation
+    reference**). It is the store B1 reconciled at 100.000000%, and in none of these is it a model
+    feature. `inventory_transactions` and `expedite_events` were read by the residual diagnostic,
+    as evaluation references only.
 - **Protected paths untouched:** `db/gen_v6/**`, `db/gen_v7/**`, `db/gen_v8/**` (the generator was
   *read*, not modified), `db/validator.py`, `docs/specs/**`, `db/dataset_structure.md`, and every
   existing report.
