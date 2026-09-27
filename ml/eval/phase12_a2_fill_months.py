@@ -144,6 +144,57 @@ def falsify_detector(P, y, snap):
     return perm_null(P2, y, snap, B=300, seed=1)
 
 
+def falsify_flat(P, y, snap):
+    """...and must NOT fire when error is flat. Construct each row's prediction as its month's
+    OBSERVED cell frequency plus the fold-wide error vector, so every month carries exactly the same
+    error (clipped at 0 and renormalised, which perturbs it slightly). The statistic should sit at
+    or below the permutation null."""
+    P = np.asarray(P, np.float64)
+    mo = pd.to_datetime(snap).month.to_numpy()
+    p, o = cell_table(P, y)
+    cells = fill_cell(y)
+    P2 = np.empty_like(P)
+    for m in np.unique(mo):
+        k = mo == m
+        om = np.bincount(cells[k], minlength=K) / k.sum()
+        v = np.clip(om + (p - o), 0, None)
+        P2[k] = v / v.sum()
+    return perm_null(P2, y, snap, B=300, seed=2)
+
+
+def mass_normalised(P, y, snap, B=500, seed=3):
+    """Is the error concentrated BEYOND where the interior mass lives? Same statistic, but the flat
+    reference is each month's share of interior-labelled rows rather than of all rows."""
+    P = np.asarray(P, np.float64)
+    mo = pd.to_datetime(snap).month.to_numpy()
+    interior = (fill_cell(y) >= 1) & (fill_cell(y) <= 20)
+
+    def stat(month):
+        E, d = month_decomp(P, y, month)
+        ms = sorted(d)
+        ish = np.array([interior[month == m].sum() for m in ms], float); ish /= ish.sum()
+        return concentration([d[m]["contribution"] for m in ms], ish), d, ish
+
+    obs, d, ish = stat(mo)
+    rng = np.random.default_rng(seed)
+    snaps = np.unique(snap); tm = pd.to_datetime(snaps).month.to_numpy()
+    sidx = pd.Index(snaps).get_indexer(snap)
+    null = np.array([stat(rng.permutation(tm)[sidx])[0] for _ in range(B)])
+    ms = sorted(d)
+    return dict(stat=obs, null_mean=float(null.mean()), null_p95=float(np.quantile(null, 0.95)),
+                p_perm=float((null >= obs).mean()), B=B,
+                months={int(m): dict(interior_share_of_rows_in_month=float(interior[mo == m].mean()),
+                                     share_of_interior_rows=float(ish[i]),
+                                     share_of_E=float(d[m]["share_of_E"]),
+                                     error_density_ratio=float(d[m]["share_of_E"] / ish[i]))
+                        for i, m in enumerate(ms)})
+
+
+def per_cell(P, y):
+    p, o = cell_table(P, y)
+    return [dict(cell=int(c), pred=float(p[c]), obs=float(o[c]), diff=float(p[c] - o[c])) for c in range(K)]
+
+
 def main():
     st = C.require_clean()
     lb = P5.labels("v8", "fill_rate")
@@ -208,7 +259,10 @@ def main():
     nf = noise_floor(Pte, mo)
     for k in d:
         d[k].update(noise_floor_mean=nf[k]["mean"], noise_floor_p95=nf[k]["p95"], n_snapshots=1)
-    out["test"] = dict(E=E, months=d, perm=perm_null(Pte, yte, snap_te))
+    out["test"] = dict(E=E, months=d, perm="NOT COMPUTED: VACUOUS. Each 2025 month is exactly one snapshot with an "
+                       "equal row share, so reassigning snapshots to months only relabels them and the statistic is "
+                       "invariant (a first run returned null == observed to 1e-16). It cannot fire.",
+                       per_cell=per_cell(Pte, yte))
     # per-seed month profiles on train: is any month's share stable across seeds?
     prof = []
     for P in trainP:
@@ -218,6 +272,9 @@ def main():
     out["train"]["share_seed_range"] = {int(m): [float(prof[:, i].min()), float(prof[:, i].max())]
                                         for i, m in enumerate(sorted(dd))}
     out["falsification_one_month_injected"] = falsify_detector(Ptr, ytr, snap_tr)
+    out["falsification_flat_constructed"] = falsify_flat(Ptr, ytr, snap_tr)
+    out["train"]["mass_normalised"] = mass_normalised(Ptr, ytr, snap_tr)
+    out["train"]["per_cell"] = per_cell(Ptr, ytr)
     res["decomposition"] = out
     print(C.dump(res, "phase12_a2.json"))
 
