@@ -95,6 +95,68 @@ def shuffled_world(W: dict, seed: int, device):
     return V
 
 
+REL_NAMES = ("supplier", "part", "plant")
+
+
+def assert_relation_dropped(V: dict, W: dict, name: str):
+    """Phase 12 C3 -- falsifiable check that the ablation removed EXACTLY one relation.
+
+    Fires if any edge of the ablated relation (both directions) survives, if any OTHER relation lost or gained an
+    edge, or if the ablated relation's channel->entity map is still visible to the encoders. Shown firing on the real
+    graph, on a one-direction-only removal, and on a removal that also drops plant edges."""
+    j = REL_NAMES.index(name); R = len(REL_NAMES)
+    rel_v = V["graph"][2].cpu().numpy(); rel_w = W["graph"][2].cpu().numpy()
+    for r in range(2 * R):
+        nv, nw = int((rel_v == r).sum()), int((rel_w == r).sum())
+        if r in (j, j + R):
+            assert nv == 0, f"relation {name} (type {r}): {nv} edges survive the ablation"
+        else:
+            assert nv == nw, f"relation type {r}: {nw} -> {nv} edges -- the ablation touched a relation it must not"
+    assert V["rel_t"][j] is None, f"relation {name}: its channel->entity map is still visible to the encoders"
+    return dict(edges_before=int(len(rel_w)), edges_after=int(len(rel_v)), removed=int(len(rel_w) - len(rel_v)))
+
+
+def relation_dropped_world(W: dict, name: str, device):
+    """A SHALLOW COPY of W with one relation removed at FIXED depth and parameter shapes (Phase 12 A3.2).
+
+    The relation ids of the others are NOT re-indexed: SHARE-lite keeps its 6 W_r slices (the ablated two get no
+    gradient) and HeteroMP skips the ablated relation's up/down weights. Nominal parameter count is unchanged; the
+    effective difference is stated in the report (131,072 arrival, 16,640 capacity)."""
+    j = REL_NAMES.index(name); R = len(REL_NAMES)
+    src, dst, rel, n_nodes, offs = W["graph"]
+    keep = (rel != j) & (rel != j + R)
+    V = dict(W)
+    V["graph"] = (src[keep], dst[keep], rel[keep], n_nodes, offs)
+    V["rel_t"] = [None if k == j else t for k, t in enumerate(W["rel_t"])]
+    V["relation_dropped"] = name
+    V["relation_drop_stats"] = assert_relation_dropped(V, W, name)
+    return V
+
+
+def falsify_relation_drop(W: dict, name: str = "part"):
+    """Three constructed inputs the check must reject, and the real ablation it must accept."""
+    j = REL_NAMES.index(name); R = len(REL_NAMES)
+    src, dst, rel, n_nodes, offs = W["graph"]
+    out = {}
+    cases = {
+        "real graph, nothing dropped": dict(W, rel_t=[None if k == j else t for k, t in enumerate(W["rel_t"])]),
+        "only channel->part removed (one direction)": dict(W, graph=(src[rel != j], dst[rel != j], rel[rel != j], n_nodes, offs),
+                                                         rel_t=[None if k == j else t for k, t in enumerate(W["rel_t"])]),
+        "part AND plant removed": dict(W, graph=tuple(x[(rel != j) & (rel != j + R) & (rel != 2) & (rel != 2 + R)] for x in (src, dst, rel)) + (n_nodes, offs),
+                                       rel_t=[None if k == j else t for k, t in enumerate(W["rel_t"])]),
+        "edges removed but the map left visible": dict(W, graph=(src[(rel != j) & (rel != j + R)], dst[(rel != j) & (rel != j + R)],
+                                                                  rel[(rel != j) & (rel != j + R)], n_nodes, offs)),
+    }
+    for k, V in cases.items():
+        try:
+            assert_relation_dropped(V, W, name); out[k] = "DID NOT FIRE"
+        except AssertionError as e:
+            out[k] = f"FIRES: {str(e)[:90]}"
+    V = relation_dropped_world(W, name, None)
+    out["the real ablation"] = f"passes: {V['relation_drop_stats']}"
+    return out
+
+
 def shuffle_summary(stats) -> dict:
     return dict(
         relations=len(stats),

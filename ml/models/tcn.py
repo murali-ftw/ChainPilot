@@ -59,6 +59,8 @@ class HeteroMP(nn.Module):
         for r in range(self.rounds):
             msgs = []
             for j, (idx, n) in enumerate(zip(rel_index, rel_size)):
+                if idx is None:                   # Phase 12 C3: relation ablated -- its weights stay unused, no
+                    continue                      # re-indexing, so the other relations keep their own weights
                 m = self.up[r][j](hc)
                 agg = torch.zeros(n, m.shape[1], device=hc.device, dtype=hc.dtype)
                 agg.index_add_(0, idx, m)

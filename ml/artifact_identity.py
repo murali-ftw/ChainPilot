@@ -24,6 +24,8 @@ def config_name(cfg) -> str:
         name += "_rowfeat"                          # Phase 11 Stage 2: promise_week + line age as head inputs
     if cfg.get("graph_shuffle") is not None:
         name += f"_shuf{cfg['graph_shuffle']}"      # Phase 11A Stage 1: the shuffled-graph control arm
+    if cfg.get("drop_relation"):
+        name += f"_drop{cfg['drop_relation']}"      # Phase 12 C3: relation ablation at fixed depth
     return name
 
 
@@ -49,7 +51,7 @@ def index_key(cfg) -> str:
 def identity_of(cfg) -> dict:
     """The fields that make two artifacts the same artifact. A difference in any of them is a different artifact."""
     keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs",
-            "row_features", "graph_shuffle")
+            "row_features", "graph_shuffle", "drop_relation")
     return {k: cfg.get(k) for k in keys}
 
 

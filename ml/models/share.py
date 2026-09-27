@@ -105,6 +105,8 @@ class SHARE(nn.Module):
         h = torch.zeros(n_nodes, self.dim, device=hc.device, dtype=x.dtype)
         h[:NCH] = x
         for idx, off in zip(ent_of_chan, ent_offset):
+            if idx is None:                              # Phase 12 C3: ablated relation -- its nodes stay zero
+                continue
             n_ent = int(idx.max()) + 1
             agg = torch.zeros(n_ent, self.dim, device=hc.device, dtype=x.dtype)
             agg.index_add_(0, idx, x)
