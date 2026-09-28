@@ -72,6 +72,30 @@ def test_guard_write_adopts_unmanifested_files():
     assert man["legacy_test.npz"]["identity"] == AI.identity_of(FULL)
 
 
+def test_phase13_axes_separate_every_name():
+    """Phase 13 P2: arm, ratio key, estimator, shrinkage, use, calibration, seed, origin, world, truncation."""
+    base = dict(task="fill_rate", world="v8", origin=None, arch="none", depth=0, lr=0.000125, seed=7)
+    variants = [base, dict(base, fill_head="beta3"), dict(base, fill_head="wideatom"), dict(base, fill_head="reg"),
+                dict(base, ratio_key="ps"), dict(base, ratio_key="ps", ratio_est="mor"),
+                dict(base, ratio_key="ps", shrink=True), dict(base, ratio_key="hier", shrink=True),
+                dict(base, ratio_key="ps", ratio_use="alone"), dict(base, seed=17), dict(base, train_snapshots=18),
+                dict(base, world="v8s1002")]
+    names = [AI.bundle_path_key(c) for c in variants]
+    assert len(set(names)) == len(names), "two Phase 13 configurations share a bundle path"
+    AI.assert_unique(variants)
+    sc = [AI.score_name(dict(world="v8", task="fill_rate", split="test", arm="x", calib=c, seed=s))
+          for c in ("raw", "recal") for s in (7, 17)]
+    assert len(set(sc)) == 4, "raw and recal scores must never share a file"
+    markers = [AI.marker_name(c) for c in variants]
+    assert len(set(markers)) == len(markers), "completion markers must be a function of the full identity"
+    try:
+        AI.score_name(dict(world="v8", calib="recalibrated"))
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("an unrecognised calibration state must be refused")
+
+
 if __name__ == "__main__":
     n = 0
     for name, fn in sorted(globals().items()):

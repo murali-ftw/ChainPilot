@@ -26,6 +26,14 @@ def config_name(cfg) -> str:
         name += f"_shuf{cfg['graph_shuffle']}"      # Phase 11A Stage 1: the shuffled-graph control arm
     if cfg.get("drop_relation"):
         name += f"_drop{cfg['drop_relation']}"      # Phase 12 C3: relation ablation at fixed depth
+    # Phase 13: every axis that varies in the fill reparameterisation and the history-ratio features
+    if cfg.get("fill_head"):
+        name += f"_head{cfg['fill_head']}"          # F1 arm: cells22 | beta3 | wideatom | reg
+    if cfg.get("ratio_key"):
+        name += f"_rk{cfg['ratio_key']}"            # F2 key: ps | sp | psp | hier
+        name += f"_{cfg.get('ratio_est', 'ros')}"   # ratio_of_sums | mean_of_ratios
+        name += "_shrink" if cfg.get("shrink") else "_raw"
+        name += f"_use{cfg.get('ratio_use', 'input')}"   # alone | input | centre
     return name
 
 
@@ -51,7 +59,8 @@ def index_key(cfg) -> str:
 def identity_of(cfg) -> dict:
     """The fields that make two artifacts the same artifact. A difference in any of them is a different artifact."""
     keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs",
-            "row_features", "graph_shuffle", "drop_relation")
+            "row_features", "graph_shuffle", "drop_relation",
+            "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use")
     return {k: cfg.get(k) for k in keys}
 
 
@@ -96,3 +105,24 @@ def guard_write(man, directory, filename, identity, owner=None):
             f"(written by {prev.get('owner')}), this writer has {identity}. Two configurations resolve to one path.")
     man[filename] = dict(identity=identity, owner=owner)
     return True
+
+
+# ------------------------------------------------------------------ Phase 13: score files and completion markers
+SCORE_AXES = ("world", "task", "origin", "split", "arm", "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use",
+              "calib", "seed", "train_snapshots")
+
+
+def score_name(ident: dict) -> str:
+    """A score/prediction/marker filename that is a function of the FULL identity (Phase 13 P2).
+
+    Deviation 73: a .done marker keyed on a partial identity collided across three arms and silently skipped two.
+    Every axis in SCORE_AXES appears, including absent ones as '-', so no two identities can share a name."""
+    unknown = set(ident) - set(SCORE_AXES)
+    assert not unknown, f"identity carries axes score_name does not name: {sorted(unknown)}"
+    assert ident.get("calib") in (None, "raw", "recal"), f"calibration state must be raw|recal, got {ident.get('calib')}"
+    return "__".join(f"{k}={ident.get(k, '-') if ident.get(k) is not None else '-'}" for k in SCORE_AXES)
+
+
+def marker_name(cfg: dict) -> str:
+    """Completion marker for a TRAINING cell: the full bundle identity, never a partial one."""
+    return bundle_path_key(cfg).replace("/", "__") + ".done"
