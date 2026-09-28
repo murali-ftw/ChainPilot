@@ -151,7 +151,7 @@ def run_fold(snaps, sub, truth, plants_ll, seeds, thetas):
             pos, ss, I0 = simulate(t0, sub, s)
             for th in thetas:
                 pol, nai, rnd = recommend(t0, sub, pos, ss, I0, plants_ll, th,
-                                          rng=np.random.default_rng(hash((str(t0), s)) % 2**32))
+                                          rng=np.random.default_rng(pd.Timestamp(t0).toordinal() * 100 + s))
                 k = min(len(pol), len(nai), len(rnd))
                 o = out[th][s]
                 o["pol"].append(score(pol, sub, t0, truth, k)); o["nai"].append(score(nai, sub, t0, truth, k))
