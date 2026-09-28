@@ -186,6 +186,23 @@ class FillBeta3Head(nn.Module):
         return rps_on_probs(cls.probs(z), cell)
 
 
+class FillBeta3CHead(FillBeta3Head):
+    """Phase 13 Stage 2A: the Beta interior CENTRED on the shrunk history ratio. The head reads the ratio from the
+    last two input columns (HeadNet appends [ratio, has_history] to the encoding); interior mean
+    m = sigmoid(logit(ratio) + offset), concentration phi = softplus(.) + 1, a = m phi, b = (1 - m) phi. A shrunk
+    ratio IS a Beta posterior mean, so the two parameterisations match rather than being bolted together."""
+
+    def forward(self, h):
+        z = self.net(h)
+        r = h[:, -2].clamp(1e-3, 1 - 1e-3)
+        m = torch.sigmoid(torch.log(r / (1 - r)) + z[:, 3])
+        phi = F.softplus(z[:, 4]) + 1.0
+        # re-express as the shape parameters FillBeta3Head.probs expects (inverse softplus of a - 0.05, b - 0.05)
+        a, b = (m * phi).clamp(min=0.06), ((1 - m) * phi).clamp(min=0.06)
+        inv = lambda v: torch.log(torch.expm1(v - 0.05))
+        return torch.cat([z[:, :3], inv(a)[:, None], inv(b)[:, None]], -1)
+
+
 class FillRegHead(nn.Module):
     """Phase 13 F1 arm 3: plain regression control. One sigmoid output, MSE to the fill fraction. Its forecast
     is a POINT, i.e. a step CDF; scored by the same exact-CRPS integral, which for a step is |y_hat - y|."""
