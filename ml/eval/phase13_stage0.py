@@ -75,10 +75,10 @@ def stage01():
         .drop_duplicates("po_line_id").set_index("po_line_id")
     sig = old.po_line_id.isin(set(rej.index) | set(rev0.index))
     # as-of timing: how long after the line is raised is the zero-closure signal RECORDED?
-    lag_ack = (pd.to_datetime(old.set_index("po_line_id").loc[old.po_line_id.isin(rej.index)].index.map(rej.recorded_ts))
-               - old.set_index("po_line_id").loc[old.po_line_id.isin(rej.index)].created_ts.values).days
-    lag_rev = (pd.to_datetime(old.set_index("po_line_id").loc[old.po_line_id.isin(rev0.index)].index.map(rev0.recorded_ts))
-               - old.set_index("po_line_id").loc[old.po_line_id.isin(rev0.index)].created_ts.values).days
+    cr = old.set_index("po_line_id").created_ts
+    ia = rej.index.intersection(cr.index); ir = rev0.index.intersection(cr.index)
+    lag_ack = (pd.to_datetime(rej.loc[ia, "recorded_ts"]) - cr.loc[ia]).dt.days.to_numpy()
+    lag_rev = (pd.to_datetime(rev0.loc[ir, "recorded_ts"]) - cr.loc[ir]).dt.days.to_numpy()
     return dict(
         channel_definition="(part_id, supplier_id, plant_id); site_id is 1:1 with supplier_id",
         n_channels=int(len(ch)), unique_triples=int(ch[["part_id", "supplier_id", "plant_id"]].drop_duplicates().shape[0]),
