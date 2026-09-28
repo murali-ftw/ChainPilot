@@ -14,6 +14,8 @@ RULES, per snapshot, from the ROP policy simulation (order_policy, N = 200 paths
   POLICY            donor = the same-part plant whose simulated shortage chance AFTER giving the transfer is lowest,
                     recommended only if that chance < theta. qty = min(recipient median deficit, donor median surplus)
   NAIVE             donor = the NEAREST same-part plant (haversine, plants.csv) with positive as-of surplus at t0
+  RANDOM            donor = a uniformly random same-part plant with positive simulated median surplus -- the base
+                    rate: transfers are frequent, so "some same-part plant shipped out that week" is not rare
 Both are ranked by the recipient's simulated shortage chance and compared at MATCHED k (precision@k), so a greedy rule
 cannot win on volume.
 
@@ -74,13 +76,13 @@ def simulate(t0, sub, seed):
     return pos, ss, I0
 
 
-def recommend(t0, sub, pos, ss, I0, plants_ll, theta):
+def recommend(t0, sub, pos, ss, I0, plants_ll, theta, rng=None):
     """-> (policy recs, naive recs); each rec: recipient index, donor index, week, qty, before/after chances, score."""
     p_short = (pos < ss[:, None, None]).mean(2)                       # [P, W]
     med = np.median(pos, 2)
     parts = sub.part_id.to_numpy(); plant = sub.plant_id.to_numpy()
     by_part = pd.Series(np.arange(len(sub))).groupby(parts).apply(list).to_dict()
-    pol, nai = [], []
+    pol, nai, rnd = [], [], []
     for i, w in zip(*np.nonzero(p_short >= SHORT_P)):
         cands = [j for j in by_part[parts[i]] if j != i]
         if not cands:
@@ -96,6 +98,13 @@ def recommend(t0, sub, pos, ss, I0, plants_ll, theta):
             if best is None or p_after_d < best[1]:
                 best = (j, p_after_d, q)
         rec_after = lambda q: float((pos[i, w] + q < ss[i]).mean())
+        pos_c = [j for j in cands if med[j, w] - ss[j] > 0]
+        if pos_c and rng is not None:
+            j = pos_c[int(rng.integers(len(pos_c)))]
+            q = min(deficit, med[j, w] - ss[j])
+            rnd.append(dict(r=i, d=j, w=int(w), qty=float(q), score=float(p_short[i, w]),
+                            recipient_before=float(p_short[i, w]), recipient_after=rec_after(q),
+                            donor_before=float(p_short[j, w]), donor_after=float((pos[j, w] - q < ss[j]).mean())))
         if best is not None and best[1] < theta:
             j, pad, q = best
             pol.append(dict(r=i, d=j, w=int(w), qty=float(q), score=float(p_short[i, w]),
@@ -109,7 +118,7 @@ def recommend(t0, sub, pos, ss, I0, plants_ll, theta):
             nai.append(dict(r=i, d=j, w=int(w), qty=float(q), score=float(p_short[i, w]),
                             recipient_before=float(p_short[i, w]), recipient_after=rec_after(q),
                             donor_before=float(p_short[j, w]), donor_after=float((pos[j, w] - q < ss[j]).mean())))
-    return pol, nai
+    return pol, nai, rnd
 
 
 def score(recs, sub, t0, truth, k=None):
@@ -141,10 +150,12 @@ def run_fold(snaps, sub, truth, plants_ll, seeds, thetas):
         for s in seeds:
             pos, ss, I0 = simulate(t0, sub, s)
             for th in thetas:
-                pol, nai = recommend(t0, sub, pos, ss, I0, plants_ll, th)
-                k = min(len(pol), len(nai))
+                pol, nai, rnd = recommend(t0, sub, pos, ss, I0, plants_ll, th,
+                                          rng=np.random.default_rng(hash((str(t0), s)) % 2**32))
+                k = min(len(pol), len(nai), len(rnd))
                 o = out[th][s]
                 o["pol"].append(score(pol, sub, t0, truth, k)); o["nai"].append(score(nai, sub, t0, truth, k))
+                o.setdefault("rnd", []).append(score(rnd, sub, t0, truth, k))
                 o["pol_all"] = o.get("pol_all", []) + [score(pol, sub, t0, truth)]
                 o["nai_all"] = o.get("nai_all", []) + [score(nai, sub, t0, truth)]
                 o["events"] += ev
@@ -165,6 +176,8 @@ def run_fold(snaps, sub, truth, plants_ll, seeds, thetas):
                           naive_precision_recipient=agg(o["nai"], "hits_recipient") / max(n_pk, 1),
                           policy_precision_donor=agg(o["pol"], "hits_donor") / max(n_pk, 1),
                           naive_precision_donor=agg(o["nai"], "hits_donor") / max(n_pk, 1),
+                          random_precision_donor=agg(o["rnd"], "hits_donor") / max(n_pk, 1),
+                          random_precision_recipient=agg(o["rnd"], "hits_recipient") / max(n_pk, 1),
                           policy_count=agg(o["pol_all"], "n"), naive_count=agg(o["nai_all"], "n"),
                           policy_recall_recipient=agg(o["pol_all"], "hits_recipient") / max(o["events"], 1),
                           naive_recall_recipient=agg(o["nai_all"], "hits_recipient") / max(o["events"], 1),
@@ -206,11 +219,13 @@ def main():
     sweep = {}
     for th, per in test.items():
         s = {k: band(per, k) for k in ("policy_precision_recipient", "naive_precision_recipient", "policy_precision_donor",
-                                       "naive_precision_donor", "policy_recall_recipient", "naive_recall_recipient",
+                                       "naive_precision_donor", "random_precision_donor", "random_precision_recipient", "policy_recall_recipient", "naive_recall_recipient",
                                        "policy_count", "naive_count", "k_matched")}
         pol_lo, nai_hi = s["policy_precision_donor"][0], s["naive_precision_donor"][2]
         nai_lo, pol_hi = s["naive_precision_donor"][0], s["policy_precision_donor"][2]
         s["verdict_donor"] = "policy" if pol_lo > nai_hi else "naive" if nai_lo > pol_hi else "UNDETERMINED"
+        s["policy_beats_random_donor"] = bool(s["policy_precision_donor"][0] > s["random_precision_donor"][2])
+        s["naive_beats_random_donor"] = bool(s["naive_precision_donor"][0] > s["random_precision_donor"][2])
         sweep[th] = s
     R["test_sweep"] = sweep
     R["test_at_frozen_theta"] = sweep[str(theta)] if str(theta) in sweep else sweep[theta]
