@@ -26,6 +26,8 @@ def config_name(cfg) -> str:
         name += f"_shuf{cfg['graph_shuffle']}"      # Phase 11A Stage 1: the shuffled-graph control arm
     if cfg.get("drop_relation"):
         name += f"_drop{cfg['drop_relation']}"      # Phase 12 C3: relation ablation at fixed depth
+    if cfg.get("fill_loss") not in (None, "rps"):
+        name += f"_loss{cfg['fill_loss']}"          # Phase 13 F1 arm 5 (and Phase 5's loss ablations)
     # Phase 13: every axis that varies in the fill reparameterisation and the history-ratio features
     if cfg.get("fill_head"):
         name += f"_head{cfg['fill_head']}"          # F1 arm: cells22 | beta3 | wideatom | reg
@@ -60,7 +62,7 @@ def identity_of(cfg) -> dict:
     """The fields that make two artifacts the same artifact. A difference in any of them is a different artifact."""
     keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs",
             "row_features", "graph_shuffle", "drop_relation",
-            "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use")
+            "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use", "fill_loss")
     return {k: cfg.get(k) for k in keys}
 
 

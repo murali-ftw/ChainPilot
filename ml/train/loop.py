@@ -96,6 +96,10 @@ def bundle_dir(cfg):
     return os.path.join(BUNDLES, cfg["task"], name)
 
 
+def n_row_feats_of(cfg):
+    return 2 if (cfg.get("row_features") or cfg.get("ratio_key")) else 0
+
+
 def split_of(cfg, dates):
     """The fixed split, or a Phase 8.2 rolling origin when cfg carries one. No-leak asserted on both."""
     if cfg.get("origin"):
@@ -134,6 +138,16 @@ def resolve(args):
         cfg["graph_shuffle"] = int(args.graph_shuffle)      # Phase 11A Stage 1: the shuffled-graph control
         assert cfg["depth"] and cfg["depth"] > 0, \
             "graph_shuffle is meaningless at depth 0: h0 reads no neighbourhood at all"
+    # Phase 13: fill head, fill loss, and the history-ratio input -- every one enters artifact identity
+    if getattr(args, "fill_head", None) and args.fill_head != "cells22":
+        cfg["fill_head"] = args.fill_head
+        assert cfg["task"] == "fill_rate", "fill_head is a fill_rate axis"
+    if getattr(args, "fill_loss", None):
+        cfg["fill_loss"] = args.fill_loss
+    if getattr(args, "ratio_key", None):
+        assert cfg["task"] == "fill_rate", "ratio features are a fill_rate axis"
+        cfg["ratio_key"] = args.ratio_key; cfg["ratio_est"] = args.ratio_est
+        cfg["shrink"] = args.ratio_key == "hier"; cfg["ratio_use"] = "input"
     if getattr(args, "drop_relation", None):
         cfg["drop_relation"] = args.drop_relation           # Phase 12 C3: relation ablation at fixed depth
         assert cfg["depth"] and cfg["depth"] > 0, "drop_relation is meaningless at depth 0"
@@ -151,6 +165,9 @@ def train(cfg, verbose=False):
     # labels frame with no line-level columns, train silently WITHOUT the features, and never
     # reach the as-of assertion that guards them. See temporal_share.labels_for (deviation 59).
     lb = P5.labels(w, task, row_features=bool(cfg.get("row_features")))
+    if cfg.get("ratio_key"):
+        import fill_history as FHm
+        lb = FHm.attach(lb, cfg["ratio_key"], cfg.get("ratio_est", "ros"), w)
     if cfg.get("row_features"):
         assert "line_age_weeks" in lb.columns,             "row_features requested but the labels frame carries no line-level column"
     tr, va, te = split_of(cfg, lb.snapshot_date)
@@ -164,7 +181,7 @@ def train(cfg, verbose=False):
     seed_all(cfg["seed"])                                   # init independent of the data path, as in Phase 5
     model = P5.HeadNet(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
                        gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
-                       n_row_feats=2 if cfg.get("row_features") else 0).to(DEV).to(DTYPE)
+                       n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV).to(DTYPE)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=TS.HP["wd"])
     train_b = P5.batches(task, lb, tr, D["W"], ymu, ysd)
     n_train = int(tr.sum())
@@ -175,7 +192,7 @@ def train(cfg, verbose=False):
         with warnings.catch_warnings(record=True) as wl:
             warnings.simplefilter("always")
             for t0, tg, _ in train_b:
-                z = P5.forward(model, D, t0, tg["idx"], xrow=tg.get("xrow") if cfg.get("row_features") else None)
+                z = P5.forward(model, D, t0, tg["idx"], xrow=tg.get("xrow") if model.n_row_feats else None)
                 L, n_c = P5.loss_of(model, z, tg)
                 opt.zero_grad(); L.backward(); opt.step()
                 ep_l.append(float(L.detach())); n_rows += n_c
@@ -364,7 +381,8 @@ def finish_bundle(cfg, model, D, lb, split, log, trained_by):
     np.savez_compressed(os.path.join(out, "preds_val.npz"), **{k: v for k, v in pv.items() if not k.startswith("_")})
     np.savez_compressed(os.path.join(out, "preds_test.npz"), **{k: v for k, v in pt.items() if not k.startswith("_")})
     # 5-6
-    rec = fit_recalibration(task, pv)
+    rec = fit_recalibration(task, pv) if "Ppt" not in pv else dict(
+        kind="fill22", method="none", note="Phase 13 F1 arm 3: a point forecast cannot be recalibrated (N/A)")
     if cfg.get("origin"):
         rec["fitted_on"] = val_name(cfg)                   # refitted on this origin's own validation slice, never carried
     json.dump(rec, open(os.path.join(out, "recalibration.json"), "w"), indent=1)
@@ -450,7 +468,7 @@ def load_bundle(path):
 def _materialise(B, D):
     cfg = B["cfg"]
     m = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
-                   n_row_feats=2 if cfg.get("row_features") else 0).to(DEV)
+                   n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV)
     m.load_state_dict(torch.load(os.path.join(B["path"], "checkpoint.pt"), map_location="cpu"))
     return m.eval()
 
@@ -589,6 +607,10 @@ if __name__ == "__main__":
     ap.add_argument("--origin", type=int, default=None, help="Phase 8.2 rolling origin 1-8; omit for the fixed split")
     ap.add_argument("--from-preds", default=None)
     ap.add_argument("--bundle", default=None); ap.add_argument("--h0-bundle", default=None); ap.add_argument("--fold", default="test")
+    ap.add_argument("--fill-head", default=None, choices=["cells22", "beta3", "reg"])
+    ap.add_argument("--fill-loss", default=None, help="rps | rps_bw{w} (Phase 13 F1 arm 5)")
+    ap.add_argument("--ratio-key", default=None, choices=["ps", "sp", "psp", "hier"])
+    ap.add_argument("--ratio-est", default="ros", choices=["ros", "mor"])
     ap.add_argument("--drop-relation", default=None, choices=["supplier", "part", "plant"],
                     help="Phase 12 C3: remove one relation's edges at fixed depth and parameter shapes")
     ap.add_argument("--graph-shuffle", type=int, default=None,

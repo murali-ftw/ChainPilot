@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, ".."), os.path.join(HERE, "..", "data"),
                 os.path.join(HERE, "..", "models"), os.path.join(HERE, "..", "eval")]
 import numpy as np, pandas as pd, torch, torch.nn as nn
+import torch.nn.functional as F
 import temporal_share as TS
 from config import WORLDS, FIT_WINDOW, ARTIFACTS
 from device import seed_everything, DTYPE, peak_rss_gb
@@ -28,7 +29,7 @@ from loader import read_df
 from sequences import Normaliser
 from tcn import TCN, HeteroMP
 from share import SHARE
-from heads import HazardHead, FillCDFHead, QuantileHead, BinaryHead, fill_cell
+from heads import HazardHead, FillCDFHead, FillBeta3Head, FillRegHead, QuantileHead, BinaryHead, fill_cell
 from staleness import StalenessGate, weeks_since_last_activity
 from metrics import cindex, pr_auc
 import phase5_metrics as M
@@ -130,7 +131,8 @@ def device_inputs(w, snaps_train, wsla, graph_shuffle=None, drop_relation=None):
 
 # ---------------------------------------------------------------- model
 class HeadNet(nn.Module):
-    def __init__(self, d_in, task, arch="none", depth=0, gate_cols=None, fill_loss="rps", n_row_feats=0):
+    def __init__(self, d_in, task, arch="none", depth=0, gate_cols=None, fill_loss="rps", n_row_feats=0,
+                 fill_head="cells22"):
         super().__init__()
         h = TS.HP["tcn_hidden"]
         self.task, self.arch, self.depth, self.fill_loss = task, arch, depth, fill_loss
@@ -149,8 +151,10 @@ class HeadNet(nn.Module):
         else:
             self.enc = None
         wide += self.n_row_feats
+        self.fill_head = fill_head if task == "fill_rate" else None
+        fill_cls = {"cells22": FillCDFHead, "beta3": FillBeta3Head, "reg": FillRegHead}[fill_head or "cells22"]
         self.head = {"hazard": lambda: HazardHead(wide, HORIZON_WEEKS),
-                     "cdf22": lambda: FillCDFHead(wide),
+                     "cdf22": lambda: fill_cls(wide),
                      "quantile": lambda: QuantileHead(wide),
                      "binary": lambda: BinaryHead(wide)}[HEAD_OF[task]]()
 
@@ -219,6 +223,13 @@ def batches(task, lb, mask, W, ymu=0.0, ysd=1.0):
             tg["cen"] = torch.from_numpy(cen).to(DEV)
         elif task == "fill_rate":
             tg["cell"] = torch.from_numpy(fill_cell(y)).to(DEV)
+            tg["yfill"] = torch.from_numpy(np.clip(y, 0, 1).astype(np.float32)).to(DEV)
+            if "ratio_x0" in rows:
+                # Phase 13 F2 arm (c): the as-of history ratio of the row's key cell. Built by
+                # ml/data/fill_history.py, whose as-of assertion (counts AND fitted prior) has already run.
+                x = np.stack([rows.ratio_x0.to_numpy(float), rows.ratio_x1.to_numpy(float)], 1)
+                assert np.isfinite(x).all(), "non-finite history-ratio feature"
+                tg["xrow"] = torch.from_numpy(x.astype(np.float32)).to(DEV)
         elif task == "capacity_strain":
             tg["y"] = torch.from_numpy(((y - ymu) / ysd).astype(np.float32)).to(DEV).unsqueeze(1)
         else:
@@ -232,6 +243,8 @@ def loss_of(model, z, tg):
     if model.task == "arrival_week":
         return hd.loss(z, tg["T"], tg["cen"])
     if model.task == "fill_rate":
+        if getattr(hd, "point", False):
+            return hd.loss(z, tg["yfill"]), len(tg["cell"])
         return hd.loss(z, tg["cell"], model.fill_loss), len(tg["cell"])
     return hd.loss(z, tg["y"]), len(tg["y"])
 
@@ -249,7 +262,12 @@ def predict(model, D, lb, mask, ymu=0.0, ysd=1.0, gate_stats=False):
             lam, S, pT = HazardHead.distribution(z)
             got = {"P": HazardHead.expected_time(S), "S": S, "pT": pT}
         elif model.task == "fill_rate":
-            got = {"P": FillCDFHead.probs(z)}
+            if getattr(model.head, "point", False):
+                pt = model.head.point_of(z)
+                cells = torch.from_numpy(fill_cell(pt.float().cpu().numpy())).to(z.device)
+                got = {"P": F.one_hot(cells, 22).to(z.dtype), "Ppt": pt}
+            else:
+                got = {"P": type(model.head).probs(z)}
         elif model.task == "capacity_strain":
             got = {"P": z[:, 0, :] * ysd + ymu}
         else:
@@ -278,6 +296,8 @@ def val_score(task, pr):
     if task == "arrival_week":
         return cindex(pr["P"], pr["Y"], pr["EV"])
     if task == "fill_rate":
+        if "Ppt" in pr:                                  # a point forecast: exact CRPS of a step CDF = |y_hat - y|
+            return float(np.abs(pr["Ppt"] - pr["Y"]).mean())
         return float(M.crps_exact_rows(pr["P"], pr["Y"]).mean())
     if task == "capacity_strain":
         return float(np.mean([M.pinball_rows(pr["Y"], pr["P"][:, j], t).mean() for j, t in enumerate(M.QS)]))

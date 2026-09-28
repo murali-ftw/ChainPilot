@@ -119,12 +119,16 @@ class FillCDFHead(nn.Module):
     @staticmethod
     def loss(z, cell, kind="rps"):
         """kind: 'rps' (the specified loss), 'ce' or 'rps+ce' -- the last two are Phase 5 ablations.
+        'rps_bw{w}' (Phase 13 F1 arm 5): RPS with the boundary term between [0.95, 1) and the atom at 1.0
+        weighted w -- a loss/boundary fix that leaves the target and the 22-cell partition unchanged.
 
         RPS is distance-aware, which is its point, and also why it barely penalises mass moved into
         a NEIGHBOURING cell; cross-entropy is local and penalises exactly that. The ablation asks
         which of the two the marginal calibration depends on.
         """
         out = 0.0
+        if kind.startswith("rps_bw"):
+            return rps_on_probs(torch.softmax(z, -1), cell, boundary_weight=float(kind[6:]))
         if "rps" in kind:
             Fhat = torch.cumsum(torch.softmax(z, -1), -1)[:, :-1]  # [N, 21]
             step = (torch.arange(FILL_K - 1, device=z.device).unsqueeze(0) >= cell.unsqueeze(1))
@@ -136,6 +140,71 @@ class FillCDFHead(nn.Module):
     @staticmethod
     def probs(z):
         return torch.softmax(z, -1)
+
+
+def rps_on_probs(P, cell, boundary_weight=1.0):
+    """RPS over the 21 boundaries of a 22-cell distribution; the last boundary (between [0.95, 1) and the
+    atom at 1.0) optionally weighted. boundary_weight=1 is exactly FillCDFHead's 'rps'."""
+    Fhat = torch.cumsum(P, -1)[:, :-1]
+    step = (torch.arange(FILL_K - 1, device=P.device).unsqueeze(0) >= cell.unsqueeze(1)).to(Fhat.dtype)
+    w = torch.ones(FILL_K - 1, device=P.device, dtype=Fhat.dtype)
+    w[-1] = boundary_weight
+    return (((Fhat - step) ** 2) * w).sum(-1).mean()
+
+
+class FillBeta3Head(nn.Module):
+    """Phase 13 F1 arm 4: atom at 0, atom at 1, and a Beta(a, b) INTERIOR -- a smooth interior in place of 20
+    independent cells. It emits the SAME 22 cells (interior mass integrated over each bin by a 16-point midpoint
+    rule, renormalised) and is trained with the SAME RPS, so the comparison isolates the parameterisation."""
+    NSUB = 16
+
+    def __init__(self, d_in: int):
+        super().__init__()
+        self.net = _trunk(d_in, 5)                    # 3 mixture logits, 2 shape parameters
+
+    def forward(self, h):
+        return self.net(h)
+
+    @staticmethod
+    def shape(z):
+        return F.softplus(z[:, 3]) + 0.05, F.softplus(z[:, 4]) + 0.05
+
+    @classmethod
+    def probs(cls, z):
+        w = torch.softmax(z[:, :3], -1)
+        a, b = cls.shape(z)
+        M = FILL_INTERIOR * cls.NSUB
+        x = (torch.arange(M, device=z.device, dtype=z.dtype) + 0.5) / M
+        lb = torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
+        logpdf = (a[:, None] - 1) * torch.log(x)[None] + (b[:, None] - 1) * torch.log1p(-x)[None] - lb[:, None]
+        m = torch.exp(logpdf).view(-1, FILL_INTERIOR, cls.NSUB).sum(-1)
+        m = m / m.sum(-1, keepdim=True).clamp(min=1e-12)
+        return torch.cat([w[:, :1], w[:, 1:2] * m, w[:, 2:3]], -1)
+
+    @classmethod
+    def loss(cls, z, cell, kind="rps"):
+        return rps_on_probs(cls.probs(z), cell)
+
+
+class FillRegHead(nn.Module):
+    """Phase 13 F1 arm 3: plain regression control. One sigmoid output, MSE to the fill fraction. Its forecast
+    is a POINT, i.e. a step CDF; scored by the same exact-CRPS integral, which for a step is |y_hat - y|."""
+    point = True
+
+    def __init__(self, d_in: int):
+        super().__init__()
+        self.net = _trunk(d_in, 1)
+
+    def forward(self, h):
+        return self.net(h)
+
+    @staticmethod
+    def point_of(z):
+        return torch.sigmoid(z[:, 0])
+
+    @classmethod
+    def loss(cls, z, y):
+        return F.mse_loss(cls.point_of(z), y)
 
 
 # ================================================================== 5.1 capacity — quantiles
