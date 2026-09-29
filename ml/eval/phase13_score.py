@@ -65,9 +65,20 @@ def boot_band(m, P, y, point=None, B=500, seed=0):
     return out
 
 
+def names(suffix):
+    """EXACT per-seed bundle directories. A glob such as `s*_rkhier...` also matched the Stage 2A bundles
+    (`s7_headbeta3c_rkhier...`) and silently pooled two arms into one 7-'seed' band -- the reader-side twin of
+    deviation 28/73. Names are built from the seed list, never matched."""
+    return [f"v8_none_h0_lr0.000125_s{s}{suffix}" for s in C.V8_SEEDS]
+
+
 def bundle_arm(pattern, split, recal):
     per = []
-    for d in sorted(glob.glob(os.path.join(BF, pattern))):
+    dirs = [os.path.join(BF, n) for n in names(pattern)] if not any(ch in pattern for ch in "*?[") else \
+        sorted(glob.glob(os.path.join(BF, pattern)))
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
         if not os.path.exists(os.path.join(d, f"preds_{split}.npz")):
             continue
         z = dict(np.load(os.path.join(d, f"preds_{split}.npz")))
@@ -104,8 +115,8 @@ def disjoint_below(a, b, k):
 
 
 def f1_tables(bw):
-    arms = {"1_cells22_head": "v8_none_h0_lr0.000125_s[0-9]*", "3_regression_control": "v8_none_h0_lr0.000125_s*_headreg",
-            "4_beta3": "v8_none_h0_lr0.000125_s*_headbeta3", f"5_boundary_{bw}": f"v8_none_h0_lr0.000125_s*_loss{bw}"}
+    arms = {"1_cells22_head": "", "3_regression_control": "_headreg", "4_beta3": "_headbeta3",
+            f"5_boundary_{bw}": f"_loss{bw}"}
     T = {"A_raw": {}, "B_recal": {}}
     for tab, recal in (("A_raw", False), ("B_recal", True)):
         for split in ("val", "test"):
@@ -162,12 +173,12 @@ def f2(lb_full):
         out["a"][split]["rolling52_histogram"] = hist_arm(split)
         for key in ("hier", "ps", "sp", "psp"):
             tag = f"{key}_ros_{'shrink' if key == 'hier' else 'raw'}_useinput"
-            pat = f"v8_none_h0_lr0.000125_s*_rk{tag}"
+            pat = f"_rk{tag}"
             out["c_A_raw"].setdefault(split, {})[key] = bundle_arm(pat, split, False)
             out["c_B_recal"].setdefault(split, {})[key] = bundle_arm(pat, split, True)
             f = FHm.attach(lb_full[["snapshot_date", "key", "label_value"]], key, "ros")
             tier = f.ratio_tier.to_numpy()[o]; own = f.ratio_x1.to_numpy()[o] > 0
-            ds = sorted(glob.glob(os.path.join(BF, pat)))
+            ds = [d for d in (os.path.join(BF, n) for n in names(pat)) if os.path.isdir(d)]
             if not ds:
                 continue
             for group, mask in [(f"tier={t}", tier == t) for t in np.unique(tier)] + [("cold_start(no own history)", ~own)]:
@@ -181,7 +192,23 @@ def f2(lb_full):
                     b["row_share"] = float(mask.mean()); b["rows"] = int(mask.sum())
                     tgt = out["cold_start"] if group.startswith("cold") else out["per_tier"]
                     tgt.setdefault(split, {}).setdefault(key, {})[group] = b
-    # the head (no ratio) on the same cold-start / tier rows, for comparison
+    # Stage 2A -- F2 arm (b): the shrunk ratio as the Beta head's centre
+    out["b_A_raw"], out["b_B_recal"], out["b_per_tier"] = {}, {}, {}
+    pat = "_headbeta3c_rkhier_ros_shrink_useinput"
+    f = FHm.attach(lb_full[["snapshot_date", "key", "label_value"]], "hier", "ros")
+    for split, m in (("val", va), ("test", te)):
+        o = P5.ordered(lb_full, m)
+        out["b_A_raw"][split] = bundle_arm(pat, split, False)
+        out["b_B_recal"][split] = bundle_arm(pat, split, True)
+        tier = f.ratio_tier.to_numpy()[o]
+        ds = [d for d in (os.path.join(BF, n) for n in names(pat)) if os.path.isdir(d)]
+        for t in np.unique(tier):
+            mask = tier == t
+            per = [metrics(dict(np.load(os.path.join(d, f"preds_{split}.npz")))["P"],
+                           dict(np.load(os.path.join(d, f"preds_{split}.npz")))["Y"], rows=np.flatnonzero(mask)) for d in ds]
+            if per:
+                b = seed_band(per); b["rows"] = int(mask.sum()); b["row_share"] = float(mask.mean())
+                out["b_per_tier"].setdefault(split, {})[f"tier={t}"] = b
     return out
 
 
