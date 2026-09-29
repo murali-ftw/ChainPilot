@@ -1,0 +1,18 @@
+{
+ "phase13_STOPPED_f1a.json": {
+  "stage": "f1a",
+  "STOPPED": "12 h cap reached 2026-09-29 10:22:28",
+  "completed_markers": 26
+ },
+ "phase13_STOPPED_f2.json": {
+  "stage": "f2",
+  "STOPPED": "12 h cap reached 2026-09-29 10:22:28",
+  "completed_markers": 26
+ },
+ "_cut": {
+  "regression_control": "3/5 seeds (also epoch-ceiling floor)",
+  "F2_part_supplier": "4/5",
+  "F2_supplier_plant": "0/5",
+  "F2_raw_triple": "0/5"
+ }
+}
