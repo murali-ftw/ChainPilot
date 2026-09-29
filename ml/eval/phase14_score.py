@@ -83,10 +83,13 @@ def run_arm(pairs, deterministic=False, B=500, seed=0, fixed_tau=None):
             band = {k: [float(np.nanpercentile([b[k] for b in bs], 2.5)), float(per[0][k]), float(np.nanpercentile([b[k] for b in bs], 97.5))]
                     for k in KEYS if k != "tau"}
             band["tau"] = [tau, tau, tau]; band["kind"] = "row bootstrap 95% (deterministic arm)"; band["n_seeds"] = 0
+            band["val_objective"] = [per[0]["val_objective"]] * 3
         else:
             band = {k: [float(np.nanmin([p[k] for p in per])), float(np.nanmean([p[k] for p in per])),
                         float(np.nanmax([p[k] for p in per]))] for k in KEYS}
             band["kind"] = f"{len(per)}-seed [min, mean, max]"; band["n_seeds"] = len(per)
+        band["val_objective"] = [float(np.nanmin([p["val_objective"] for p in per])), float(np.nanmean([p["val_objective"] for p in per])),
+                                 float(np.nanmax([p["val_objective"] for p in per]))]
         band["confusion_seed0"] = {k: per[0][k] for k in ("TP", "FP", "TN", "FN")}
         out[obj] = band
     return out
