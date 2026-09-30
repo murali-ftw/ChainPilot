@@ -27,7 +27,10 @@ def h(t):
 
 def main_run(code, out, perturb=None):
     import torch
-    torch.backends.mps.is_available = lambda: False           # force CPU before device.get_device() is called
+    orig = torch.backends.mps.is_available
+    no_mps = lambda: False                                     # force CPU before device.get_device() is called
+    no_mps.__wrapped__ = getattr(orig, "__wrapped__", orig)    # torch._dynamo reads this attribute
+    torch.backends.mps.is_available = no_mps
     ml = os.path.join(code, "ml")
     sys.path[:0] = [ml] + [os.path.join(ml, d) for d in ("train", "data", "models", "eval")]
     torch.set_num_threads(os.cpu_count())
