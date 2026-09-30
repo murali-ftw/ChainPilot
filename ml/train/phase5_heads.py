@@ -35,6 +35,12 @@ from metrics import cindex, pr_auc
 import phase5_metrics as M
 
 DEV = TS.DEV
+# Memory modes for small-VRAM CUDA cards (a 4 GB laptop GPU spills ~2 GB of this model into shared
+# system memory over PCIe). Both are OFF by default, so the MPS path is unchanged, and neither changes
+# the arithmetic: the panel is still normalised on the device and only STORED on the host, and
+# checkpointing recomputes the same TCN forward in the backward pass instead of keeping activations.
+PANEL_HOST = os.environ.get("HADES_PANEL_HOST", "") == "1"      # hold the normalised panel in pinned host RAM
+TCN_CHUNK = int(os.environ.get("HADES_TCN_CHUNK", "0") or 0)    # >0: checkpoint the TCN in chunks of this many channels
 WIN = 52
 HORIZON_WEEKS = 12
 PRED = os.path.join(ARTIFACTS, "phase5_preds")
@@ -111,11 +117,14 @@ def device_inputs(w, snaps_train, wsla, graph_shuffle=None, drop_relation=None):
     mu = torch.from_numpy(nz.mu.astype(np.float32)).to(DEV)
     sd = torch.from_numpy(nz.sd.astype(np.float32)).to(DEV)
     li = torch.tensor(log1p, dtype=torch.long, device=DEV)
-    Xt = torch.empty(X.shape, dtype=DTYPE, device=DEV)
+    if PANEL_HOST:
+        Xt = torch.empty(X.shape, dtype=DTYPE, device="cpu", pin_memory=torch.cuda.is_available())
+    else:
+        Xt = torch.empty(X.shape, dtype=DTYPE, device=DEV)
     for i in range(0, X.shape[0], 2048):
         c = torch.from_numpy(np.ascontiguousarray(X[i:i + 2048])).to(DEV)
         c[..., li] = torch.log1p(c[..., li].clamp(min=0))
-        Xt[i:i + 2048] = (c - mu) / sd
+        Xt[i:i + 2048] = (c - mu) / sd                    # computed on DEV either way; only the storage differs
     del X
     lag = cols.index("reporting_lag_days")
     D = dict(X=Xt, names=names, W=W,
@@ -163,7 +172,15 @@ class HeadNet(nn.Module):
         if self.gate is not None:
             xg, g = self.gate(X.index_select(-1, self.gate_idx), dt, obs, return_gate=True)
             X = X.index_copy(-1, self.gate_idx, xg)
-        h = self.tcn(X)
+        if TCN_CHUNK and X.shape[0] > TCN_CHUNK:
+            # the TCN is per-channel, so chunking over channels is exact. Training recomputes each chunk's
+            # activations in backward; inference (no grad) chunks too, or its full-batch forward spills.
+            from torch.utils.checkpoint import checkpoint
+            run = ((lambda x: checkpoint(self.tcn, x, use_reentrant=False)) if torch.is_grad_enabled()
+                   else self.tcn)
+            h = torch.cat([run(X[i:i + TCN_CHUNK]) for i in range(0, X.shape[0], TCN_CHUNK)])
+        else:
+            h = self.tcn(X)
         if self.enc is not None:
             if self.arch in ("share", "lite"):
                 src, dst, rel, n_nodes, offs = W["graph"]
@@ -176,7 +193,10 @@ class HeadNet(nn.Module):
 def forward(model, D, t0, idx, return_gate=False, xrow=None):
     W = D["W"]
     sl = slice(t0 - WIN + 1, t0 + 1)
-    h, g = model.encode(D["X"][:, sl], D["dt"][:, sl], D["obs"][:, sl], W, return_gate=True)
+    X = D["X"][:, sl]
+    if X.device.type != DEV.type:                        # PANEL_HOST: copy only this 52-week window to the device
+        X = X.to(DEV, non_blocking=True)
+    h, g = model.encode(X, D["dt"][:, sl], D["obs"][:, sl], W, return_gate=True)
     if model.task == "shortage_qty":
         n_pp = len(W["pp_uniq"])
         agg = torch.zeros(n_pp, h.shape[1], device=DEV, dtype=h.dtype).index_add_(0, W["pp_of_chan"], h)

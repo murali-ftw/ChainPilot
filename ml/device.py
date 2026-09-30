@@ -17,6 +17,11 @@ import torch
 
 DTYPE = torch.float32
 NUM_WORKERS = 0
+# torch's CUDA default runs cuDNN convolutions in TF32 (10-bit mantissa) on Ampere+. That is not the
+# float32 the MPS numbers were measured in, so it is OFF unless asked for with HADES_TF32=1.
+TF32 = os.environ.get("HADES_TF32", "") == "1"
+torch.backends.cudnn.allow_tf32 = TF32
+torch.backends.cuda.matmul.allow_tf32 = TF32
 
 
 def get_device(verbose: bool = True) -> torch.device:

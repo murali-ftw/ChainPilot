@@ -38,7 +38,7 @@ from heads import HazardHead, fill_cell, fill_to_legacy
 from phase5_recal import fit_mm, apply_mm, fit_vs, apply_vs, log_score
 from metrics import cindex
 from config import WORLDS, ARTIFACTS, REPO
-from device import DTYPE, peak_rss_gb
+from device import DTYPE, TF32, peak_rss_gb
 
 DEV = P5.DEV
 W12 = P5.HORIZON_WEEKS
@@ -403,7 +403,10 @@ def finish_bundle(cfg, model, D, lb, split, log, trained_by):
     json.dump(metrics, open(os.path.join(out, "metrics.json"), "w"), indent=1,
               default=lambda o: o.item() if hasattr(o, "item") else str(o))
     json.dump({**log, "trained_by": trained_by, "nondeterministic_ops_warned": sorted(NONDET_OPS),
-               "peak_rss_gb": peak_rss_gb()}, open(os.path.join(out, "train_log.json"), "w"), indent=1)
+               "peak_rss_gb": peak_rss_gb(),
+               "device": str(DEV), "tf32": TF32, "panel_host": P5.PANEL_HOST, "tcn_checkpoint_chunk": P5.TCN_CHUNK,
+               "peak_cuda_alloc_gb": torch.cuda.max_memory_allocated() / (1 << 30) if torch.cuda.is_available() else None},
+              open(os.path.join(out, "train_log.json"), "w"), indent=1)
     json.dump({**cfg, "stamps": stmp, "split": FO.describe_origin(cfg["origin"]) if cfg.get("origin") else FO.describe_fixed(), "HP": TS.HP,
                "files": ["checkpoint.pt", "normaliser.npz", "preds_val.npz", "preds_test.npz", "recalibration.json",
                          "drift_baseline.json", "model_outputs.csv.gz", "metrics.json", "train_log.json"],
