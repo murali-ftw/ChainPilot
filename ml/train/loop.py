@@ -96,6 +96,15 @@ def bundle_dir(cfg):
     return os.path.join(BUNDLES, cfg["task"], name)
 
 
+def _net(cfg):
+    """The model constructor. P5.HeadNet itself for every pre-Phase-16 configuration; a Phase 16 encoder variant only
+    when a non-default Phase 16 axis is set (ml/train/phase16_heads.py)."""
+    if not AI.encoder_axes(cfg):
+        return P5.HeadNet
+    import phase16_heads as P16
+    return lambda d_in, task, arch, depth, **kw: P16.build(cfg, d_in, **kw)
+
+
 def n_row_feats_of(cfg):
     return 2 if (cfg.get("row_features") or cfg.get("ratio_key")) else 0
 
@@ -152,6 +161,17 @@ def resolve(args):
     if getattr(args, "drop_relation", None):
         cfg["drop_relation"] = args.drop_relation           # Phase 12 C3: relation ablation at fixed depth
         assert cfg["depth"] and cfg["depth"] > 0, "drop_relation is meaningless at depth 0"
+    # Phase 16: encoder variants -- set only when non-default, so every earlier configuration resolves unchanged
+    ev = getattr(args, "encoder_variant", None)
+    if ev and ev != AI.INCUMBENT_ENCODER.get(cfg["arch"]):
+        cfg["encoder_variant"] = ev
+        assert cfg["depth"] > 0 and cfg["arch"] in ("lite", "mp")
+        for k in ("traj_depths", "traj_delta", "pna_aggregators", "low_degree_k"):
+            if getattr(args, k, None) is not None:
+                cfg[k] = getattr(args, k)
+    else:
+        assert not any(getattr(args, k, None) is not None for k in ("traj_depths", "traj_delta", "pna_aggregators",
+                                                                    "low_degree_k")), "variant axes need --encoder-variant"
     return cfg
 
 
@@ -180,9 +200,9 @@ def train(cfg, verbose=False):
     if task == "capacity_strain":
         ymu = float(lb.label_value[tr].mean()); ysd = float(lb.label_value[tr].std())
     seed_all(cfg["seed"])                                   # init independent of the data path, as in Phase 5
-    model = P5.HeadNet(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
-                       gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
-                       n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV).to(DTYPE)
+    model = _net(cfg)(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
+                      gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
+                      n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV).to(DTYPE)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=TS.HP["wd"])
     train_b = P5.batches(task, lb, tr, D["W"], ymu, ysd)
     n_train = int(tr.sum())
@@ -422,6 +442,9 @@ def run_train(cfg):
     out = finish_bundle(cfg, model, D, lb, split, log, trained_by="ml/train/loop.py")
     print(f"  [{log['stop']}] best_ep {log['best_epoch']} of {log['epochs_run']}  val {log['best_val']:.5f}  "
           f"{time.time() - t0:.0f}s  {log['sec_per_epoch']:.1f}s/ep  RSS {peak_rss_gb():.2f} GB  -> {out}", flush=True)
+    if AI.encoder_axes(cfg):
+        import phase16_heads as P16
+        P16.teardown(model)                                 # Phase 16 S2: share_traj's TCN hooks removed
     del model
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
@@ -468,7 +491,7 @@ def load_bundle(path):
 
 def _materialise(B, D):
     cfg = B["cfg"]
-    m = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
+    m = _net(cfg)(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
                    n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV)
     m.load_state_dict(torch.load(os.path.join(B["path"], "checkpoint.pt"), map_location="cpu"))
     return m.eval()
@@ -617,6 +640,11 @@ if __name__ == "__main__":
     ap.add_argument("--graph-shuffle", type=int, default=None,
                     help="Phase 11A Stage 1: train against a degree-preserving PERMUTED neighbourhood "
                          "(the control arm). Omit for the real graph.")
+    ap.add_argument("--encoder-variant", dest="encoder_variant", default=None, choices=list(AI.ENCODER_VARIANTS))
+    ap.add_argument("--traj-depths", dest="traj_depths", default=None)
+    ap.add_argument("--traj-delta", dest="traj_delta", default=None, choices=["zeroed"])
+    ap.add_argument("--pna-aggregators", dest="pna_aggregators", default=None, choices=["mmms", "sum"])
+    ap.add_argument("--low-degree-k", dest="low_degree_k", type=int, default=None)
     ap.add_argument("--max-epochs", type=int, default=None, help="smoke runs only; shipped runs use the config's cap")
     ap.add_argument("--bundle-root", default=None, help="write bundles elsewhere (smoke tests must not occupy real bundle paths)")
     a = ap.parse_args()
