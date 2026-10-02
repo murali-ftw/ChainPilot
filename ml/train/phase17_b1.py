@@ -237,7 +237,31 @@ def score():
     R = load_rows()
     yv, yt = R["y"][R["fold"] == 1].astype(int), R["y"][R["fold"] == 2].astype(int)
 
+    def naive_rate():
+        """REFERENCE ROW, not a model feature: the part-plant's share of weeks with a transfer-in over the 52 weeks
+        before t0, counting only transactions RECORDED <= t0 (asserted). Same score for all 13 weeks of a snapshot.
+        If a trained arm only matches this, its skill is persistence of transfer activity, not learned structure."""
+        import pandas as pd
+        tx = pd.read_csv(f"{D}/inventory_transactions.csv", usecols=["part_id", "plant_id", "txn_type", "event_ts", "recorded_ts"])
+        tx = tx[tx.txn_type == "transfer_in"]
+        tx["week"] = pd.to_datetime(tx.event_ts).dt.to_period("W-SUN").dt.start_time
+        tx["rec"] = pd.to_datetime(tx.recorded_ts)
+        keymap = {(p, q): i for i, (p, q) in enumerate(zip(R["parts"], R["plants"]))}
+        tx["pp"] = [keymap.get(k, -1) for k in zip(tx.part_id, tx.plant_id)]
+        tx = tx[tx.pp >= 0]
+        score = np.zeros(len(R["y"]))
+        for s in np.unique(R["snap"][R["fold"] > 0]):
+            t0 = pd.Timestamp(s)
+            u = tx[(tx.rec <= t0) & (tx.week > t0 - pd.Timedelta(weeks=52))]
+            assert (u.rec <= t0).all()
+            rate = u.groupby("pp").week.nunique().reindex(range(len(R["parts"])), fill_value=0).to_numpy() / 52.0
+            m = R["snap"] == s
+            score[m] = rate[R["pp"][m]]
+        return [(score[R["fold"] == 1], yv, score[R["fold"] == 2], yt)]
+
     def arm_pairs(name):
+        if name == "naive_asof_transfer_rate":
+            return naive_rate(), ["deterministic"]
         pairs, seeds = [], []
         for s in SEEDS:
             if name == "proxy":                            # Phase 14/15's simulation score, per fill seed
@@ -283,7 +307,7 @@ def score():
     # the proxy's VALIDATION recall at Phase 14's theta grid -> each arm's validation precision at that matched recall (P4)
     proxy_rec = {th: float(np.mean([((sv >= th) & (yv_ == 1)).sum() / yv_.sum() for sv, yv_, _, _ in proxy_pairs]))
                  for th in (0.1, 0.3, 0.5)}
-    for name in ("proxy", "b1a", "b1b"):
+    for name in ("proxy", "naive_asof_transfer_rate", "b1a", "b1b"):
         pairs, seeds = arm_pairs(name)
         if not pairs:
             out["arms"][name] = dict(status="NOT RUN"); continue
