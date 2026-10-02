@@ -1,7 +1,7 @@
 # Phase 17 Track B queue -- ONE GPU cell at a time (concurrency level 1 for every cell; 4 GB card).
 #
 #   powershell -ExecutionPolicy Bypass -File ml\train\phase17_queue.ps1 -Stage B1 -Deadline "2026-10-02T16:33:00" `
-#       -Cells "ml\train\phase17_b1.py neural --seed 7", "ml\train\phase17_b1.py neural --seed 17", ...
+#       -Cells "ml\train\phase17_b1.py neural --seed 7;ml\train\phase17_b1.py neural --seed 17;..."
 #
 # Stage cap: a cell is NOT started if (now + the slowest finished cell's wall time in this stage, or 35 min before
 # any has finished) would pass -Deadline. The remaining cells are written to <stage>.STOPPED.json with the reason.
@@ -9,6 +9,8 @@
 param([Parameter(Mandatory = $true)][string]$Stage, [Parameter(Mandatory = $true)][string]$Deadline,
       [Parameter(Mandatory = $true)][string[]]$Cells)
 $ErrorActionPreference = "Continue"
+# `powershell -File` hands a quoted list over as ONE string: accept ';'-separated cells as well
+$Cells = @($Cells | ForEach-Object { $_ -split ';' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 Set-Location (Join-Path $PSScriptRoot "..\..")
 $LOG = "ml\artifacts\phase17\logs"
 New-Item -ItemType Directory -Force $LOG | Out-Null
