@@ -30,11 +30,13 @@ def equiv():
     print(json.dumps(r, indent=1)); C.dump(r, "phase17/b4_equivalence.json")
 
 
-def train(seed, max_epochs=None):
+def train(seed, max_epochs=None, bundle_root=None):
     import torch
     import loop as L, phase5_heads as P5, temporal_share as TS
     from share_lean import SHARELean
     st = C.require_clean()
+    if bundle_root:
+        L.BUNDLES = bundle_root                           # smoke runs must not occupy real bundle paths
     Base = P5.HeadNet
 
     class LeanHeadNet(Base):
@@ -119,5 +121,6 @@ if __name__ == "__main__":
     ap.add_argument("mode", choices=["equiv", "train", "score"])
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--max-epochs", type=int, default=None)
+    ap.add_argument("--bundle-root", default=None, help="smoke runs only")
     a = ap.parse_args()
-    {"equiv": equiv, "score": score}.get(a.mode, lambda: train(a.seed, a.max_epochs))()
+    {"equiv": equiv, "score": score}.get(a.mode, lambda: train(a.seed, a.max_epochs, a.bundle_root))()
