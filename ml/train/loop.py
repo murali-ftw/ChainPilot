@@ -611,7 +611,7 @@ if __name__ == "__main__":
     ap.add_argument("--origin", type=int, default=None, help="Phase 8.2 rolling origin 1-8; omit for the fixed split")
     ap.add_argument("--from-preds", default=None)
     ap.add_argument("--bundle", default=None); ap.add_argument("--h0-bundle", default=None); ap.add_argument("--fold", default="test")
-    ap.add_argument("--fill-head", default=None, choices=["cells22", "beta3", "beta3c", "reg"])
+    ap.add_argument("--fill-head", default=None, choices=["cells22", "beta3", "beta3c", "reg", "band5"])
     ap.add_argument("--fill-loss", default=None, help="rps | rps_bw{w} (Phase 13 F1 arm 5)")
     ap.add_argument("--ratio-key", default=None, choices=["ps", "sp", "psp", "hier"])
     ap.add_argument("--ratio-est", default="ros", choices=["ros", "mor"])

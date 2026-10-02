@@ -29,7 +29,7 @@ from loader import read_df
 from sequences import Normaliser
 from tcn import TCN, HeteroMP
 from share import SHARE
-from heads import HazardHead, FillCDFHead, FillBeta3Head, FillBeta3CHead, FillRegHead, QuantileHead, BinaryHead, fill_cell
+from heads import HazardHead, FillCDFHead, FillBeta3Head, FillBeta3CHead, FillRegHead, FillBand5Head, QuantileHead, BinaryHead, fill_cell
 from staleness import StalenessGate, weeks_since_last_activity
 from metrics import cindex, pr_auc
 import phase5_metrics as M
@@ -161,7 +161,8 @@ class HeadNet(nn.Module):
             self.enc = None
         wide += self.n_row_feats
         self.fill_head = fill_head if task == "fill_rate" else None
-        fill_cls = {"cells22": FillCDFHead, "beta3": FillBeta3Head, "beta3c": FillBeta3CHead, "reg": FillRegHead}[fill_head or "cells22"]
+        fill_cls = {"cells22": FillCDFHead, "beta3": FillBeta3Head, "beta3c": FillBeta3CHead, "reg": FillRegHead,
+                    "band5": FillBand5Head}[fill_head or "cells22"]
         self.head = {"hazard": lambda: HazardHead(wide, HORIZON_WEEKS),
                      "cdf22": lambda: fill_cls(wide),
                      "quantile": lambda: QuantileHead(wide),
