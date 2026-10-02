@@ -7,7 +7,7 @@
 # any has finished) would pass -Deadline. The remaining cells are written to <stage>.STOPPED.json with the reason.
 # Resumable: a finished cell leaves <log>.done and is skipped on the next run.
 param([Parameter(Mandatory = $true)][string]$Stage, [Parameter(Mandatory = $true)][string]$Deadline,
-      [Parameter(Mandatory = $true)][string[]]$Cells)
+      [Parameter(Mandatory = $true)][string[]]$Cells, [int]$InitialMinutes = 35)
 $ErrorActionPreference = "Continue"
 # `powershell -File` hands a quoted list over as ONE string: accept ';'-separated cells as well
 $Cells = @($Cells | ForEach-Object { $_ -split ';' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -18,7 +18,7 @@ $PY = "venv\Scripts\python.exe"
 $env:HADES_DEVICE = "cuda"; $env:HADES_PANEL_HOST = "1"; $env:HADES_TCN_CHUNK = "4096"
 $env:CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 $dl = [datetime]::Parse($Deadline)
-$est = [timespan]::FromMinutes(35); $done = @(); $stopped = @()
+$est = [timespan]::FromMinutes($InitialMinutes); $done = @(); $stopped = @()
 foreach ($c in $Cells) {
     $name = ($c -replace '^ml\\train\\', '' -replace '\.py', '' -replace '[^A-Za-z0-9_.-]+', '_').Trim('_')
     $f = Join-Path $LOG "$Stage`_$name.log"
@@ -28,7 +28,7 @@ foreach ($c in $Cells) {
     $t = Get-Date
     $p = Start-Process -FilePath $PY -ArgumentList ("-u " + $c) -RedirectStandardOutput $f -RedirectStandardError "$f.err" -NoNewWindow -PassThru -Wait
     $wall = (Get-Date) - $t
-    if ($p.ExitCode -eq 0) { New-Item -ItemType File -Force "$f.done" | Out-Null; if ($wall -gt $est -or $done.Count -eq 0) { $est = $wall }; $done += $c }
+    if ($p.ExitCode -eq 0) { New-Item -ItemType File -Force "$f.done" | Out-Null; if ($wall -gt $est -or ($done.Count -eq 0 -and $wall.TotalMinutes -gt 5)) { $est = $wall }; $done += $c }
     $last = (Get-Content $f -ErrorAction SilentlyContinue | Where-Object { $_ -match '\S' } | Select-Object -Last 1)
     Write-Host "=== END   $Stage  $c  $(Get-Date -Format HH:mm:ss)  exit $($p.ExitCode)  wall $([int]$wall.TotalMinutes) min  $last"
 }
