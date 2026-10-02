@@ -1,0 +1,21 @@
+﻿{
+    "phase":  17,
+    "note":  "B1b neural: 2 of 5 seeds within the 3 h cap (each seed hit the 120-epoch ceiling, 75-81 min per cell on a 4 GB GPU at concurrency 1). B1a LightGBM: 5 of 5.",
+    "markers":  {
+                    "B1":  {
+                               "deadline":  "2026-10-02T16:33:54",
+                               "stage":  "B1",
+                               "reason":  "stage cap: the next cell\u0027s estimated wall time would pass the deadline",
+                               "not_run":  [
+                                               "ml\\train\\phase17_b1.py neural --seed 27",
+                                               "ml\\train\\phase17_b1.py neural --seed 37",
+                                               "ml\\train\\phase17_b1.py neural --seed 47"
+                                           ],
+                               "stopped_at":  "2026-10-02T16:11:25",
+                               "finished":  [
+                                                "ml\\train\\phase17_b1.py neural --seed 7",
+                                                "ml\\train\\phase17_b1.py neural --seed 17"
+                                            ]
+                           }
+                }
+}
