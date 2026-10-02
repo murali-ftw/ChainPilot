@@ -108,6 +108,7 @@ def load_rows():
 def run_lgbm():
     import lightgbm as lgb                                # FIRST, as in phase7_fit
     import numpy as np, pandas as pd
+    sys.path.insert(0, os.path.join(C.ML, "baselines"))
     import phase7_fit as P7
     st = C.require_clean()
     R = load_rows()
