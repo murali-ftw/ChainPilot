@@ -164,8 +164,9 @@ def score():
     lb = P5.labels("v8", TASK); tr, va, te = folds.fixed_split(lb.snapshot_date)
     yv_ref, yt_ref = arms["B2a_incumbent_mp_h4"][0][1], arms["B2a_incumbent_mp_h4"][0][3]
     seeds_of = {"B2a_incumbent_mp_h4": list(SEEDS)}
-    for arm, tgt in (("B2b_delta", "delta"), ("B2c_level_delta", "level_delta")):
-        suf = {"delta": "_tgtdelta", "level_delta": "_tgtlvldelta"}[tgt]
+    for arm, tgt in (("B2b_delta", "delta"), ("B2c_level_delta", "level_delta"),
+                     ("DIAGNOSTIC_B2c_level_head_only", "level_head")):     # not an arm: no verdict is read off it
+        suf = {"delta": "_tgtdelta", "level_delta": "_tgtlvldelta", "level_head": "_tgtlvldelta"}[tgt]
         pairs, seeds = [], []
         for s in SEEDS:
             b = os.path.join(C.BUND, TASK, f"v8_mp_h4_lr0.00025_s{s}{suf}")
@@ -174,7 +175,8 @@ def score():
             zv, zt = np.load(os.path.join(b, "preds_val.npz")), np.load(os.path.join(b, "preds_test.npz"))
             assert np.array_equal((zv["Y"] > 1).astype(int), yv_ref) and np.array_equal((zt["Y"] > 1).astype(int), yt_ref), \
                 f"{arm} s{s}: rows misaligned with the stored incumbent"
-            sc = (lambda z: p_exceed(z["P"])) if tgt == "delta" else (lambda z: np.maximum(p_exceed(z["P"]), p_exceed(z["PD"])))
+            sc = ((lambda z: p_exceed(z["P"])) if tgt in ("delta", "level_head")
+                  else (lambda z: np.maximum(p_exceed(z["P"]), p_exceed(z["PD"]))))
             pairs.append((sc(zv), yv_ref, sc(zt), yt_ref)); seeds.append(s)
         if pairs:
             arms[arm] = pairs; seeds_of[arm] = seeds
