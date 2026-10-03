@@ -1,0 +1,7 @@
+{
+ "sim_arrays_equal_stored": 48,
+ "snapshot_weeks_captured": 83,
+ "seconds": 20.5,
+ "generator_self_hash": "71de78afa645",
+ "hook": "one line at the top of the weekly loop; copies arrays; no RNG draw"
+}

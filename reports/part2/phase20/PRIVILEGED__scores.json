@@ -1,0 +1,245 @@
+{
+ "stamp": {
+  "code_commit": "c303519",
+  "code_dirty": false,
+  "code_version": "c303519",
+  "run_ts": "2026-10-04T01:29:15"
+ },
+ "stage3": {
+  "v8|arrival": {
+   "lateness_auc": {
+    "base": 0.7053486256631353,
+    "fwd_load": 0.7186423364257228,
+    "fwd_load_pred": 0.720553547311137,
+    "PRIVILEGED__hindsight": 0.7792055042133912,
+    "gap": 0.06056316778766835,
+    "gain": 0.0019112108854141274,
+    "recovery_share": 0.03155731371441375
+   },
+   "a3_median_abs_err_days": {
+    "base": 13.246271882679338,
+    "fwd_load": 12.956982043972829,
+    "fwd_load_pred": 12.92727429703641,
+    "PRIVILEGED__hindsight": 11.316822407478691,
+    "gap": 1.640159636494138,
+    "gain": 0.029707746936418644,
+    "recovery_share": 0.018112716759643793
+   }
+  },
+  "v8|fill": {
+   "crps_exact": {
+    "base": 0.1396921414265096,
+    "fwd_load": 0.1355297879777339,
+    "fwd_load_pred": 0.13510883295121315,
+    "PRIVILEGED__hindsight": 0.13258711882368274,
+    "gap": 0.0029426691540511696,
+    "gain": 0.00042095502652075845,
+    "recovery_share": 0.14305210830148204
+   },
+   "p_full_auc": {
+    "base": 0.6049204639569348,
+    "fwd_load": 0.658170312486787,
+    "fwd_load_pred": 0.6623260767999393,
+    "PRIVILEGED__hindsight": 0.6885298178878343,
+    "gap": 0.03035950540104726,
+    "gain": 0.004155764313152233,
+    "recovery_share": 0.13688511252916782
+   }
+  },
+  "v8|capacity": {
+   "precision_at_1pct": {
+    "base": 0.7795555555555556,
+    "fwd_load": 0.8773333333333333,
+    "fwd_load_pred": 0.9004444444444445,
+    "PRIVILEGED__hindsight": 0.9671111111111109,
+    "gap": 0.08977777777777762,
+    "gain": 0.023111111111111193,
+    "recovery_share": 0.25742574257425876
+   },
+   "precision_at_5pct": {
+    "base": 0.692088888888889,
+    "fwd_load": 0.8131555555555556,
+    "fwd_load_pred": 0.8421333333333333,
+    "PRIVILEGED__hindsight": 0.8906666666666668,
+    "gap": 0.0775111111111112,
+    "gain": 0.028977777777777658,
+    "recovery_share": 0.37385321100917235
+   },
+   "precision_at_10pct": {
+    "base": 0.6616,
+    "fwd_load": 0.7955555555555555,
+    "fwd_load_pred": 0.8056888888888889,
+    "PRIVILEGED__hindsight": 0.832088888888889,
+    "gap": 0.03653333333333353,
+    "gain": 0.010133333333333439,
+    "recovery_share": 0.277372262773724
+   },
+   "recall_at_p0.70": {
+    "base": 0.14808071945602105,
+    "fwd_load": 0.44246545295020834,
+    "fwd_load_pred": 0.473810046062733,
+    "PRIVILEGED__hindsight": 0.6739855231410397,
+    "gap": 0.23152007019083132,
+    "gain": 0.03134459311252469,
+    "recovery_share": 0.135386072951208
+   },
+   "recall_at_p0.80": {
+    "base": 0.02184689624917745,
+    "fwd_load": 0.2258170651458653,
+    "fwd_load_pred": 0.20640491335819258,
+    "PRIVILEGED__hindsight": 0.4623162974336477,
+    "gap": 0.2364992322877824,
+    "gain": -0.01941215178767272,
+    "recovery_share": -0.08208124652198102
+   },
+   "recall_at_p0.85": {
+    "base": null,
+    "fwd_load": 0.11208598376837027,
+    "fwd_load_pred": 0.11998245229216935,
+    "PRIVILEGED__hindsight": 0.3465891642904146,
+    "gap": 0.23450318052204433,
+    "gain": 0.007896468523799077,
+    "recovery_share": 0.03367318305116452
+   }
+  },
+  "v8w1002|arrival": {
+   "lateness_auc": {
+    "base": 0.6835225764113997,
+    "fwd_load": 0.6966449421747904,
+    "fwd_load_pred": 0.7000651721838704,
+    "PRIVILEGED__hindsight": 0.7772024515146745,
+    "gap": 0.08055750933988404,
+    "gain": 0.003420230009079983,
+    "recovery_share": 0.04245699795222724
+   },
+   "a3_median_abs_err_days": {
+    "base": 13.768289024444403,
+    "fwd_load": 13.411744492884537,
+    "fwd_load_pred": 13.374999357837273,
+    "PRIVILEGED__hindsight": 11.204781183980232,
+    "gap": 2.206963308904305,
+    "gain": 0.036745135047263844,
+    "recovery_share": 0.016649635677680012
+   }
+  },
+  "v8w1002|fill": {
+   "crps_exact": {
+    "base": 0.09428002633457717,
+    "fwd_load": 0.09238880439870152,
+    "fwd_load_pred": 0.0921790764009624,
+    "PRIVILEGED__hindsight": 0.09021074111371338,
+    "gap": 0.002178063284988138,
+    "gain": 0.00020972799773912032,
+    "recovery_share": 0.09629104865071104
+   },
+   "p_full_auc": {
+    "base": 0.6095619615875196,
+    "fwd_load": 0.6604869621386493,
+    "fwd_load_pred": 0.6647958284105036,
+    "PRIVILEGED__hindsight": 0.6995283775786965,
+    "gap": 0.039041415440047134,
+    "gain": 0.004308866271854228,
+    "recovery_share": 0.11036654853026574
+   }
+  },
+  "v8w1002|capacity": {
+   "precision_at_1pct": {
+    "base": 0.664,
+    "fwd_load": 0.8,
+    "fwd_load_pred": 0.760888888888889,
+    "PRIVILEGED__hindsight": 0.849777777777778,
+    "gap": 0.04977777777777792,
+    "gain": -0.039111111111111097,
+    "recovery_share": -0.7857142857142831
+   },
+   "precision_at_5pct": {
+    "base": 0.49564444444444444,
+    "fwd_load": 0.6750222222222222,
+    "fwd_load_pred": 0.6846222222222222,
+    "PRIVILEGED__hindsight": 0.8096,
+    "gap": 0.1345777777777778,
+    "gain": 0.009600000000000053,
+    "recovery_share": 0.0713342140026424
+   },
+   "precision_at_10pct": {
+    "base": 0.4494222222222223,
+    "fwd_load": 0.6003555555555555,
+    "fwd_load_pred": 0.6090666666666666,
+    "PRIVILEGED__hindsight": 0.7151111111111111,
+    "gap": 0.11475555555555561,
+    "gain": 0.008711111111111114,
+    "recovery_share": 0.0759101471727343
+   },
+   "recall_at_p0.70": {
+    "base": 0.03933765943164019,
+    "fwd_load": 0.1519803087939136,
+    "fwd_load_pred": 0.1538151711792347,
+    "PRIVILEGED__hindsight": 0.2964421570821213,
+    "gap": 0.14446184828820768,
+    "gain": 0.001834862385321101,
+    "recovery_share": 0.012701363073110284
+   },
+   "recall_at_p0.80": "UNREACHABLE on some seed",
+   "recall_at_p0.85": "UNREACHABLE on some seed"
+  }
+ },
+ "stage4b": {
+  "base": {
+   "lateness_auc": [
+    0.7047615849275761,
+    0.7053486256631353,
+    0.7057312957645425
+   ],
+   "a3_median_abs_err_days": [
+    13.213914668800385,
+    13.246271882679338,
+    13.269332597475174
+   ],
+   "cindex": [
+    0.6485276378827426,
+    0.6489090004565993,
+    0.6493317977061001
+   ]
+  },
+  "PRIVILEGED__creation_week_only": {
+   "lateness_auc": [
+    0.9102123369602195,
+    0.9103898169979177,
+    0.9104840560661174
+   ],
+   "a3_median_abs_err_days": [
+    6.409795266216513,
+    6.4219414257767085,
+    6.431300080248306
+   ],
+   "cindex": [
+    0.879704505339485,
+    0.8800128120378636,
+    0.880522294990357
+   ]
+  },
+  "PRIVILEGED__reorder_probe": {
+   "lateness_auc": [
+    0.7390358603502002,
+    0.7393836720116236,
+    0.7396901316623694
+   ],
+   "a3_median_abs_err_days": [
+    12.66548605349346,
+    12.713415471067618,
+    12.753983352140615
+   ],
+   "cindex": [
+    0.6671037298022994,
+    0.6674286648902459,
+    0.667712983092199
+   ]
+  },
+  "probe_recovery_share": 0.165991263155106,
+  "probe_vs_base": "better",
+  "a3_probe_vs_base": "better",
+  "p7_threshold_lateness_auc": 0.81,
+  "p7_met": false,
+  "caveat": "the simulator's position is exact and instantly current; a real ERP's book position lags and carries recording error, so this is an UPPER bound"
+ }
+}
