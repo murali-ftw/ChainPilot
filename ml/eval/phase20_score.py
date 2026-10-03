@@ -194,6 +194,8 @@ def main():
         rows = {}
         for k in mets:
             hi = D[task][k]; sgn = 1 if hi else -1
+            if not (v8b[arm][k] and v8b["base"][k]):
+                rows[k] = dict(replicates="n/a: no 5-seed band in v8 (UNREACHABLE on some seed)"); continue
             g8 = sgn * (v8b[arm][k][1] - v8b["base"][k][1]); g2 = sgn * (nb[arm][k][1] - nb["base"][k][1]) if nb[arm][k] and nb["base"][k] else None
             c2 = S18.compare(nb[arm][k], nb["base"][k], hi) if nb[arm][k] and nb["base"][k] else "n/a"
             ref2 = S18.compare(nb["fwd_load"][k], nb["fwd_season"][k], hi) if fam == "fwd_load_supplier_specific" else None
@@ -206,8 +208,9 @@ def main():
     out["references"] = {w: v.get("meta") for w, v in _REF.items()}
     C.dump(out, "phase20/scores.json")
     for k, v in out["replication"].items():
-        print(k, "w2 Gate v2:", v["w2_gate_v2"], {m: (r["replicates"], round(r["v8_gain_vs_base"], 4), r["w2_gain_vs_base"] and round(r["w2_gain_vs_base"], 4),
-                                                       r["ratio_w2_over_v8"] and round(r["ratio_w2_over_v8"], 2)) for m, r in v["metrics"].items()})
+        print(k, "w2 Gate v2:", v["w2_gate_v2"], {m: (r["replicates"], r.get("v8_gain_vs_base") and round(r["v8_gain_vs_base"], 4),
+                                                       r.get("w2_gain_vs_base") and round(r["w2_gain_vs_base"], 4),
+                                                       r.get("ratio_w2_over_v8") and round(r["ratio_w2_over_v8"], 2)) for m, r in v["metrics"].items()})
     for k, v in out["blend_recipe"].items():
         print("blend", k, v["metric"], {a: round(x, 4) for a, x in v["point"].items()}, "w_rf", v["weight_on_lgbm_rf"],
               v["blend vs lgbm_rf"]["verdict"], v["blend vs lgbm_fwd_load"]["verdict"])
