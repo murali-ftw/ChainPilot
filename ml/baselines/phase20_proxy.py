@@ -8,6 +8,8 @@ world's own validation fold), with columns appended. A world's BASE is fitted on
                                                     cadence rows permuted within snapshot, rng 40000+seed)
   lgbm_rf         the families the Phase 19 neural arm carried (arrival fwd_load+season+cadence; fill season+cadence;
                   capacity fwd_load): the LightGBM half of the Stage 2 blend recipe
+  stock, stock_sperm   Stage 4c: BASE + ml/data/stock_asof.py (observed ledger position vs an as-of reorder estimate), and the
+                  same SNAPSHOT-PERMUTED within split (rng 60000+seed)
   fwd_load_pred, fwd_load_pred_sperm   Stage 3: BASE + fwd_load + fwd_pred (the load forecaster's predictions, seed-matched),
                   and the same with fwd_pred SNAPSHOT-PERMUTED within split (rng 50000+seed)
 
@@ -25,7 +27,7 @@ import numpy as np, pandas as pd
 import phase20_world as PW
 import phase7_fit as P7
 import folds as FO
-import fwd_load as FL, fwd_season as FS, cadence as CD, fwd_pred as FP
+import fwd_load as FL, fwd_season as FS, cadence as CD, fwd_pred as FP, stock_asof as SK
 import phase19_proxy as P19
 import phase12_common as C
 from config import ARTIFACTS
@@ -35,7 +37,7 @@ OUT = os.path.join(ARTIFACTS, "phase20", "preds")
 LOG = os.path.join(ARTIFACTS, "phase20", "proxy_fit.json")
 TASK = P19.TASK
 ARMS = ("base", "fwd_season", "fwd_load", "cadence", "fwd_season_sperm", "fwd_load_sperm", "cadence_shuf", "lgbm_rf",
-        "fwd_load_pred", "fwd_load_pred_sperm")
+        "fwd_load_pred", "fwd_load_pred_sperm", "stock", "stock_sperm")
 RF = {"arrival": ("fwd_load", "fwd_season", "cadence"), "fill": ("fwd_season", "cadence"), "capacity": ("fwd_load",)}
 
 
@@ -56,6 +58,10 @@ def block(fam, world, lb, seed, perm=None):
         if perm == "shuf":
             rng = np.random.default_rng(40_000 + seed)
             X = np.stack([X[i][rng.permutation(X.shape[1])] for i in range(len(snaps))])
+    elif fam == "stock":
+        X, snaps, chans, cols = SK.load(world)
+        if perm == "sperm":
+            X = X[P19.derangement_within_split(snaps, 30_000 + seed)]       # rng(60000 + seed)
     else:                                                     # fwd_pred, seed-matched forecaster
         X, snaps, chans, cols = FP.load(world, seed)
         if perm == "sperm":
@@ -78,6 +84,10 @@ def family(arm, task, world, lb, seed):
         return block("cadence", world, lb, seed, "shuf")
     if arm == "lgbm_rf":
         return pd.concat([block(f, world, lb, seed) for f in RF[task]], axis=1)
+    if arm == "stock":
+        return block("stock", world, lb, seed)
+    if arm == "stock_sperm":
+        return block("stock", world, lb, seed, "sperm")
     if arm == "fwd_load_pred":
         return pd.concat([block("fwd_load", world, lb, seed), block("fwd_pred", world, lb, seed)], axis=1)
     if arm == "fwd_load_pred_sperm":
