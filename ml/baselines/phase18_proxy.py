@@ -10,6 +10,9 @@ Every arm is Phase 7's guide-B5 fit, unchanged: the same labels, split, row orde
   fwd_load       + ml/data/fwd_load.py COLS (Stage 4)
   fwd_load_shuf  + the same, shuffled ACROSS SUPPLIERS WITHIN EACH SNAPSHOT (supplier columns by a supplier
                  permutation, channel columns by a channel permutation), one permutation per snapshot per seed
+  fwd_load_netmean  DIAGNOSTIC, no verdict (deviation 163): + the SNAPSHOT MEAN over channels of each fwd_load column,
+                 the same vector for every row of a snapshot. It is exactly what the within-snapshot shuffle cannot
+                 destroy, so it measures how much of fwd_load_shuf's gain is the network-wide forward requirement.
   pulse          + ml/data/pulse.py COLS (Stage 5), the same vector for every row of a snapshot
   pulse_shuf     + the same, shuffled ACROSS SNAPSHOTS (one permutation of the snapshot -> vector map per seed)
 
@@ -39,7 +42,7 @@ LOG = os.path.join(ARTIFACTS, "phase18", "proxy_fit.json")
 STORED = {"arrival": "b5flat_reg", "fill": "b5flat22", "capacity": "b5flat_q"}
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "capacity": "capacity_strain"}
 SEEDS = P7.SEEDS
-ARMS = ("base", "fwd_load", "fwd_load_shuf", "pulse", "pulse_shuf")
+ARMS = ("base", "fwd_load", "fwd_load_shuf", "pulse", "pulse_shuf", "fwd_load_netmean")
 
 
 def family(arm, lb, seed):
@@ -65,6 +68,9 @@ def family(arm, lb, seed):
                 Xs[i][:, sup_cols] = X[i][first_ch[ps[sup_of]]][:, sup_cols]
                 Xs[i][:, ch_cols] = X[i][pc][:, ch_cols]
             X = Xs
+        if arm == "fwd_load_netmean":
+            M = np.nanmean(X, axis=1)                                   # [snapshot, col]
+            return pd.DataFrame(M[si], columns=[f"{c}_netmean" for c in cols])
         return pd.DataFrame(X[si, ci], columns=cols)
     X, snaps, cols = PU.load()
     si = pd.Series(range(len(snaps)), index=snaps).reindex(snap).to_numpy()
@@ -128,7 +134,7 @@ def check_reproduction(t_task, task, log):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True, choices=list(TASK))
-    ap.add_argument("--arms", default=",".join(ARMS[1:]))
+    ap.add_argument("--arms", default=",".join(ARMS[1:5]))
     ap.add_argument("--seeds", default=",".join(map(str, SEEDS)))
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)

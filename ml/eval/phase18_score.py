@@ -164,7 +164,7 @@ def main():
         A["neural_incumbent"] = arm_bands(task, lambda s: load_neural(task, s), with_extra=True)
         A["lgbm_flat_stored"] = arm_bands(task, lambda s: load_flat(os.path.join(PR7, f"v8_{t}_{STORED_LGBM[task]}_s{{s}}_{{f}}.npz"), s),
                                           with_extra=True)
-        for arm in ("fwd_load", "fwd_load_shuf", "pulse", "pulse_shuf"):
+        for arm in ("fwd_load", "fwd_load_shuf", "pulse", "pulse_shuf", "fwd_load_netmean"):
             fmt = os.path.join(PR18, f"v8_{t}_p18_{arm}_s{{s}}_{{f}}.npz")
             if all(os.path.exists(fmt.format(s=s, f="test")) for s in SEEDS):
                 A[arm] = arm_bands(task, lambda s, fmt=fmt: load_flat(fmt, s), with_extra=True)
@@ -181,6 +181,14 @@ def main():
         for fam in ("fwd_load", "pulse"):
             if fam in A and f"{fam}_shuf" in A:
                 out["gate"][f"{task}|{fam}"] = gate(task, base, A[fam][0], A[f"{fam}_shuf"][0])
+        # DIAGNOSTICS, no verdict (deviation 163): what part of fwd_load is supplier-specific, what part network-wide
+        D = {**DIRECTION[task], **EXTRA[task]}
+        diag = {}
+        for a, b in (("fwd_load", "fwd_load_shuf"), ("fwd_load_netmean", "lgbm_flat_stored"), ("fwd_load_shuf", "fwd_load_netmean"),
+                     ("fwd_load", "neural_incumbent"), ("fwd_load", "fwd_load_netmean")):
+            if a in A and b in A:
+                diag[f"{a} vs {b}"] = {k: compare(A[a][0][k], A[b][0][k], h) for k, h in D.items()}
+        out.setdefault("diagnostic", {})[task] = diag
     out["reference"] = {k: v for k, v in arrival_reference()["meta"].items() if not isinstance(v, (list, dict))}
     C.dump(out, "phase18/scores.json")
     for task in TASK:
