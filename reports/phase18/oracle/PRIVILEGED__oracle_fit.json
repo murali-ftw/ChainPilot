@@ -1,0 +1,946 @@
+{
+ "_stamps": [
+  {
+   "task": "capacity",
+   "arms": "oracle,oracle_state,hindsight_load",
+   "code_commit": "9ce7007",
+   "code_dirty": false,
+   "code_version": "9ce7007",
+   "run_ts": "2026-10-03T18:51:52"
+  },
+  {
+   "task": "arrival",
+   "arms": "oracle,oracle_state,hindsight_load",
+   "code_commit": "469957e",
+   "code_dirty": false,
+   "code_version": "469957e",
+   "run_ts": "2026-10-03T18:54:28"
+  },
+  {
+   "task": "fill",
+   "arms": "oracle,oracle_state,hindsight_load",
+   "code_commit": "469957e",
+   "code_dirty": false,
+   "code_version": "469957e",
+   "run_ts": "2026-10-03T18:55:09"
+  },
+  {
+   "task": "arrival",
+   "arms": "oracle_state_notiming",
+   "code_commit": "e967003",
+   "code_dirty": false,
+   "code_version": "e967003",
+   "run_ts": "2026-10-03T19:02:29"
+  },
+  {
+   "task": "fill",
+   "arms": "oracle_state_notiming",
+   "code_commit": "e967003",
+   "code_dirty": false,
+   "code_version": "e967003",
+   "run_ts": "2026-10-03T19:02:38"
+  }
+ ],
+ "labels|capacity": {
+  "rows": 152500,
+  "recomputed_equal": true
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_s7": {
+  "seconds": 0.7255327701568604,
+  "best_iters": [
+   400,
+   400,
+   400
+  ],
+  "seed": 7,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__ordered_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__ordered_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__ordered_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__ordered_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_s17": {
+  "seconds": 0.7628262042999268,
+  "best_iters": [
+   400,
+   400,
+   400
+  ],
+  "seed": 17,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__ordered_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__ordered_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__ordered_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__ordered_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_s27": {
+  "seconds": 0.6886179447174072,
+  "best_iters": [
+   400,
+   400,
+   400
+  ],
+  "seed": 27,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__ordered_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__ordered_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__ordered_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__ordered_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_s37": {
+  "seconds": 0.7891368865966797,
+  "best_iters": [
+   400,
+   400,
+   400
+  ],
+  "seed": 37,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__ordered_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__ordered_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__ordered_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__ordered_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_s47": {
+  "seconds": 0.7999570369720459,
+  "best_iters": [
+   400,
+   400,
+   400
+  ],
+  "seed": 47,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__ordered_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__ordered_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__ordered_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__ordered_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_state_s7": {
+  "seconds": 0.36693406105041504,
+  "best_iters": [
+   399,
+   234,
+   49
+  ],
+  "seed": 7,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_state_s17": {
+  "seconds": 0.39872193336486816,
+  "best_iters": [
+   400,
+   279,
+   49
+  ],
+  "seed": 17,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_state_s27": {
+  "seconds": 0.4047231674194336,
+  "best_iters": [
+   400,
+   356,
+   47
+  ],
+  "seed": 27,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_state_s37": {
+  "seconds": 0.41338014602661133,
+  "best_iters": [
+   400,
+   359,
+   51
+  ],
+  "seed": 37,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__oracle_state_s47": {
+  "seconds": 0.3811469078063965,
+  "best_iters": [
+   399,
+   227,
+   47
+  ],
+  "seed": 47,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__K_m0",
+   "PRIVILEGED__K_m1",
+   "PRIVILEGED__K_m2",
+   "PRIVILEGED__K_m3",
+   "PRIVILEGED__sup_state_window_mean",
+   "PRIVILEGED__regime_window_mean"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 0.2529292106628418,
+  "best_iters": [
+   109,
+   122,
+   128
+  ],
+  "seed": 7,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 0.26448988914489746,
+  "best_iters": [
+   107,
+   157,
+   116
+  ],
+  "seed": 17,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 0.2782750129699707,
+  "best_iters": [
+   117,
+   147,
+   125
+  ],
+  "seed": 27,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 0.25859713554382324,
+  "best_iters": [
+   119,
+   161,
+   94
+  ],
+  "seed": 37,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|capacity_strain|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 0.2822577953338623,
+  "best_iters": [
+   114,
+   155,
+   143
+  ],
+  "seed": 47,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "labels|arrival": {
+  "rows": 244000,
+  "recomputed_equal": true
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_s7": {
+  "seconds": 0.2523081302642822,
+  "best_iter": 167,
+  "seed": 7,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_s17": {
+  "seconds": 0.2680490016937256,
+  "best_iter": 192,
+  "seed": 17,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_s27": {
+  "seconds": 0.23093676567077637,
+  "best_iter": 140,
+  "seed": 27,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_s37": {
+  "seconds": 0.2592911720275879,
+  "best_iter": 177,
+  "seed": 37,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_s47": {
+  "seconds": 0.24925780296325684,
+  "best_iter": 164,
+  "seed": 47,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_s7": {
+  "seconds": 0.22799992561340332,
+  "best_iter": 135,
+  "seed": 7,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_s17": {
+  "seconds": 0.21407008171081543,
+  "best_iter": 155,
+  "seed": 17,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_s27": {
+  "seconds": 0.2473311424255371,
+  "best_iter": 164,
+  "seed": 27,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_s37": {
+  "seconds": 0.23516392707824707,
+  "best_iter": 144,
+  "seed": 37,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_s47": {
+  "seconds": 0.22534394264221191,
+  "best_iter": 140,
+  "seed": 47,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 0.21380305290222168,
+  "best_iter": 108,
+  "seed": 7,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 0.231065034866333,
+  "best_iter": 131,
+  "seed": 17,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 0.19994592666625977,
+  "best_iter": 98,
+  "seed": 27,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 0.20509815216064453,
+  "best_iter": 109,
+  "seed": 37,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 0.20955991744995117,
+  "best_iter": 123,
+  "seed": 47,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "labels|fill": {
+  "rows": 244000,
+  "recomputed_equal": true
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_s7": {
+  "seconds": 2.3358919620513916,
+  "best_iter": 92,
+  "seed": 7,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_s17": {
+  "seconds": 1.9203619956970215,
+  "best_iter": 79,
+  "seed": 17,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_s27": {
+  "seconds": 2.3397278785705566,
+  "best_iter": 95,
+  "seed": 27,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_s37": {
+  "seconds": 2.1781790256500244,
+  "best_iter": 90,
+  "seed": 37,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_s47": {
+  "seconds": 1.9496712684631348,
+  "best_iter": 85,
+  "seed": 47,
+  "arm": "oracle",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation",
+   "PRIVILEGED__load_prev_at_creation",
+   "PRIVILEGED__effective_K",
+   "PRIVILEGED__sup_ordered_creation_week",
+   "PRIVILEGED__sup_ordered_creation_month",
+   "PRIVILEGED__line_qty"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_s7": {
+  "seconds": 0.9347090721130371,
+  "best_iter": 34,
+  "seed": 7,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_s17": {
+  "seconds": 0.9068281650543213,
+  "best_iter": 33,
+  "seed": 17,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_s27": {
+  "seconds": 0.8963909149169922,
+  "best_iter": 33,
+  "seed": 27,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_s37": {
+  "seconds": 0.8659319877624512,
+  "best_iter": 32,
+  "seed": 37,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_s47": {
+  "seconds": 0.8764629364013672,
+  "best_iter": 33,
+  "seed": 47,
+  "arm": "oracle_state",
+  "cols": [
+   "PRIVILEGED__creation_offset_w",
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 1.0618648529052734,
+  "best_iter": 42,
+  "seed": 7,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 1.2209231853485107,
+  "best_iter": 43,
+  "seed": 17,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 1.317350149154663,
+  "best_iter": 48,
+  "seed": 27,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 1.1778161525726318,
+  "best_iter": 42,
+  "seed": 37,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 1.2692620754241943,
+  "best_iter": 47,
+  "seed": 47,
+  "arm": "hindsight_load",
+  "cols": [
+   "PRIVILEGED__sup_ordered_w1_4",
+   "PRIVILEGED__ch_ordered_w1_4",
+   "PRIVILEGED__sup_ordered_w5_8",
+   "PRIVILEGED__ch_ordered_w5_8",
+   "PRIVILEGED__sup_ordered_w9_13",
+   "PRIVILEGED__ch_ordered_w9_13"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_notiming_s7": {
+  "seconds": 0.1421518325805664,
+  "best_iter": 47,
+  "seed": 7,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_notiming_s17": {
+  "seconds": 0.140455961227417,
+  "best_iter": 46,
+  "seed": 17,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_notiming_s27": {
+  "seconds": 0.14382004737854004,
+  "best_iter": 50,
+  "seed": 27,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_notiming_s37": {
+  "seconds": 0.1414661407470703,
+  "best_iter": 46,
+  "seed": 37,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|arrival_week|PRIVILEGED__oracle_state_notiming_s47": {
+  "seconds": 0.14088082313537598,
+  "best_iter": 45,
+  "seed": 47,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_notiming_s7": {
+  "seconds": 0.9219772815704346,
+  "best_iter": 35,
+  "seed": 7,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_notiming_s17": {
+  "seconds": 0.8896698951721191,
+  "best_iter": 33,
+  "seed": 17,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_notiming_s27": {
+  "seconds": 0.8745212554931641,
+  "best_iter": 33,
+  "seed": 27,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_notiming_s37": {
+  "seconds": 0.9871020317077637,
+  "best_iter": 38,
+  "seed": 37,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ },
+ "v8|fill_rate|PRIVILEGED__oracle_state_notiming_s47": {
+  "seconds": 0.9687991142272949,
+  "best_iter": 37,
+  "seed": 47,
+  "arm": "oracle_state_notiming",
+  "cols": [
+   "PRIVILEGED__sup_state_at_creation",
+   "PRIVILEGED__transit_at_creation",
+   "PRIVILEGED__dem_state_at_creation",
+   "PRIVILEGED__regime_at_creation",
+   "PRIVILEGED__K_month_of_creation"
+  ]
+ }
+}
