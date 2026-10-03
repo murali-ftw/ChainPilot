@@ -15,6 +15,9 @@ early stopping), with privileged columns APPENDED:
                  the supplier's load at creation (util of the previous month = ordered / true K), its effective capacity,
                  the supplier's ordered quantity in the creation week and month, and the line's own quantity;
                  capacity adds the supplier's realised ordered volume for each month of the window.
+  oracle_state_notiming  DIAGNOSTIC (arrival / fill only): oracle_state WITHOUT the creation-week offset. arrival_week
+                 is counted from t0, so it contains the wait until the line is raised; this tier shows how much of the
+                 ceiling is that timing rather than state at creation.
   hindsight_load the Stage 4 upper-bound control: the realised ordered quantity per supplier and per channel over
                  weeks 1-4 / 5-8 / 9-13 after t0 -- what fwd_load tries to forecast, known exactly. Never a feature.
 Never an input: the line's realised delivery, lead time, receipt or expedite -- those are the outcomes.
@@ -43,7 +46,7 @@ OUT = os.path.join(HERE, "preds")
 LOG = os.path.join(HERE, "PRIVILEGED__oracle_fit.json")
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "capacity": "capacity_strain"}
 W0 = pd.Timestamp("2016-01-04")             # generator_v8.py: W = date_range('2016-01-04', ..., freq='W-MON')
-ARMS = ("oracle", "oracle_state", "hindsight_load")
+ARMS = ("oracle", "oracle_state", "hindsight_load", "oracle_state_notiming")
 
 
 class Sim:
@@ -78,6 +81,8 @@ def line_features(S, lb, arm):
          "PRIVILEGED__dem_state_at_creation": S.dem[ptc, pl],
          "PRIVILEGED__regime_at_creation": S.regime[ptc],
          "PRIVILEGED__K_month_of_creation": S.K[m, sup]}
+    if arm == "oracle_state_notiming":
+        F.pop("PRIVILEGED__creation_offset_w")
     if arm == "oracle":
         lp = np.where(m > 0, S.util[np.maximum(m - 1, 0), sup], 0.0)
         F.update({"PRIVILEGED__load_prev_at_creation": lp,

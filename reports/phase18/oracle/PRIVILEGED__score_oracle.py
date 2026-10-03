@@ -36,8 +36,10 @@ def main():
         A["model (neural incumbent)"] = S18.arm_bands(task, lambda s: S18.load_neural(task, s), with_extra=True)[0]
         A["lgbm_flat"] = S18.arm_bands(task, lambda s: S18.load_flat(os.path.join(S18.PR7, f"v8_{t}_{S18.STORED_LGBM[task]}_s{{s}}_{{f}}.npz"), s),
                                        with_extra=True)[0]
-        for arm in ("oracle", "oracle_state", "hindsight_load"):
+        for arm in ("oracle", "oracle_state", "hindsight_load", "oracle_state_notiming"):
             fmt = os.path.join(PRED, f"v8_{t}_PRIVILEGED__{arm}_s{{s}}_{{f}}.npz")
+            if not all(os.path.exists(fmt.format(s=s, f="test")) for s in S18.SEEDS):
+                continue
             A[f"PRIVILEGED__{arm}"] = S18.arm_bands(task, lambda s, fmt=fmt: S18.load_flat(fmt, s), with_extra=True)[0]
         fmt = os.path.join(S18.PR18, f"v8_{t}_p18_fwd_load_s{{s}}_{{f}}.npz")
         if all(os.path.exists(fmt.format(s=s, f="test")) for s in S18.SEEDS):
