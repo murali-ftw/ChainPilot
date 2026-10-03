@@ -27,7 +27,7 @@ split (train ≤ 2023, val 2024, test 2025); seeds 7 / 17 / 27 / 37 / 47; TEST u
 | base rates | `d1e69ac` |
 | Stage 2–4 scores (`scores.json`) | `b54d55b`, replication n/a fix `c303519` |
 | PRIVILEGED probe capture / fit; world-2 hindsight; PRIVILEGED scores | `ab9c919`; `1690956`; `a98f2b9` |
-| isolation audit | §7 |
+| isolation audit | run at `a9c2a7f`, all PASS (§7) |
 
 ---
 
@@ -113,7 +113,7 @@ not reached by the probe's stopped re-run.
 
 ## 7. Isolation audit
 
-`ml/tests/test_phase20_isolation.py` → `ml/artifacts/phase20/isolation_audit.json` (run at `d8bed2a` / §7 commit, every check PASS):
+`ml/tests/test_phase20_isolation.py` → `ml/artifacts/phase20/isolation_audit.json` (run at `a9c2a7f`, with every report content committed: every check PASS):
 
 | check | result |
 |---|---|
