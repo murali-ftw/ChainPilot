@@ -28,7 +28,7 @@ no STOPPED file.
 | neural cells (15) | `b9b1060` |
 | neural scores (`neural_score.json`) | `11f0c93` |
 | Stage 4a / 4b block bootstrap | `7c9ad7a` / `11f0c93` |
-| isolation audit | final commit (§6) |
+| isolation audit (+ `test_artifact_identity.py` 6 / 6) | run at `7e64261`, all PASS |
 
 **Anchors reproduced first:** BASE re-fitted bit-exactly on every task. Phase 18's fwd_load arrays rebuilt equal, and its
 stored scores re-scored equal. fwd_season equals Phase 18's network-mean diagnostic exactly. The incumbents' bands
@@ -109,7 +109,7 @@ listed reads (an identity check during its generator re-run) were not repeated.
 
 ## 6. Isolation audit
 
-`ml/tests/test_phase19_isolation.py` → `ml/artifacts/phase19/isolation_audit.json`, run at the final commit:
+`ml/tests/test_phase19_isolation.py` → `ml/artifacts/phase19/isolation_audit.json`, run at `7e64261`, every check PASS:
 
 | check | result |
 |---|---|
