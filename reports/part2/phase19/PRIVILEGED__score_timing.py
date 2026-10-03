@@ -39,7 +39,11 @@ def main():
                                           cadence_share_recovered=rec, rule="addition >= 0.05 AND cadence recovers >= 30%",
                                           worth_building=worth,
                                           verdict=("forecasting the order-raising time IS worth building" if worth else
-                                                   "arrival headroom is future supplier state, not reachable from as-of data"),
+                                                   "arrival headroom is future supplier state, not reachable from as-of data" if add < 0.05 else
+                                                   # deviation 172: the brief's fallback sentence presumes timing adds little. Here timing
+                                                   # alone carries the ceiling, so that sentence would be false; the rule's outcome stands.
+                                                   f"NOT worth building from as-of cadence: timing alone is the lever (+{add:.3f} AUC) but "
+                                                   f"cadence recovers only {rec:.0%} of it"),
                                           vs_disjoint={"creation_week_only vs BASE": S18.compare(A["PRIVILEGED__creation_week_only"]["lateness_auc"], A["BASE"]["lateness_auc"], True),
                                                        "cadence vs BASE": S18.compare(A["BASE+cadence"]["lateness_auc"], A["BASE"]["lateness_auc"], True)})
     assert_no_privileged_headline({"PRIVILEGED__timing_addition": 0}, headline=["verdict"])
