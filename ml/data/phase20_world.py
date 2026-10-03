@@ -6,9 +6,11 @@
   register  in-process only: config.WORLDS["v8w1002"] = data_worlds/v8_seed1002/seed_1002 and its panel width (15,
             asserted by cache.build_panel against the MEASURED width, never borrowed). No existing loader is edited.
   cache     the existing ml/data/cache.py builder -> ml/artifacts/cache/v8w1002/
+  features  the unchanged Phase 18-19 feature builders for this world: fwd_load, fwd_season, cadence (each asserts as-of)
 
   python ml/data/phase20_world.py generate
   python ml/data/phase20_world.py cache
+  python ml/data/phase20_world.py features
 """
 from __future__ import annotations
 import os, sys, json, hashlib, subprocess, time, argparse
@@ -78,8 +80,14 @@ def cache():
     print(json.dumps({k: v for k, v in meta.items() if k in ("world", "cols", "shape", "dropped_constant_zero")}, indent=1, default=str))
 
 
+def features():
+    register()
+    import fwd_load as FL, fwd_season as FS, cadence as CD
+    FL.build(WORLD); FS.build(WORLD); CD.build(WORLD)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["generate", "cache"])
+    ap.add_argument("mode", choices=["generate", "cache", "features"])
     a = ap.parse_args()
-    {"generate": generate, "cache": cache}[a.mode]()
+    {"generate": generate, "cache": cache, "features": features}[a.mode]()
