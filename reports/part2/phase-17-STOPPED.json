@@ -1,0 +1,40 @@
+﻿{
+    "phase":  17,
+    "final_state_at":  "2026-10-03T09:31:00 (global training stop 10:00, user instruction)",
+    "completed":  {
+                      "B1a":  "5/5",
+                      "B1b":  "2/5",
+                      "B2b":  "5/5",
+                      "B2c":  "5/5",
+                      "B3b":  "5/5",
+                      "B4b":  "5/5"
+                  },
+    "not_run":  [
+                    "B1b neural seed 27",
+                    "B1b neural seed 37",
+                    "B1b neural seed 47"
+                ],
+    "history":  [
+                    "2026-10-02 16:11 B1 per-stage cap (3 h): B1b stopped after 2 of 5 seeds (each ~75-81 min, 120-epoch ceiling)",
+                    "2026-10-02 ~18:15 user: lift caps, let every stage complete; stopped B1b seeds appended as a last stage",
+                    "2026-10-02 ~18:40 user: train until 10:00 2026-10-03, report by 11:00 -\u003e one global deadline",
+                    "2026-10-03 01:17 reboot: B3 seed 27 lost ~50 min; GPU idle until 04:02 restart",
+                    "2026-10-03 09:31 B4 complete; B1b seeds 27/37/47 not started: each would pass 10:00"
+                ],
+    "markers":  {
+                    "B1_cap":  {
+                                   "deadline":  "2026-10-03T10:00:00",
+                                   "stage":  "B1",
+                                   "reason":  "stage cap: the next cell\u0027s estimated wall time would pass the deadline",
+                                   "not_run":  [
+                                                   "ml\\train\\phase17_b1.py neural --seed 27",
+                                                   "ml\\train\\phase17_b1.py neural --seed 37",
+                                                   "ml\\train\\phase17_b1.py neural --seed 47"
+                                               ],
+                                   "stopped_at":  "2026-10-03T09:31:00",
+                                   "finished":  [
+
+                                                ]
+                               }
+                }
+}
