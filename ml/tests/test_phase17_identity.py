@@ -41,8 +41,11 @@ def test_every_stored_identity_unchanged():
     n, name_mismatch = 0, []
     for f in stored_configs():
         cfg = json.load(open(f))
-        if "arch" not in cfg or "seed" not in cfg or cfg.get("trained_by") == "ml/train/phase17_b1.py":
-            continue                                    # not a loop.py bundle config, or a Phase 17 artifact
+        if "arch" not in cfg or "seed" not in cfg:
+            continue                                    # not a loop.py bundle config
+        if (str(cfg.get("trained_by", "")).startswith("ml/train/phase17") or cfg.get("cap_target") or cfg.get("lean_encoder")
+                or cfg.get("fill_head") == "band5"):
+            continue                                    # a Phase 17 artifact: the check is over STORED Phase 0-15 configs
         cfg.setdefault("origin", None)
         assert OLD.identity_of(cfg) == NEW.identity_of(cfg), f"identity changed: {f}"
         assert OLD.bundle_path_key(cfg) == NEW.bundle_path_key(cfg), f"bundle path changed: {f}"
