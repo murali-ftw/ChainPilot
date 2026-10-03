@@ -1,0 +1,299 @@
+{
+ "stored": "db/gen_v8/seed_1001",
+ "rerun": "/private/tmp/claude-501/-Users-muralik-Documents-Programs-HADES-v4/3e1525e1-6b44-4c5f-8b0a-fa5dbbcf2db6/scratchpad/regen/seed_1001",
+ "generator_sha1_12": "71de78afa645",
+ "all_equal": true,
+ "n_files": 56,
+ "n_equal": 56,
+ "not_compared": [
+  "level4.json"
+ ],
+ "files": [
+  {
+   "file": "_events.npz",
+   "equal": true,
+   "how": "10 arrays equal"
+  },
+  {
+   "file": "_sim.npz",
+   "equal": true,
+   "how": "48 arrays equal"
+  },
+  {
+   "file": "allocation_disclaimer.txt",
+   "equal": true,
+   "how": "sha1 5045c50c2862"
+  },
+  {
+   "file": "alternate_sources.csv",
+   "equal": true,
+   "how": "sha1 77582317f292"
+  },
+  {
+   "file": "asn.csv",
+   "equal": true,
+   "how": "sha1 fc1a21c75331"
+  },
+  {
+   "file": "bom.csv",
+   "equal": true,
+   "how": "sha1 b056378a97cb"
+  },
+  {
+   "file": "business_units.csv",
+   "equal": true,
+   "how": "sha1 156df3a8af9d"
+  },
+  {
+   "file": "calendar.csv",
+   "equal": true,
+   "how": "sha1 0dc42e3544a4"
+  },
+  {
+   "file": "channel_performance_weekly.csv",
+   "equal": true,
+   "how": "sha1 d2bed0bc7bec"
+  },
+  {
+   "file": "customers.csv",
+   "equal": true,
+   "how": "sha1 5422b334c3e1"
+  },
+  {
+   "file": "dataset_coverage.csv",
+   "equal": true,
+   "how": "equal except the per-table write-time column"
+  },
+  {
+   "file": "expedite_events.csv",
+   "equal": true,
+   "how": "sha1 2d0a6e58f533"
+  },
+  {
+   "file": "goods_receipts.csv",
+   "equal": true,
+   "how": "sha1 348d8e625e72"
+  },
+  {
+   "file": "grn_lines.csv",
+   "equal": true,
+   "how": "sha1 4c4235dad07e"
+  },
+  {
+   "file": "inventory_position_weekly.csv",
+   "equal": true,
+   "how": "sha1 4c5569d32635"
+  },
+  {
+   "file": "inventory_snapshots.csv",
+   "equal": true,
+   "how": "sha1 09f391270663"
+  },
+  {
+   "file": "inventory_transactions.csv",
+   "equal": true,
+   "how": "sha1 40a8c7e27d08"
+  },
+  {
+   "file": "level4.json",
+   "equal": null,
+   "how": "validator output, not generator output: not compared"
+  },
+  {
+   "file": "line_stop_events.csv",
+   "equal": true,
+   "how": "sha1 a46ed60c0cd5"
+  },
+  {
+   "file": "logistics_lanes.csv",
+   "equal": true,
+   "how": "sha1 a6a4646d8d97"
+  },
+  {
+   "file": "manifest.json",
+   "equal": true,
+   "how": "json equal except generated_at (at any depth)"
+  },
+  {
+   "file": "measured_outcomes.json",
+   "equal": true,
+   "how": "sha1 18fa7297239e"
+  },
+  {
+   "file": "mechanism_parameters.json",
+   "equal": true,
+   "how": "sha1 12306c7d5651"
+  },
+  {
+   "file": "model_outputs.csv",
+   "equal": true,
+   "how": "sha1 2d8ffd3d34b6"
+  },
+  {
+   "file": "parameters_v8.json",
+   "equal": true,
+   "how": "json equal except generated_at (at any depth)"
+  },
+  {
+   "file": "part_costs.csv",
+   "equal": true,
+   "how": "sha1 db94cfb42867"
+  },
+  {
+   "file": "part_demand_weekly.csv",
+   "equal": true,
+   "how": "sha1 9f080047c080"
+  },
+  {
+   "file": "part_plant.csv",
+   "equal": true,
+   "how": "sha1 4a730a400da5"
+  },
+  {
+   "file": "parts.csv",
+   "equal": true,
+   "how": "sha1 006a94a17f8c"
+  },
+  {
+   "file": "plan_drift_features.csv",
+   "equal": true,
+   "how": "sha1 7d849cf1992a"
+  },
+  {
+   "file": "plants.csv",
+   "equal": true,
+   "how": "sha1 af6c6b0f72e5"
+  },
+  {
+   "file": "po_line_revisions.csv",
+   "equal": true,
+   "how": "sha1 3a567eac0993"
+  },
+  {
+   "file": "po_line_schedules.csv",
+   "equal": true,
+   "how": "sha1 cdc6f3a64fa0"
+  },
+  {
+   "file": "po_lines.csv",
+   "equal": true,
+   "how": "sha1 5b148a229ea9"
+  },
+  {
+   "file": "product_economics.csv",
+   "equal": true,
+   "how": "sha1 c116497ee351"
+  },
+  {
+   "file": "production_actual.csv",
+   "equal": true,
+   "how": "sha1 0f96b42026ad"
+  },
+  {
+   "file": "production_plan.csv",
+   "equal": true,
+   "how": "sha1 c6c6f954d004"
+  },
+  {
+   "file": "products.csv",
+   "equal": true,
+   "how": "sha1 c4d815d25de3"
+  },
+  {
+   "file": "purchase_orders.csv",
+   "equal": true,
+   "how": "sha1 fb5eaad8577e"
+  },
+  {
+   "file": "quality_inspections.csv",
+   "equal": true,
+   "how": "sha1 480be67307e2"
+  },
+  {
+   "file": "revealed_capacity_monthly.csv",
+   "equal": true,
+   "how": "sha1 ecf4ce070870"
+  },
+  {
+   "file": "shortage_events.csv",
+   "equal": true,
+   "how": "sha1 3226d54a6885"
+  },
+  {
+   "file": "snapshots.csv",
+   "equal": true,
+   "how": "sha1 aae6ed4ed491"
+  },
+  {
+   "file": "sourcing_channels.csv",
+   "equal": true,
+   "how": "sha1 d37b569e2687"
+  },
+  {
+   "file": "supplier_acknowledgements.csv",
+   "equal": true,
+   "how": "sha1 d85292c0ec8d"
+  },
+  {
+   "file": "supplier_allocation.csv",
+   "equal": true,
+   "how": "sha1 9a3490e28790"
+  },
+  {
+   "file": "supplier_audits.csv",
+   "equal": true,
+   "how": "sha1 94fce79037c0"
+  },
+  {
+   "file": "supplier_capacity.csv",
+   "equal": true,
+   "how": "sha1 237aa8f8b55a"
+  },
+  {
+   "file": "supplier_contracts.csv",
+   "equal": true,
+   "how": "sha1 b58f9f8c4842"
+  },
+  {
+   "file": "supplier_financials.csv",
+   "equal": true,
+   "how": "sha1 b1a6b29ad1d4"
+  },
+  {
+   "file": "supplier_performance_weekly.csv",
+   "equal": true,
+   "how": "sha1 d5142d1b06cc"
+  },
+  {
+   "file": "supplier_quality_ppm.csv",
+   "equal": true,
+   "how": "sha1 da309830825a"
+  },
+  {
+   "file": "supplier_sites.csv",
+   "equal": true,
+   "how": "sha1 a1e015fec85d"
+  },
+  {
+   "file": "supplier_upstream.csv",
+   "equal": true,
+   "how": "sha1 13840b341cd3"
+  },
+  {
+   "file": "suppliers.csv",
+   "equal": true,
+   "how": "sha1 2d5b5ae9f58d"
+  },
+  {
+   "file": "tooling.csv",
+   "equal": true,
+   "how": "sha1 db770907b4de"
+  },
+  {
+   "file": "training_labels.csv",
+   "equal": true,
+   "how": "sha1 2835d6114f6f"
+  }
+ ],
+ "extra_in_rerun": []
+}
