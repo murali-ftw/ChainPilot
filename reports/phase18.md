@@ -28,7 +28,7 @@ finished in about 35 minutes of the 12-hour window (stop 06:39 IST 2026-10-04), 
 | oracle / oracle_state / hindsight_load fits | `9ce7007`; oracle_state_notiming `e967003` |
 | oracle scores `PRIVILEGED__oracle_scores.json` | `e967003` |
 | Stage 3 squeezes `stage3_squeeze.json` | `61e92ef` |
-| isolation audit `isolation_audit.json` | final commit (§6) |
+| isolation audit `isolation_audit.json` (+ `test_artifact_identity.py`, 6 / 6 pass) | run at `1212dd3` (all report content committed) |
 
 Every run refused to start on a dirty `ml/` (`phase12_common.require_clean`) and recorded `code_dirty = false`.
 
@@ -124,7 +124,7 @@ are untouched, and no new neural class was written.
 
 ## 6. Isolation audit (Stage 8b)
 
-`ml/tests/test_phase18_isolation.py` → `ml/artifacts/phase18/isolation_audit.json`:
+`ml/tests/test_phase18_isolation.py` → `ml/artifacts/phase18/isolation_audit.json`, run at `1212dd3`, every check PASS:
 
 | check | result |
 |---|---|
