@@ -1,0 +1,85 @@
+{
+ "_stamps": [
+  {
+   "task": "capacity",
+   "code_commit": "d1e69ac",
+   "code_dirty": false,
+   "code_version": "d1e69ac",
+   "run_ts": "2026-10-04T01:25:04"
+  },
+  {
+   "task": "arrival",
+   "code_commit": "d1e69ac",
+   "code_dirty": false,
+   "code_version": "d1e69ac",
+   "run_ts": "2026-10-04T01:25:30"
+  },
+  {
+   "task": "fill",
+   "code_commit": "d1e69ac",
+   "code_dirty": false,
+   "code_version": "d1e69ac",
+   "run_ts": "2026-10-04T01:25:42"
+  }
+ ],
+ "v8w1002|capacity_strain|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 0.2632479667663574,
+  "seed": 7
+ },
+ "v8w1002|capacity_strain|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 0.19643616676330566,
+  "seed": 17
+ },
+ "v8w1002|capacity_strain|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 0.22913384437561035,
+  "seed": 27
+ },
+ "v8w1002|capacity_strain|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 0.28817200660705566,
+  "seed": 37
+ },
+ "v8w1002|capacity_strain|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 0.21996784210205078,
+  "seed": 47
+ },
+ "v8w1002|arrival_week|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 0.1734330654144287,
+  "seed": 7
+ },
+ "v8w1002|arrival_week|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 0.1817629337310791,
+  "seed": 17
+ },
+ "v8w1002|arrival_week|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 0.18564200401306152,
+  "seed": 27
+ },
+ "v8w1002|arrival_week|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 0.19208812713623047,
+  "seed": 37
+ },
+ "v8w1002|arrival_week|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 0.2136240005493164,
+  "seed": 47
+ },
+ "v8w1002|fill_rate|PRIVILEGED__hindsight_load_s7": {
+  "seconds": 0.8566582202911377,
+  "seed": 7
+ },
+ "v8w1002|fill_rate|PRIVILEGED__hindsight_load_s17": {
+  "seconds": 0.8319251537322998,
+  "seed": 17
+ },
+ "v8w1002|fill_rate|PRIVILEGED__hindsight_load_s27": {
+  "seconds": 0.86592698097229,
+  "seed": 27
+ },
+ "v8w1002|fill_rate|PRIVILEGED__hindsight_load_s37": {
+  "seconds": 0.9432220458984375,
+  "seed": 37
+ },
+ "v8w1002|fill_rate|PRIVILEGED__hindsight_load_s47": {
+  "seconds": 0.9786121845245361,
+  "seed": 47
+ }
+}

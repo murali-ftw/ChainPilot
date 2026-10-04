@@ -56,3 +56,6 @@ venv/
 
 # ---------------------------------------------------------------- prompts
 prompts/
+
+# Phase 20: second world generated OUTSIDE db/ (never committed)
+data_worlds/

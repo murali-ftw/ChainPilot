@@ -1,0 +1,35 @@
+{
+ "_stamps": [
+  {
+   "code_commit": "ab9c919",
+   "code_dirty": false,
+   "code_version": "ab9c919",
+   "run_ts": "2026-10-04T00:58:50"
+  }
+ ],
+ "v8|arrival_week|PRIVILEGED__reorder_probe_s7": {
+  "seconds": 0.1891329288482666,
+  "best_iter": 80,
+  "seed": 7
+ },
+ "v8|arrival_week|PRIVILEGED__reorder_probe_s17": {
+  "seconds": 0.2082071304321289,
+  "best_iter": 106,
+  "seed": 17
+ },
+ "v8|arrival_week|PRIVILEGED__reorder_probe_s27": {
+  "seconds": 0.19559907913208008,
+  "best_iter": 91,
+  "seed": 27
+ },
+ "v8|arrival_week|PRIVILEGED__reorder_probe_s37": {
+  "seconds": 0.19617700576782227,
+  "best_iter": 95,
+  "seed": 37
+ },
+ "v8|arrival_week|PRIVILEGED__reorder_probe_s47": {
+  "seconds": 0.19624590873718262,
+  "best_iter": 84,
+  "seed": 47
+ }
+}
