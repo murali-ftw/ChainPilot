@@ -47,7 +47,8 @@ TASK = {"arrival": "arrival_week", "fill": "fill_rate", "place": "arrival_place"
 # (generator_v8.py: leadw[pch, vw_ord] = pl_, forward-filled) -- future information at any t0 / tau in that week or later.
 LEAK = ["lead_time_actual_days", "lead_time_ratio", "otd_rate_last13"]
 ARMS = {"arrival": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "grp_only", "sc", "sc_L5", "base_nl", "L4_nl", "L5_nl"),
-        "fill": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc_L5"),
+        "fill": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc_L5",
+                 "sc_L4", "sc_L5_perm", "sc_L5_xsh"),          # the last three: controls for sc_L5 (deviation 201)
         "place": ("base", "L4", "L5", "L5_perm", "base_nl", "L4_nl", "L5_nl", "L5_perm_nl")}
 
 
@@ -104,9 +105,9 @@ def family(task, arm, world, lb, Z, k, seed, groups, masks):
         return group_block(task, Z, k, "L5"), False
     if arm == "sc":
         return pd.concat([P20.block("fwd_season", world, lb, seed), P20.block("cadence", world, lb, seed)], axis=1), True
-    if arm == "sc_L5":
-        return pd.concat([P20.block("fwd_season", world, lb, seed), P20.block("cadence", world, lb, seed),
-                          group_block(task, Z, k, "L5")], axis=1), True
+    if arm.startswith("sc_"):          # season + cadence + a group family (or its control)
+        G, _ = family(task, arm[3:], world, lb, Z, k, seed, groups, masks)
+        return pd.concat([P20.block("fwd_season", world, lb, seed), P20.block("cadence", world, lb, seed), G], axis=1), True
     if arm == "ack":
         return GS.assemble_ack(Z), True
     if arm == "ack_xsh":

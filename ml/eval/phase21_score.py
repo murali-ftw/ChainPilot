@@ -345,7 +345,9 @@ def stage_snap(world, out):
     T = ks["snap"]["T_snap"]
     n4 = np.nan_to_num(Zt["A_L4"][:, GS.ASTATS.index("n")])
     sl = {"cold": n4 == 0, "thin": (n4 > 0) & (n4 < T), "normal": n4 >= T}
-    best = max([a for a in ("L4", "L5", "sc_L5") if a in A], key=lambda a: A[a][0]["lateness_auc"][1]) if any(a in A for a in ("L4", "L5")) else None
+    # P5's arm, fixed in the pre-registration: the best PASSING arrival arm, or BASE + L5 if none passes. Never chosen on test.
+    passing = [f for f in ("L4", "L5") if g.get(f, {}).get("verdict") == "PASS"]
+    best = (max(passing, key=lambda a: vauc_arm(world, a, kA)) if passing else "L5") if "L5" in A else None
     sres = {}
     if best:
         Rc = contracted_ref(world)["test"]
@@ -372,9 +374,17 @@ def stage_snap(world, out):
                           for s in SEEDS] for arm in ("base", best)}
             mres[int(mo)] = {arm: S18.band(v) for arm, v in vals.items()} | dict(rows=int(m.sum()))
         res["slices_arrival"] = dict(T=T, best_arm=best, by_n4=sres, by_month_of_t0=mres)
+        # context only (no verdict): the same slices for BASE + season + cadence + L5 against BASE + season + cadence
+        if "sc_L5" in A and "sc" in A:
+            ctx = {}
+            for nm, m in sl.items():
+                if (m & EVt).sum() >= 50:
+                    ctx[nm] = {arm: S18.band([lateness(np.asarray(load(world, "arrival", arm, kA, s)["test"]["P"], float)[m], Yt[m], EVt[m], Rt[m])[0]
+                                              for s in SEEDS]) for arm in ("base", "sc", "sc_L5")}
+            res["slices_arrival"]["context_sc_L5_lateness_auc"] = ctx
     # ---------------------------------------------------------------- fill (Stage 5)
     F = {}; UNF = {}
-    for arm in ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc", "sc_L5"):
+    for arm in ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc", "sc_L5", "sc_L4", "sc_L5_perm", "sc_L5_xsh"):
         if arm in ("base", "sc") or have(world, "fill", arm, kF):
             if arm == "sc" and not have(world, "fill", "sc", kF):
                 continue
@@ -386,6 +396,11 @@ def stage_snap(world, out):
             gf[fam] = gate("fill", F[fam][0], fb, {c: F[c][0] for c in ctrls})
     if "sc" in F and "sc_L5" in F:
         gf["L5 over season + cadence"] = dict(vs_sc=cmp("fill", F["sc_L5"][0], F["sc"][0]))
+        if "sc_L5_perm" in F and "sc_L5_xsh" in F:       # deviation 201: the same gate with season + cadence as the reference
+            gf["sc_L5 vs sc (gate, controls sc_L5_perm, sc_L5_xsh)"] = gate("fill", F["sc_L5"][0], F["sc"][0],
+                                                                         {"sc_L5_perm": F["sc_L5_perm"][0], "sc_L5_xsh": F["sc_L5_xsh"][0]})
+        if "sc_L4" in F:
+            gf["sc_L5 vs sc_L4 (month)"] = cmp("fill", F["sc_L5"][0], F["sc_L4"][0])
     if "L5" in F and "L4" in F:
         gf["control (c): L5 vs L4"] = cmp("fill", F["L5"][0], F["L4"][0])
     zf = load(world, "fill", "base", kF, 7)
@@ -409,6 +424,13 @@ def stage_snap(world, out):
                                                                              dict(val=sa["val"], test=sa["test"], yv=Yf["val"], yt=Yf["test"])},
                                                                          snap_t).items()}
     out.update(res)
+
+
+def vauc_arm(world, arm, k):
+    """VALIDATION lateness AUC of an arm's 5-seed mean (for choosing among passing arms)."""
+    zs = [load(world, "arrival", arm, k, s)["val"] for s in SEEDS]
+    P = np.mean([np.asarray(z["P"], float) for z in zs], 0)
+    return lateness(P, np.asarray(zs[0]["Y"], float), np.asarray(zs[0]["EV"], bool), P20S.ref(world, "val"))[0]
 
 
 def cmp_slice(a, b, higher):
