@@ -10,8 +10,9 @@ Scan (pre-registration D1). For a sample of panel weeks t and two horizons:
   H_week  keep source rows VISIBLE in a week <= t (the panel row's own week); poison everything visible later
   H_date  keep rows visible in a week <  t (strict recorded_ts <= the snapshot date W[t]); poison the rest
 "Poison" = replace the value-bearing fields of every later-visible row with noise:
-  * a line whose ORDER is visible later: qty, delivered, lead, reporting lag
+  * a line whose ORDER is visible later: qty, reporting lag
   * a line whose OUTCOME (first receipt; for an unshipped line, never) is visible later: delivered, lead
+    (a receipt already visible keeps its quantity even if its order was recorded late)
   * a revision visible later: dropped;  a declared capacity recorded later: noise
 and the column's value at row t is recomputed. A column CHANGES if any channel's row-t value moves (beyond 1e-9).
 Constructed failing case: lead_time_actual_days, lead_time_ratio, otd_rate_last13 MUST change under H_week, or the scan
@@ -146,10 +147,10 @@ def poison(S, t, strict, rng):
     pq, pdv, pl, lag = S.pq.astype(float).copy(), S.pd.astype(float).copy(), S.pl.copy(), S.lag.copy()
     o = later(S.vw_ord)
     pq[o] = rng.integers(1, 5000, o.sum()); lag[o] = rng.uniform(0, 30, o.sum())
-    out = o | later(S.vw_rec)                       # the outcome is not visible by the horizon (never, if unshipped)
+    out = later(S.vw_rec)                           # the outcome (receipt) is not visible by the horizon (never, if unshipped)
     pdv[out] = np.floor(rng.uniform(0, 1, out.sum()) * pq[out]); pl[out] = rng.uniform(3, 200, out.sum())
     rev_keep = ~later(S.rev_vw)
-    hz = S.W0 + pd.Timedelta(days=7 * (t if strict else t + 1))
+    hz = S.W0 + pd.Timedelta(days=7 * (int(t) if strict else int(t) + 1))
     DECL = S.DECL.copy()
     d = S.decl_rec > np.datetime64(hz)
     DECL[d] = rng.uniform(60, 5e4, d.sum())
