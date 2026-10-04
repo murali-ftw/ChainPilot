@@ -124,4 +124,83 @@ Equality with the stored columns on rows where no leak applies (40 sampled weeks
 
 ## d–f. Restatement
 
-*(pending: filled from `restate_arrival_fill_capacity.json` once the clean neural cells finish)*
+`ml/eval/phase22_restate.py` (`e79327f`) → `restate_arrival_fill_capacity.json`.
+- **Neural clean:** the three incumbent configurations retrained on `v8clean`, five seeds each, MPS, concurrency 1,
+  bundles under `ml/artifacts/phase22/bundles/{task}/v8clean_*`.
+- **The audit (1b) says every stored model reads leaking columns:** the panel feeds all three heads, and fill reads the
+  fill family while capacity reads `load_ratio`. So all three were retrained, and none was skipped.
+- **Handshake (Stage −1):** INSIDE the stored band at all 3 epochs (|Δ| ≤ 2.0e-5), and its constructed failing case
+  (+0.05) reports OUTSIDE.
+
+Published (leaky) and clean are in **separate columns**. Δ = clean − published: 5-seed ensembles, snapshot-block 95%
+interval, better = positive.
+
+### Arrival (UC1 base 0.730)
+
+| metric | published LightGBM | clean LightGBM | published neural | **clean neural** | neural Δ (block) |
+|---|---|---|---|---|---|
+| lateness AUC | 0.7053 [0.7048, 0.7057] | 0.6991 [0.6986, 0.6995] | 0.7090 [0.7064, 0.7130] | **0.6951** [0.6817, 0.7041] | **−0.0117** [−0.0169, −0.0057] worse |
+| C-index | 0.6489 | 0.6421 | 0.6744 | 0.6621 | — |
+| A3 (days) | 13.25 | 13.28 | 13.06 | 13.15 | +0.03 d [−0.16, +0.27]: undetermined |
+| UC1 precision @ 1 / 5 / 10 / 20% | 0.938 / 0.894 / 0.855 / 0.818 | 0.931 / 0.868 / 0.840 / 0.810 | 0.986 / 0.968 / 0.947 / 0.908 | 0.969 / 0.940 / 0.916 / 0.886 | @ 5% (ensemble P(late)): **−0.021** [−0.034, −0.009] worse |
+| Phase 15 class | WATCHLIST (PARTIAL) | WATCHLIST (PARTIAL) | WATCHLIST (YES, lift 1.25) | **WATCHLIST** (YES) | no change |
+
+LightGBM Δ (block):
+- lateness −0.0063, worse;
+- UC1 @ 5% −0.026, worse;
+- `nl` (columns dropped, no replacement) is worse still, at −0.0117.
+
+**One clean neural seed is weak** (lateness 0.682), which widens the clean band.
+
+### Fill (UC2b base 0.245)
+
+| metric | published LightGBM | clean LightGBM | published neural | **clean neural** | neural Δ (block) |
+|---|---|---|---|---|---|
+| exact CRPS | 0.1397 | 0.1407 | 0.13876 | **0.1397** | +0.0011 [−0.0006, +0.0030]: undetermined |
+| P(fill = 1) AUC | 0.6049 | 0.5879 | 0.6204 | **0.6007** | **−0.021** [−0.044, −0.0002] worse |
+| UC2b precision @ 5% | 0.384 | 0.368 | 0.451 | **0.401** | **−0.058** [−0.078, −0.014] worse |
+| UC2 precision @ 5% | 0.864 | 0.856 | 0.874 | 0.863 | — |
+| Phase 15 class (UC2 / UC2b) | WATCHLIST / WATCHLIST | WATCHLIST / WATCHLIST | WATCHLIST / WATCHLIST | **WATCHLIST / WATCHLIST** | no change |
+
+### Capacity (UC3 base 0.405)
+
+| metric | published LightGBM | clean LightGBM | published neural | **clean neural** | neural Δ (block) |
+|---|---|---|---|---|---|
+| precision @ 1 / 5 / 10% | 0.780 / 0.692 / 0.662 | 0.617 / 0.585 / 0.562 | 0.904 / 0.851 / 0.810 | **0.828 / 0.735 / 0.679** | @ 5%: **−0.108** [−0.212, −0.023] worse |
+| recall @ p 0.70 / 0.80 / 0.85 | 0.148 / 0.022 / UNREACHABLE | UNREACHABLE | 0.515 / 0.318 / 0.192 | 0.308 / 0.116 / **UNREACHABLE** | — |
+| worst-quarter precision @ 5% (mean) | 0.497 | 0.472 | 0.608 | 0.553 | — |
+| Phase 15 class | WATCHLIST | WATCHLIST | **ALERT** (PARTIAL at 0.85, lift 2.0) | **WATCHLIST** (NO, CEILING) | **ALERT → WATCHLIST** |
+
+### Classes after the leak is removed
+
+**UC1, UC2 and UC2b keep their class (WATCHLIST). UC3 capacity changes: ALERT → WATCHLIST.** The order-time flag (Stage 2) is
+ALERT with the τ-week row and WATCHLIST strictly as-of.
+
+### Week-t0 convention diagnostic (`lag1`, BASE_clean read at row t0 − 1; no verdict)
+
+| | arrival lateness AUC | fill CRPS | capacity precision @ 5% |
+|---|---|---|---|
+| BASE_clean (row t0) | 0.6991 | 0.1407 | 0.585 |
+| BASE_clean, row t0 − 1 | 0.6940 | 0.1406 | 0.569 |
+
+At snapshots the row's own week is worth about 0.005 lateness AUC and 0.016 capacity precision to LightGBM. At order
+time it is worth far more (Stage 2: 0.676 vs 0.615).
+
+### Blends re-fitted on validation with clean arms
+
+| recipe | published weights → test | clean weights → test |
+|---|---|---|
+| Phase 19 arrival recipe (incumbent neural ensemble + LightGBM + fwd_load) | w_neural 0.49 → lateness 0.7305, A3 12.41 d, UC1 @ 5% 0.942 | **w_neural 0.52** → lateness **0.7217**, A3 **12.57 d**, UC1 @ 5% 0.919 |
+| Phase 21 hybrid | incumbent 0.00 / Phase 19 neural 0.55 / LightGBM + season + cadence + L5 0.45 → 0.729, 12.41 d | incumbent **0.60** / LightGBM + season + cadence + L5 0.40 → lateness **0.7164**, A3 **12.70 d** (the Phase 19 neural arm was not retrained clean, so it is absent) |
+
+The published Phase 19 blend (Phase 19 neural rf arm + LightGBM fwd_load, 0.731, 12.34 d) cannot be restated exactly:
+its neural half tied the incumbent and was not retrained (deviation 214). The recipe is restated with the incumbent in
+its place, for both columns.
+
+### Per-seed minutes (clean neural, MPS, concurrency 1; LightGBM CPU fits ran beside some cells: wall-clock only)
+
+| use case | s7 | s17 | s27 | s37 | s47 | s/epoch |
+|---|---|---|---|---|---|---|
+| arrival lite h4 | 20.6 (59 ep, best 50) | 19.2 (56, 47) | 17.3 (51, 42) | 18.9 (56, 47) | 20.6 (61, 52) | 19.6–20.3 |
+| capacity mp h4 | 7.6 (29, 20) | 7.3 (28, 19) | 13.4 (53, 44) | 7.6 (29, 20) | 10.5 (41, 32) | 14.7–14.8 |
+| fill h0 | 15.2 (61, 52) | 14.5 (58, 49) | 15.9 (64, 55) | 13.8 (55, 46) | 13.6 (54, 45) | 14.3–14.4 |
