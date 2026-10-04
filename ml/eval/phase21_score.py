@@ -470,13 +470,15 @@ def stage_place(world, out, sfx=""):
     yl, keep = uc1p_label(Yt, EVt, Rt)
     br = dict(test_rows=int(len(Yt)), observed_share=float(EVt.mean()), late_vs_contract_observed=float((Yt[EVt] > Rt[EVt]).mean()),
               uc1p_base_rate=float(yl[keep].mean()), blocks_creation_weeks=len(blocks))
-    month_t = pd.DatetimeIndex(tau_t).month.to_numpy()      # per-"snapshot" spread read per creation MONTH (12 blocks)
+    month_t = pd.DatetimeIndex(tau_t).month.to_numpy()
+    # per-"snapshot" spread read per creation MONTH: month-start dates (phase20_decisions keys the spread by date)
+    month_start = pd.DatetimeIndex(tau_t).to_period("M").to_timestamp().values
     per_seed = {"BASE (flat at creation)" + sfx: [load(world, "place", "base" + sfx, kP, s) for s in SEEDS]}
     for arm in ("L4", "L5"):
         if arm in P:
             per_seed[f"BASE + {arm}{sfx}"] = [load(world, "place", arm + sfx, kP, s) for s in SEEDS]
     detd = {f"standalone group rule (k={kP})": dict(val=rule["val"], test=rule["test"], zv=z0["val"], zt=z0["test"])}
-    summ, _ = decision_arrival(world, per_seed, detd, month_t, place=True)
+    summ, _ = decision_arrival(world, per_seed, detd, month_start, place=True)
     imp = importances(world, "place", "L5" + sfx, kP) if "L5" in P else None
     # month slices at placement (true month)
     mres = {}
