@@ -1,0 +1,202 @@
+{
+ "stamp": {
+  "code_commit": "d17289d",
+  "code_dirty": false,
+  "code_version": "d17289d",
+  "run_ts": "2026-09-30T07:42:24"
+ },
+ "map": [
+  {
+   "layer": 1,
+   "relation": "channel->supplier",
+   "target": "supplier",
+   "reaches": true,
+   "analytic": true,
+   "grad": 57.14609909057617
+  },
+  {
+   "layer": 1,
+   "relation": "channel->part",
+   "target": "part",
+   "reaches": true,
+   "analytic": true,
+   "grad": 17.03401756286621
+  },
+  {
+   "layer": 1,
+   "relation": "channel->plant",
+   "target": "plant",
+   "reaches": true,
+   "analytic": true,
+   "grad": 44.48556137084961
+  },
+  {
+   "layer": 1,
+   "relation": "supplier->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 40.84677505493164
+  },
+  {
+   "layer": 1,
+   "relation": "part->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 114.79676818847656
+  },
+  {
+   "layer": 1,
+   "relation": "plant->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 83.82594299316406
+  },
+  {
+   "layer": 2,
+   "relation": "channel->supplier",
+   "target": "supplier",
+   "reaches": true,
+   "analytic": true,
+   "grad": 261.2077331542969
+  },
+  {
+   "layer": 2,
+   "relation": "channel->part",
+   "target": "part",
+   "reaches": true,
+   "analytic": true,
+   "grad": 0.8772567510604858
+  },
+  {
+   "layer": 2,
+   "relation": "channel->plant",
+   "target": "plant",
+   "reaches": true,
+   "analytic": true,
+   "grad": 0.3072541654109955
+  },
+  {
+   "layer": 2,
+   "relation": "supplier->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 210.4058837890625
+  },
+  {
+   "layer": 2,
+   "relation": "part->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 44.735782623291016
+  },
+  {
+   "layer": 2,
+   "relation": "plant->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 108.99787902832031
+  },
+  {
+   "layer": 3,
+   "relation": "channel->supplier",
+   "target": "supplier",
+   "reaches": true,
+   "analytic": true,
+   "grad": 58.3162956237793
+  },
+  {
+   "layer": 3,
+   "relation": "channel->part",
+   "target": "part",
+   "reaches": true,
+   "analytic": true,
+   "grad": 3.133401393890381
+  },
+  {
+   "layer": 3,
+   "relation": "channel->plant",
+   "target": "plant",
+   "reaches": true,
+   "analytic": true,
+   "grad": 2.5796289443969727
+  },
+  {
+   "layer": 3,
+   "relation": "supplier->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 429.9060363769531
+  },
+  {
+   "layer": 3,
+   "relation": "part->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 3.6144394874572754
+  },
+  {
+   "layer": 3,
+   "relation": "plant->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 0.9231014847755432
+  },
+  {
+   "layer": 4,
+   "relation": "channel->supplier",
+   "target": "supplier",
+   "reaches": false,
+   "analytic": false,
+   "grad": 0.0
+  },
+  {
+   "layer": 4,
+   "relation": "channel->part",
+   "target": "part",
+   "reaches": false,
+   "analytic": false,
+   "grad": 0.0
+  },
+  {
+   "layer": 4,
+   "relation": "channel->plant",
+   "target": "plant",
+   "reaches": false,
+   "analytic": false,
+   "grad": 0.0
+  },
+  {
+   "layer": 4,
+   "relation": "supplier->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 288.4686279296875
+  },
+  {
+   "layer": 4,
+   "relation": "part->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 5.568916320800781
+  },
+  {
+   "layer": 4,
+   "relation": "plant->channel",
+   "target": "channel",
+   "reaches": true,
+   "analytic": true,
+   "grad": 3.273909330368042
+  }
+ ]
+}

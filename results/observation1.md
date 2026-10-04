@@ -1,5 +1,10 @@
 # Observation 1 — What ChainPilot predicts, how it works, and where it stands
 
+**Version 2.0** — rewritten after Phases 12–15. Version 1.0 is superseded in three places where its
+conclusions have since been **disproved by measurement**, not merely refined: the capacity fix
+(§4.5), the fill programme (§3), and the allocation blocker (§8). Each correction is flagged
+in place.
+
 **Purpose:** a single document covering every use case under implementation — the method behind it,
 the mathematics of that method, why the method suits the real problem, how it has performed, and
 what is planned where it has not.
@@ -9,12 +14,13 @@ what is planned where it has not.
 labelled as such. Bands are per metric, per configuration, per world and are **never borrowed**
 between worlds.
 
-**Companion reports:** `part2/phase-11c.md`, `phase-11b.md`, `phase-11a.md`, `phase-0-1-v8.md`,
-`v8-clearance.md`; `part1/phase-8.md` and its predecessors for the v6/v7 era.
+**Companion reports:** `part2/phase-15.md`, `phase-14.md`, `phase-13.md`, `phase-12.md`,
+`phase-11c.md`, `phase-0-1-v8.md`, `v8-clearance.md`; `part1/phase-8.md` and its predecessors for
+the v6/v7 era.
 
 **A note on reading this.** Every method carries a block marked **In plain terms** with an analogy.
-The analogies are chosen to illuminate the *mechanism* — including how it fails — not just to give a
-flavour. If a section's mathematics is unfamiliar, read the analogy first and the equations second.
+The analogies illuminate the *mechanism* — including how it fails — not just the flavour. If a
+section's mathematics is unfamiliar, read the analogy first and the equations second.
 
 ---
 
@@ -22,16 +28,53 @@ flavour. If a section's mathematics is unfamiliar, read the analogy first and th
 
 | # | use case | what it answers | method | status |
 |---|---|---|---|---|
-| 1 | **Arrival timing** | when will material arrive, and will it be later than this channel usually runs | Temporal-SHARE + discrete-time hazard | **works** — lateness claim established at 5 seeds |
-| 2 | **Fill rate** | what fraction of the order will actually show up | point-mass binned CDF, RPS loss | **partial** — wins the proper score, loses calibration |
-| 3 | **Supplier strain** | how close is this supplier to its demonstrated limit | Temporal-SHARE + quantile regression | **partial** — median works, intervals do not |
-| 4 | **Shortage risk (ranking)** | which part-plants are most at risk | Temporal-SHARE + binary classifier | **diagnostic only** — ranks well, levels unusable |
-| 5 | **Shortage quantity (simulation)** | how much short, and in which week | Monte Carlo stock roll-forward | **not calibrated** — over-projects 5.29× |
+| 1 | **Arrival timing** | when will material arrive, and will it run later than usual | Temporal-SHARE + discrete-time hazard | **ranking only** — real but small; no usable yes/no |
+| 2 | **Fill rate** | what fraction of the order will show up | point-mass binned CDF, RPS loss | **ranking only** — recalibration does the work, not the architecture |
+| 3 | **Supplier strain** | how close is this supplier to its demonstrated limit | Temporal-SHARE + quantile regression | **THE ONE SHIPPABLE ALERT** — 81% precision at 19% recall |
+| 4 | **Shortage risk (ranking)** | which part-plants are most at risk | Temporal-SHARE + binary classifier | **diagnostic only** — base rate 8× reality |
+| 5 | **Shortage quantity (simulation)** | how much short, and in which week | Monte Carlo stock roll-forward | **calibrated to the wrong world** — needs channel granularity |
 | 6 | **Delivery schedule** | how much to order, in which week | mixed-integer linear program | **blocked on costs** |
-| 7 | **Supplier allocation** | which supplier should get what share | candidate enumeration + constrained scoring | **blocked on costs** |
+| 7 | **Supplier allocation** | which supplier should get what share | candidate enumeration + constrained scoring | **worse than doing nothing** — and the blocker was misdiagnosed |
+| 8 | **Transfer recommendation** | which plant should send stock, to whom | simulated donor safety check | **retire as an alert** |
 
-Use cases 1–4 are learned models. 5 composes 1–3 into a simulation. 6–7 are optimisers that consume
-5 and require cost parameters that do not exist in any dataset.
+Use cases 1–4 are learned models. 5 composes 1–3 into a simulation. 6–8 are decision layers that
+consume 5.
+
+---
+
+## 0.5 Two ways to read every number in this document
+
+**This section is new in v2.0 and it changes how the rest should be read.**
+
+Until Phase 14, every result here was in **metric space** — CRPS, ROC-AUC, pinball loss. Those
+answer *"is this model better than that one?"* Phase 14 re-scored every use case in **decision
+space** — *"if a planner acts on this, how often are they right?"* — and most of the metric-space
+wins did not survive the translation.
+
+The reason is base rates. Three quarters of orders arrive in full. Nine weeks in ten are fine. When
+one answer is right most of the time, a model has very little room to add value, and a good-looking
+accuracy figure can be pure arithmetic.
+
+**The rule adopted from Phase 14 onwards: no accuracy figure appears without the always-guess-the-
+majority figure beside it, and the gap between them is the only part that is real.**
+
+| use case | accuracy | guessing gets | real gain |
+|---|---|---|---|
+| Arrive within 4 weeks | 88.7% | 96.6% | **−7.9** |
+| Below safety stock | 81.2% | 92.0% | **−10.8** |
+| Part-plant at risk | 80.2% | 74.3% | **+5.9** |
+| Arrives in full | 74.9% | 74.9% | **0.0** |
+| Late vs contract | 74.2% | 73.0% | **+1.2** |
+| **Demand exceeds capacity** | **67.8%** | **59.5%** | **+8.3** |
+| Materially short (<0.95) | 55.5% | 75.5% | **−20.0** |
+| Transfer donor | 51.4% | 50.4% | **+1.0** |
+
+The highest accuracies in that table belong to the *worst* decisions. Only capacity and the
+diagnostic shortage head beat guessing at all.
+
+**Phase 15 then asked the follow-up question:** if a model only speaks when it is confident, how
+often is it right? That converts every use case into a precision-at-coverage curve and produces the
+operating points quoted throughout this document.
 
 ---
 
@@ -115,9 +158,9 @@ for free per-relation weights. Basis decomposition only pays above roughly R ≈
 graph has R = 6. SHARE-lite is 468,608 encoder parameters against full SHARE's 730,992 with no
 measured loss.
 
-**Why a graph at all.** Suppliers share plants, parts share suppliers, and a plant's congestion
-spills across every channel it touches. A per-channel model cannot see that a supplier is
-simultaneously late on eleven other parts. The graph makes that visible in one hop.
+**Known waste (Phase 12, deviation 107).** The shipped SHARE-lite arrival encoder carries **49,152
+structurally dead parameters**: last-layer messages into entity nodes never reach the channel
+readout. They are computed and discarded every forward pass.
 
 > **In plain terms — the morning huddle.**
 >
@@ -144,7 +187,7 @@ simultaneously late on eleven other parts. The graph makes that visible in one h
 > decide once how much to trust the huddle overall against your own read. That single "how much do I
 > trust the room" dial is the gate.
 
-### 1.3 Does the graph actually earn its place? — tested, and yes
+### 1.3 Does the graph earn its place? — tested, and yes, but narrower than v1.0 claimed
 
 This is the project's central architectural question and it was settled by a control designed to
 kill the answer. Each node's neighbourhood was randomly permuted **within relation type**, so every
@@ -162,11 +205,6 @@ that is roughly a 1-in-1000 coincidence. The shuffle itself was falsified three 
 (identity shuffle, 90%-preserved, all-to-one — each demonstrated firing), and 95% of edges
 demonstrably moved endpoint.
 
-**On arrival the edges explain essentially the entire advantage**, with nothing measurable left for
-depth and parameters. And on three worlds a randomised neighbourhood scores *below* having no
-neighbourhood — aggregating over misleading neighbours costs more than having none. That is not a
-pattern depth alone would produce.
-
 > **In plain terms — the sabotaged org chart.**
 >
 > The worry this test exists to answer is a real one: maybe the huddle isn't useful at all, and the
@@ -178,20 +216,26 @@ pattern depth alone would produce.
 > size; they just hear about the wrong parts.
 >
 > Two possible outcomes, and they mean opposite things. If forecasts stay just as good, the huddle was
-> only ever an excuse to think longer, and the relationships were decoration. If they get worse, the
-> specific relationships carry real information.
+> only ever an excuse to think longer. If they get worse, the specific relationships carry real
+> information.
 >
 > **They got worse, on all ten world-task combinations.** And on arrival something stronger happened:
 > hearing the *wrong* supplier's news was worse than hearing *no* news. Being actively misinformed is
 > worse than being uninformed — which is only possible if the information channel matters.
->
-> That is the test that could have ended this architecture, and it is the reason we can say the graph
-> earns its place rather than merely asserting it.
+
+**Narrowed by Phase 12 C3.** A relation ablation found the **part relation carries no measurable
+signal**: share moves +1.4% / −1.0% on arrival and +1.5% / −5.2% on capacity, with no full-vs-ablated
+comparison disjoint. The ablated arm nonetheless stays disjoint from both h⁰ and the shuffled graph.
+
+**So the correct statement is: the graph's value lives in the supplier and plant relations.** The
+part relation, which has the highest message volume after channels (median degree 26), contributes
+nothing measurable. A leaner encoder — dropping the part relation and the 49,152 dead parameters —
+is a legitimate simplification to test, not a guess.
 
 **Caveat.** v8's own generator diagnostic (G4) reports the opposite. Both seed-axis explanations for
-that disagreement are now closed — model seeds and dataset seeds both agree with us — so what
-remains is an instrument difference (a different model, MAE rather than pinball, a different
-split). Unexplained, not refuted.
+that disagreement are closed — model seeds and dataset seeds both agree with us — so what remains is
+an instrument difference (a different model, MAE rather than pinball, a different split).
+Unexplained, not refuted.
 
 ---
 
@@ -229,105 +273,111 @@ every epoch. Switching to it produced a larger gain than the entire graph ever h
 
 **Real-world relevance.** A planner does not want a date, they want a distribution: *"70% chance by
 week 6, 95% by week 9."* Safety stock and expediting decisions are made against tails, not means.
-The hazard form gives that directly, and handles the very common case of an order that simply has
-not arrived yet.
 
 > **In plain terms — the hospital discharge question.**
 >
 > Ask a doctor "when will this patient go home?" and a good one does not name a date. They say:
 > *"given they're still here on day three, there's about a 15% chance they leave tomorrow."* Ask that
-> question for every remaining day and chain the answers, and you have a full distribution — the
-> probability of leaving on each day, and the probability of still being here by any given day.
+> question for every remaining day and chain the answers, and you have a full distribution.
 >
 > **The real advantage is what happens to patients still in the ward when the study ends.** A
 > regression has to invent a discharge date for them or throw their records away. The hazard
 > formulation needs neither: it records *"still here on day 30"*, which is completely true and
 > genuinely informative — it rules out every earlier day.
 >
-> **That is 48.5% of our purchase orders.** Nearly half had not arrived when the 90-day window closed.
-> The old regression head trained on the 55% that had, effectively studying only the patients who
+> **That is 48.5% of our purchase orders.** The old regression head studied only the patients who
 > already went home — which systematically ignores the slow cases, the ones a planner most needs
-> warning about. Switching to hazard was worth more than the entire graph.
+> warning about.
 
-### 2.3 How the reference metric was fixed — and why this matters
+### 2.3 How the reference metric was fixed
 
 Lateness was originally scored against the **promise date**. Two independent problems:
 
-1. **The promise date is not available at forecast time.** On this dataset the labelled purchase
-   order line is raised a median of 47 days *after* the snapshot. Every arm, including ours, was
-   being ranked on information no planner holds.
+1. **The promise date is not available at forecast time.** The labelled purchase order line is
+   raised a median of 47 days *after* the snapshot.
 2. **The scorer substituted a constant** for the promise arm before computing lateness. Scored
-   honestly, the promise date's lateness ROC-AUC is exactly **0.5000** — it carries no lateness
-   information at all. That is structurally inevitable: the promise is `order_date + contracted
-   lead`, and lateness is `actual lead > contracted lead`, so a per-channel constant cannot
-   distinguish a late order from an on-time one.
+   honestly, the promise date's lateness ROC-AUC is exactly **0.5000** — structurally inevitable,
+   since the promise is `order_date + contracted lead` and lateness is `actual lead > contracted
+   lead`, so a per-channel constant cannot distinguish the two.
 
-The metric is now defined against the **as-of channel median observed lead** — the median lead over
-receipts *recorded on or before t₀*, computable at the forecast instant, with an as-of assertion
-demonstrated firing on three failure modes plus an empty-set guard.
+The metric is now defined against the **as-of channel median observed lead**, computable at the
+forecast instant, with an as-of assertion demonstrated firing on three failure modes plus an
+empty-set guard.
 
 > **In plain terms — grading a weather forecaster against next week's newspaper.**
 >
-> Suppose you want to know whether a forecaster beats "the official prediction". You compare their
-> Monday forecast against an official prediction — but that official prediction was published the
-> following Thursday. It is not a competitor; it is a partial answer key. Any forecaster who fails to
-> beat it looks weak, and any who beats it looks miraculous. Neither reading means anything.
+> You compare Monday's forecast against an "official prediction" that was published the following
+> Thursday. It is not a competitor; it is a partial answer key. Any forecaster who fails to beat it
+> looks weak, and any who beats it looks miraculous. Neither reading means anything.
 >
-> That is exactly what the promise date was. The purchase order it belongs to is raised a median of
-> 47 days *after* the moment we forecast. It is not a benchmark a planner could have used.
->
-> **And a second, funnier problem sat underneath it.** The scoring code quietly replaced the promise
-> date with a flat constant before comparing. So for five phases the reported comparison was
-> "our model versus a fixed guess" while the label said "versus the promise date". The numbers were
-> real; the sentence was not.
->
-> **The fix is to grade against something Monday's reader actually had:** how fast this channel has
-> been running lately, computed only from deliveries already recorded. Against that, the model wins
-> cleanly — and, unexpectedly, wins by *more*, because the answer key had been so informative that it
-> left no room for anyone to look good.
+> **And a second problem sat underneath it.** The scoring code quietly replaced the promise date with
+> a flat constant before comparing. For five phases the reported comparison was "our model versus a
+> fixed guess" while the label said "versus the promise date". The numbers were real; the sentence
+> was not.
 
-### 2.4 Performance
+### 2.4 Performance — strong as a ranking, absent as a decision
 
-Lateness ROC-AUC, v8 test fold, five model seeds:
+**As a ranking** (v8 test, five model seeds):
 
-| arm | ROC-AUC |
+| arm | lateness ROC-AUC |
 |---|---|
 | **head h⁴ (Temporal-SHARE)** | **0.70905** [0.70645, 0.71298] |
 | b5flat LightGBM, same features | 0.70535 [0.70476, 0.70573] |
 | head h⁰ (no graph) | 0.69999 [0.69842, 0.70133] |
 | naive constant | 0.68697 |
-| reference alone | 0.50000 (health check) |
 
-**All three comparisons disjoint.** Arrival-week C-index: h⁴ **0.67438**, h⁰ 0.66133, best learned
+All three comparisons disjoint. Arrival-week C-index: h⁴ **0.67438**, h⁰ 0.66133, best learned
 baseline 0.64891 — also disjoint.
 
-### 2.5 Verdict: successful, and correctly labelled for the first time
+**As a decision (Phase 14, new in v2.0):** *"will this line be late against its contracted lead?"*
 
-**Why it works:** the hazard head uses the censored half of the data; the encoder reads the channel
-state that actually drives lateness (supplier load, transit state, prior utilisation) rather than
-the contracted term, which is constant; and the graph contributes essentially all of the
-depth-over-no-depth gain.
+Censoring must be **resolved**, not excluded or zeroed — a censored line has T ≥ 13, so when its
+reference is under 13 weeks it is *known late*, true for 95% of censored rows. That treatment choice
+moves the same model's F1 from **0.42 to 0.84** (deviation 124).
 
-**What it cannot claim:** that it out-ranks the promise date at ordering arrivals. That comparison
-is **retired**, not lost — the promise date is privileged information here, and the two quantities
-are not available at the same instant. No feature change fixes that.
+Under it, **73% of lines are late anyway**, and:
+
+- No arm beats "assume every line is late" disjointly.
+- **The channel-constant ranker — the contracted term alone, no model — ties or beats every model**
+  (treatment A: F1 0.732 and MCC 0.405, against h⁴'s 0.674 and 0.283). Deviation 126.
+- Phase 15 reaches 0.869 precision at 0.396 recall, which is a **lift of only 1.19×** over the base.
+
+**The "arrives within 4 weeks" form is near-empty.** At H = 1 there are **zero** positives and at
+H = 2 only 37 of 36,000, because the label's clock starts at the snapshot, before most lines are even
+raised (≈ 4.6-week order-raise wait). Only H = 4 is scoreable, at 0.159 precision / 0.528 recall on a
+3.4% base — a 10× lift, but a ceiling of 0.35 precision.
+
+### 2.5 Verdict: ship as a ranked watchlist, not an alert
+
+**Why the ranking works:** the hazard head uses the censored half of the data; the encoder reads
+channel state (supplier load, transit, prior utilisation) rather than the contracted term, which is
+constant; and the graph contributes essentially all of the depth-over-no-depth gain.
+
+**Why there is no yes/no product.** Lateness against a contract turns out to be mostly a property of
+*which contract*, and the contract is a lookup. **v1.0 presented this use case as "works".
+Corrected: it works as an ordering, not as a decision.**
 
 **Client-readable claim:** *ranking purchase orders by how much later they will arrive than their
-channel's recent average — a reference computable from what was recorded by the forecast date — the
-model separates late from on-time arrivals with ROC-AUC 0.709, ahead of a gradient-boosted model on
-the same features (0.705) and a no-graph variant (0.700), across five training seeds with no
-overlap.*
+channel's recent average, the model separates late from on-time arrivals with ROC-AUC 0.709, ahead
+of a gradient-boosted model (0.705) and a no-graph variant (0.700), disjointly at five seeds. It is
+not a yes/no alert: 73% of lines run late against contract, and the contract term alone predicts
+that as well as the model does.*
 
 ### 2.6 Open
 
-- Week-level calibration (ECE-week) is seed-unstable at depth 4 — 0.176 to 0.310 across seeds on
-  v8, and the same instability on v6 and v7. **Not quotable as a point value on any world.** This
-  is why the served distribution is h⁰'s recalibrated output while h⁴ supplies the ranking.
+- Week-level calibration (ECE-week) is seed-unstable at depth 4 — 0.176 to 0.310 across seeds on v8
+  and the same on v6/v7. **Not quotable as a point value on any world.** The served distribution is
+  h⁰'s recalibrated output while h⁴ supplies the ranking.
 - Phase 8's v6/v7 arrival row quotes the wrong comparison and needs rewording.
 
 ---
 
 ## 3. Use case 2 — Fill rate
+
+> **⚠ v1.0 correction.** Version 1.0 framed fill's problem as distribution *shape* and proposed
+> reparameterising the head. Phases 13 and 15 tested four reshapings and closed the question. **The
+> problem is calibration, not shape, and a post-hoc recalibration does most of the work no
+> architecture change could.** §3.4–3.6 are rewritten.
 
 ### 3.1 What it predicts
 
@@ -336,20 +386,16 @@ arrives* — a number in [0, 1].
 
 ### 3.2 The method — binned CDF with explicit point masses
 
-The distribution is not smooth. In practice most orders arrive complete, some arrive not at all, and
-the interior is sparse. On v8, **79.9% of mass sits at exactly 1.0** and 2.1% at exactly 0.
+The distribution is not smooth. On v8, **74.9% of test mass sits at exactly 1.0** (validation 77.6%,
+train 78.6% — the rate differs by split, deviation 127) and about 2% at exactly 0.
 
-So the target is discretised into **22 cells**: an atom at exactly 0, an atom at exactly 1.0, and 20
+The target is discretised into **22 cells**: an atom at exactly 0, an atom at exactly 1.0, and 20
 interior bins. The head emits a softmax over those cells, trained with the **ranked probability
 score**:
 
 ```
 RPS = (1 / (M−1)) · Σ_{m=1}^{M−1} ( F_m − 1{ y ≤ b_m } )²
 ```
-
-where `F_m` is the predicted cumulative probability at bin edge `b_m`. RPS is a proper scoring rule
-and — unlike cross-entropy over bins — it penalises being wrong by *a lot* more than being wrong by
-a little, which is what you want when the bins are ordered.
 
 Evaluation uses the exact, point-mass-aware CRPS:
 
@@ -359,13 +405,7 @@ CRPS(F, y) = ∫ ( F(x) − 1{x ≥ y} )² dx ,  atoms handled explicitly
 
 **This distinction cost the project three phases.** A legacy CRPS implementation stepped the CDF at
 bin edges and could not distinguish a mass at exactly 1.0 from one at 0.96. The point masses are
-worth 18% / 10% on the exact integral and **0% on the legacy one** — which is why "fill is fine"
-went unchallenged for so long.
-
-**Real-world relevance.** "We'll ship 800 of your 1,000" is the single most common supplier
-failure, and it is qualitatively different from a delay. A planner needs *P(complete)* specifically,
-not an expected fraction — 0.9 expected fill could mean "always 90%" or "complete nine times in ten
-and nothing the tenth", and those demand opposite responses.
+worth 18% / 10% on the exact integral and **0% on the legacy one**.
 
 > **In plain terms — predicting a batsman's score.**
 >
@@ -373,153 +413,201 @@ and nothing the tenth", and those demand opposite responses.
 > smooth bell curve cannot put a spike on *exactly zero* — it will always smear that probability
 > across "0 to 4 runs", which is a different statement about the game.
 >
-> So instead of fitting a curve, you hand out probability across labelled buckets, and you reserve two
-> buckets for the two outcomes that are exact: **exactly nothing**, and **exactly complete**. That is
-> the 22 cells — two atoms and twenty interior bins.
->
-> Fill rate has the same shape: **80% of orders arrive exactly complete.** A smooth model spreads that
-> spike across "95–100%", and "95% arrived" is a shortage while "100% arrived" is not. The business
-> distinction lives exactly where the smooth model blurs.
+> So you hand out probability across labelled buckets and reserve two for the outcomes that are
+> exact: **exactly nothing**, and **exactly complete**. Fill rate has the same shape: three quarters
+> of orders arrive exactly complete, and "95% arrived" is a shortage while "100% arrived" is not.
 >
 > **Why RPS rather than ordinary classification — guessing someone's age band.** If they are 55 and
-> you guess 50–55, you were nearly right. If you guess 20–25, you were badly wrong. Plain
-> classification scores both as simply "incorrect". RPS charges you by *distance* across the ordered
-> buckets, so being nearly right is rewarded — which is what you want when the buckets have an order.
+> you guess 50–55, you were nearly right; 20–25 is badly wrong. Plain classification scores both as
+> "incorrect". RPS charges you by *distance* across ordered buckets.
 >
-> **And the measurement trap we fell into for three phases:** our original scoring code compared
-> cumulative probabilities only at bucket *edges*, so it literally could not tell a spike at exactly
-> 100% from one at 96%. The two atoms were worth 18% of the score under honest measurement and 0%
-> under that one. "Fill is fine" survived unchallenged because the ruler could not see the thing being
-> measured.
+> **And the measurement trap we fell into for three phases:** our scoring code compared cumulative
+> probabilities only at bucket *edges*, so it literally could not tell a spike at exactly 100% from
+> one at 96%. "Fill is fine" survived because the ruler could not see the thing being measured.
 
 ### 3.3 Performance
 
-v8 test fold, recalibrated, 5 seeds where banded:
+v8 test fold, 5 seeds. **Raw and recalibrated are reported separately and must never be mixed** —
+comparing a raw arm against a recalibrated one manufactured a false verdict in Phase 12
+(deviation 80) and recurred in prose in Phase 13.
 
-| metric | head | best baseline | verdict |
+| arm | interior Σ\|err\| | exact CRPS | ROC-AUC P(fill=1) |
 |---|---|---|---|
-| **exact CRPS** (lower better) | **0.13827** | 0.13942 (recalibrated LightGBM-22) | **head wins, disjoint** |
-| **ECE-22** (calibration, lower better) | 0.05583 | **0.01651** (rolling-52 as-of histogram) | **head loses, 3.4×** |
+| 22-cell head, **raw** | 0.0878 [0.0764, 0.1039] | 0.13876 | 0.6204 |
+| 22-cell head, **recalibrated** | **0.0279** | **0.13825** | **0.6205** |
+| boundary reweight w=3, raw | 0.0820 | 0.13882 | **0.6222** |
+| Beta interior, raw | 0.0932 | 0.13877 | 0.6188 |
+| b5flat22, raw / recalibrated | 0.0252 / **0.0175** | 0.13969 / 0.13943 | 0.6049 |
+| rolling-52 histogram (no seeds) | 0.0100 test, 0.0372 val | 0.15825 | 0.6054 |
 
-The head also loses ECE-22 to both recalibrated LightGBM arms. On v6/v7 the same pattern held in 12
-of 16 backtest windows.
+*(Deviation 86: v1.0's "0.0445 against 0.0049" were **v6** figures quoted as v8.)*
 
-### 3.4 Verdict: partially successful, and the trade is uncomfortable
+### 3.4 Verdict: the head has the best discrimination and the worst calibration
 
-**Why the proper score works:** the point masses let the head put probability exactly where the data
-is, which a smooth model cannot.
+Read the raw rows and a histogram appears to beat the neural head by a wide margin. Read the
+recalibrated row and the picture inverts.
 
-**Why calibration fails:** the head cannot fit its own training marginal on the rare interior cells
-— Σ|error| 0.0445 against LightGBM's 0.0049. Diagnosed properly: it is not drift and not the loss
-(three losses ablated, every difference inside band). It is head capacity on a sparse target.
+**The head knows *which* lines will fall short better than anything else** (ROC-AUC 0.6204 vs 0.6054;
+CRPS 0.1388 vs 0.1583, both disjoint). **It is worst at saying *how much*** — until recalibrated,
+which takes interior error from 0.0878 to 0.0279 while keeping the discrimination.
 
-**The trade, stated honestly:** the head buys roughly **1–2% on a proper score** and gives up
-**10% to 240% on the calibration figure a planner reads off a screen**. A recalibration step (one
-temperature, 22 biases, fitted on validation) improves ECE by 2.2–2.5× but does not close the gap,
-and its fitted temperature swings 0.961–1.274 across windows — it must be refitted every retraining
-and occasionally corrects in the wrong direction.
+> **In plain terms — the doctor whose ranking is right and whose numbers are off.**
+>
+> A doctor reliably picks which patients are sickest but consistently overstates how sick. You do
+> not replace the doctor; you keep the ranking and adjust the numbers afterwards. That adjustment is
+> recalibration, and it turns out to be doing more work than any of the four architectures we tried.
 
-### 3.5 Open
+**The head-shape programme is closed.** Four reparameterisations were tested (smooth Beta interior,
+boundary reweight, history ratio alone, history ratio as the interior centre). None passes:
 
-- **The shipped configuration names a LightGBM that the serving path cannot load.** `shipped.json`
-  says `b5flat22`; `loop.predict` has no LightGBM loader and silently returns the superseded neural
-  head. Either build the loader or revert the config — a configuration that misdescribes what runs
-  is worse than either honest state.
-- Fill's recalibrated ECE varies 9× across backtest windows. No single fill calibration figure may
-  be quoted without naming its window.
+- The **Beta interior** fixes the `[0.95,1)` over-prediction erratically (0.14× to 1.22× by seed) and
+  pushes the error into the low-fill cells, which then carry 68–80% of it — while degrading ROC-AUC
+  disjointly.
+- The **boundary reweight** is the best head arm and holds the phase's only disjoint gain anywhere
+  (+0.002 ROC-AUC). It is not a reason to change anything on its own.
+- **History ratios** (per part-supplier, per supplier-plant, and a Beta-binomial shrunk hierarchy)
+  add nothing measurable over the head without them, and fail the ECE guard.
+- `mean_of_ratios` disjointly beat `ratio_of_sums` as a point summary — the opposite of what was
+  pre-registered, and relevant to how any history ratio is quoted.
+
+**The error now lives in the low-fill cells `[0, 0.25)`**, for every arm and every baseline, once the
+near-1 boundary is handled.
+
+### 3.5 As a decision
+
+*"Will this line arrive in full?"* — base rate 0.749. **Every arm's F1-optimal threshold collapses to
+"always full."** Accuracy 0.7492 against a majority baseline of 0.7492. There is no yes/no product
+here; PR-AUC 0.813 against a 0.749 base is the honest summary — a real but modest ranking signal.
+
+*"Will this line be materially short?"* — at fill < 0.95 (base 0.245): precision 0.306, recall 0.645.
+It catches 65% of short lines and **flags three for every one that is genuinely short**. Phase 15's
+ceiling at any coverage is **0.577**; 0.85 precision is unreachable.
+
+**Coarsening does not rescue it.** Pooling to supplier-month appears to "reach" 0.85 — but on a
+**74% base rate**, with lift *falling* from 2.18 to 1.24. At supplier-quarter the base is 0.911 and
+the answer is "always yes". Aggregation raises the base rate, not the signal (deviation 135).
+
+### 3.6 Open
+
+- **`shipped.json` still names a LightGBM the serving path cannot load** (deviation 46, now three
+  datasets old). Build the loader so configuration determines what runs — but **do not swap the
+  model**: b5flat22 is disjointly worse on CRPS *and* ROC-AUC, and ranking is the use case that
+  depends on discrimination. The honest comparison is recalibrated-vs-recalibrated, 0.0279 → 0.0175.
+- Fill's recalibrated ECE varies 9× across backtest windows. No single figure without its window.
+- If any further fill work happens, it targets the low-fill cells — and the prior question is whether
+  they are *predictable* (driven by supplier state, hence a feature problem) or noise.
 
 ---
 
 ## 4. Use case 3 — Supplier strain
 
+> **⚠ v1.0 correction, twice over.** Version 1.0 said "the median works, the intervals do not" and
+> prescribed conformal widening. **That prescription was tested and failed** — it made the next
+> window worse. And version 1.0 understated the use case: measured as a *decision*, **this is the
+> strongest thing in the project.** §4.4–4.5 are rewritten.
+
 ### 4.1 What it predicts
 
-Per supplier-month, three quantiles (P10, P50, P90) of `capacity_strain` — roughly demand against
-demonstrated throughput. Values sit near 0.87 on v8; above 1.0 means being asked for more than the
-supplier has ever sustained.
+Per supplier-month, three quantiles (P10, P50, P90) of `capacity_strain` — demand against
+demonstrated throughput. Above 1.0 means being asked for more than the supplier has ever sustained.
 
 **Why "strain" and not "capacity".** True capacity is never observed — you only see what a supplier
-shipped, which is bounded by what you ordered. Strain is observable. This reframing unblocked the
-use case; the original formulation was censored in a way no amount of modelling fixes.
+shipped, bounded by what you ordered. Strain is observable. This reframing unblocked the use case.
 
 ### 4.2 The method — quantile regression via pinball loss
-
-For target quantile τ:
 
 ```
 L_τ(y, q) = max( τ·(y − q) , (τ − 1)·(y − q) )
 ```
 
 Asymmetric by construction: under-predicting is penalised `τ` per unit and over-predicting `(1−τ)`.
-Minimising it drives `q` to the τ-th quantile of the conditional distribution — no distributional
-assumption required. Three heads at τ ∈ {0.1, 0.5, 0.9} give a band without assuming normality,
-which matters because strain is right-skewed and clipped.
-
-**Real-world relevance.** "This supplier will be at 85% of demonstrated capacity, and there is a
-one-in-ten chance of above 110%" is directly actionable — it tells a buyer when to start a second
-source *before* the failure, not after.
+Minimising it drives `q` to the τ-th quantile with no distributional assumption — which matters
+because strain is right-skewed and clipped.
 
 > **In plain terms — the tailor cutting cloth.**
 >
-> A tailor deciding where to cut faces a lopsided risk. Cut too short and the garment is ruined. Cut
-> too long and you waste a little cloth. So a sensible tailor deliberately cuts long — not because
-> they expect to need the extra, but because the two mistakes cost different amounts.
+> A tailor faces a lopsided risk. Cut too short and the garment is ruined; too long and you waste a
+> little cloth. So a sensible tailor deliberately cuts long — not because they expect to need the
+> extra, but because the two mistakes cost different amounts.
 >
-> **Pinball loss is that lopsidedness written down.** Charge τ for every unit you fall short and
-> (1−τ) for every unit you overshoot. Set τ = 0.9 and falling short is nine times as expensive as
-> overshooting, so the number that minimises your total cost lands automatically at the 90th
-> percentile. **You get the "bad case" line without assuming anything about the shape of the
-> distribution** — no bell curve required, which matters here because strain is skewed and clipped.
+> **Pinball loss is that lopsidedness written down.** Set τ = 0.9 and falling short is nine times as
+> expensive as overshooting, so the cost-minimising number lands automatically at the 90th
+> percentile. No bell curve required.
 >
-> Three tailors at τ = 0.1, 0.5 and 0.9 give you a low case, a middle case and a bad case.
->
-> **Why the band currently fails, in the same terms.** The tailor learned their margins on last
-> year's cloth, which shrank a certain amount in the wash. This year's cloth shrinks more. Their
-> centre line is still right — they know how long a sleeve should be — but the safety margin they
-> learned is now too tight, and the garments come up short more often than one in ten. That is exactly
-> what we measured: coverage of 0.72–0.81 against a promised 0.80, and worst precisely when the
-> period being forecast sits at a higher utilisation level than the period the margins were learned
-> on. **Every model class failed this identically, including the gradient-boosted one** — so it is a
-> property of learning margins at one level and applying them at another, not a flaw in our
-> architecture. Which is why the fix has to widen the margin *in response to how much the cloth has
-> changed*, and why simply cutting everything longer by a fixed amount would not work.
+> **And here is the correction to what this document said in v1.0.** We said the tailor's margins
+> were learned on last year's cloth and the fix was to cut longer. **We tried that, and it made the
+> next garment worse.** The real problem is not the margin — it is that the tailor is measuring
+> *last year's customer*. Their centre line is stale: when the customer's size shifts, the tailor
+> follows only half to three-quarters of the way. Adding seam allowance to a garment cut for the
+> wrong body does not make it fit.
 
-### 4.3 Performance
-
-v8 test fold:
+### 4.3 Performance as a forecast
 
 | metric | head h⁴ | h⁰ | LightGBM quantile | naive global |
 |---|---|---|---|---|
 | **pinball** (lower better) | **0.07248** | 0.07671 | 0.07990 | — |
-| **80% coverage** (nominal 0.80) | 0.78391 | 0.80234 | 0.80344 | **0.82849** |
+| **80% coverage** (nominal 0.80) | 0.78391 | 0.80234 | 0.80344 | 0.82849 |
 | P90 exceedance (nominal 0.10) | 0.13473 | 0.12065 | — | — |
 
-Quantile crossing: **0.00000** — the three quantiles never invert, which is a real correctness
-property and not guaranteed by independent quantile heads.
+Quantile crossing: **0.00000** — a real correctness property, not guaranteed by independent heads.
 
-### 4.4 Verdict: the middle is right, the band is not
+**The interval diagnosis, settled (Phase 12 B1).** Across a 16-window backtest, coverage ran
+0.72–0.81 against nominal 0.80, below nominal in 12 of 16 windows, **in every model class including
+LightGBM**. Conformalised quantile regression was then tested:
 
-**Why the median works:** the graph is genuinely doing work here — capacity's label is a
-supplier-level aggregate, so the readout node has a real neighbourhood (supplier median degree 38)
-and attention has something to choose between. Pinball beats every baseline, disjointly.
+- exact on its own window (48/48),
+- **worse on the next window** — h⁴ went from 9 of 16 covered to 5,
+- level correlation ρ unchanged (0.65 / 0.80 / 0.83).
 
-**Why the intervals fail:** across a 16-window backtest, coverage ran 0.72–0.81 against nominal 0.80
-and was below nominal in 12 of 16 windows — **in every model class, LightGBM included**. The
-mechanism was isolated: exceedance correlates at ρ ≈ 0.8 with how far the evaluation window's level
-sits above the window the quantiles were fitted on. Quantiles fitted at one utilisation level do not
-transfer to another.
+**The intervals were never too narrow. They are in the wrong place.** Each model's P50 follows only
+**51–74%** of a level shift, and that lag explains post-CQR exceedance at Spearman **0.96**.
 
-**Consequence: do not quote a capacity interval.** The median is quotable; the range is not.
+### 4.4 Performance as a decision — the project's one shippable alert
 
-### 4.5 Planned fix
+*"Will demand exceed this supplier's capacity over the 90-day horizon?"* Base rate 0.405.
 
-The fix must be **level-aware**, because a fixed widening factor provably will not work:
+| arm | F1 | precision | recall | accuracy (majority 0.595) | MCC | PR-AUC | ROC-AUC |
+|---|---|---|---|---|---|---|---|
+| **mp h⁴** | **0.635** [0.623, 0.648] | 0.591 | 0.695 | **0.678** | 0.358 | 0.677 | 0.750 |
+| h⁰ | 0.601 | 0.563 | 0.645 | 0.653 | 0.299 | 0.612 | 0.708 |
+| LightGBM quantile | 0.602 | 0.478 | 0.814 | 0.564 | 0.220 | 0.561 | 0.664 |
+| naive channel | 0.577 | 0.405 | 1.000 | 0.405 | 0.000 | 0.430 | 0.532 |
 
-- conformal widening keyed to recent drift — compute a nonconformity score on a trailing window and
-  inflate the interval by its empirical quantile; or
-- refit the quantile heads on a trailing window rather than a fixed calibration year.
+**h⁴ is disjointly best on F1, MCC and PR-AUC, and it is the only non-diagnostic decision in the
+project that beats its majority baseline on accuracy.**
 
-Estimated ~3 hours. This is the one deferred model change whose premise still holds.
+**The shippable operating point (Phase 15, chosen on validation, held on test):**
+
+> **81% precision at 19% recall, flagging about 10% of supplier-horizons. Lift 2.0× over base.**
+
+And in three-way form, which is what a planner should actually see:
+
+> *"Of 22,500 supplier-horizons, the system alerts on 3,829 as over capacity — right 76% of the
+> time — clears 85, and passes the remaining 18,586 back to you."*
+
+The 82.6% "no opinion" is a feature. A system that admits what it does not know earns the right to
+be believed when it speaks.
+
+**The level lag still costs something, but not this.** The test median sits at 0.890 against a
+realised 0.967; the model puts 30.0% of channels over capacity where 40.5% are. Phase 15 built the
+correct upper bound for fixing it — correcting each period by its *own* level, using future
+information — and at matched recall 0.25 it gives 0.788 against the uncorrected 0.787.
+
+**The level lag costs calibration, not discrimination.** It changes where the threshold lands and
+what probability a planner reads off. It does not change the precision achievable at a given recall.
+**Do not fund a level-tracking retrain on the strength of the alert product.** (v1.0's §4.5 estimated
+"~3 hours" for this fix and called its premise sound. Both were wrong.)
+
+### 4.5 Why this use case works when the others don't
+
+Phase 15 tested whether capacity's advantage comes from its coarser grain (90-day channel aggregate
+rather than per-week per-line). **It does not:** pooling capacity from channels to suppliers leaves
+its lift unchanged (2.02 vs 2.00) and its precision unchanged (0.80 vs 0.81).
+
+**What makes capacity work is the task.** Its label is a smooth, persistent utilisation ratio. Fill
+and shortage are lumpy one-off events. **You cannot fix lumpy event prediction by adding events up** —
+that raises the base rate, not the signal. This is a structural constraint on what this system can
+be good at, and it is the most useful thing Phase 15 established.
 
 ---
 
@@ -533,41 +621,35 @@ A binary head over part-plant-snapshot, trained with cross-entropy:
 L = −[ y·log p + (1−y)·log(1−p) ] ,  p = σ(f(x))
 ```
 
-v8 test fold: ROC-AUC **0.81587**, PR-AUC **0.65875**, against the best baseline's 0.77257 / 0.58889
-— disjoint on both. The strongest headline number in the project.
+v8 test fold: ROC-AUC **0.81587**, PR-AUC **0.65875**, against the best baseline's 0.77257 / 0.58889 —
+disjoint on both.
+
+**As a decision (first ever reported, Phase 14):** base rate 0.257; F1 **0.585**, precision 0.633,
+recall 0.543, accuracy **0.802 against a majority of 0.743**, MCC 0.458. At high confidence
+(Phase 15) it reaches **0.910 precision at 0.142 recall**, on 4% coverage.
 
 > **In plain terms — the examiner who grades on the wrong cohort.**
 >
-> Imagine an examiner trained entirely on a remedial class where 26 students in 100 failed. They become
-> genuinely excellent at ordering students from weakest to strongest — put any hundred in front of them
-> and the ranking will be right. But ask *"what fraction of this new class will fail?"* and they will
-> say "about a quarter", because that is the world they learned in. In a normal class where three in a
-> hundred fail, that answer is badly wrong while the ranking remains perfectly good.
+> An examiner trained entirely on a remedial class where 26 in 100 failed becomes genuinely excellent
+> at ordering students from weakest to strongest. But ask *"what fraction of this new class will
+> fail?"* and they will say "about a quarter", because that is the world they learned in. In a normal
+> class where three in a hundred fail, that answer is badly wrong while the ranking stays good.
 >
 > **That is our shortage head exactly.** v8 contains shortages at 25.7% against a real-world rate near
-> 3% — roughly eight times too many, by construction. So *which* part-plants are most at risk is
-> trustworthy; *how* risky any one of them is, is not.
+> 3% — roughly eight times too many, by construction.
 >
-> Hence the rule: **rank, never quantify.** ROC-AUC and PR-AUC only measure ordering, so they survive
+> Hence the rule: **rank, never quantify.** ROC-AUC and PR-AUC measure ordering only, so they survive
 > the distorted base rate. A probability does not, and none is quoted anywhere.
->
-> **And why this head is diagnostic rather than the product:** it has learned a correlation with "a
-> shortage happened", not the arithmetic of one. A planner needs a quantity and a week — *how many
-> units short, in which week* — and that requires actually rolling the stock forward, which is the
-> simulation below.
 
-### 5.2 Verdict: ranks well, and its probabilities are unusable
+### 5.2 Verdict: internal watchlist only, never a client alert
 
-**Why the ranking works:** shortage pools many channels at part × plant, so like capacity it has a
-real neighbourhood for the graph to aggregate over.
+The 0.910-precision operating point looks shippable and is not. **Precision is the metric most
+sensitive to base rate**, and this head is graded on a population with ~8× the real shortage rate. At
+a realistic base rate it would fall sharply — by how much is unmeasured, which is itself the reason
+not to quote it.
 
-**Why no probability may be quoted:** v8's shortage positive rate is 25.7% against a real operating
-base rate near 3%, and v8's event rates run 4–6× over the bands Rane themselves stated. Any
-probability from this head is **mis-calibrated in level by construction**. ROC-AUC and PR-AUC are
-ranking metrics and are unaffected — which is precisely why they are what gets reported.
-
-**Why it is diagnostic only:** a classifier learns a correlational shortcut to "will there be a
-shortage." The product answer is a *quantity* and a *week*, and that requires the simulation below.
+**Before any investment here, re-measure on a realistic shortage rate.** That is a cheap
+re-weighting, and it determines whether there is a product underneath.
 
 ---
 
@@ -575,118 +657,120 @@ shortage." The product answer is a *quantity* and a *week*, and that requires th
 
 ### 6.1 What it does
 
-Composes the three heads into a forward simulation of stock. For each part-plant, 1,000 paths over a
-13-week horizon:
+Composes the heads into a forward simulation of stock. For each part-plant, N paths over a 13-week
+horizon:
 
 ```
 I_w = I_{w−1} + A_w − C_w
 ```
 
-- `I_0` — the opening balance from the inventory store. **This is the number that blocked the
-  project for eight phases.** On v6/v7 no valid opening level existed anywhere; on v8 the ledger
-  roll-forward reproduces the stated balance on **100.000000% of 2,253,420 rows, max difference 0**.
-- `A_w` — arrivals. For each open order, week `T` is drawn from the hazard head's recalibrated
-  distribution and fraction `f` from the fill head's 22-cell CDF; the order contributes `qty × f` in
-  week `T`.
+- `I_0` — the opening balance. **This blocked the project for eight phases.** On v6/v7 no valid
+  opening level existed; on v8 the ledger roll-forward reproduces the stated balance on
+  **100.000000% of 2,253,420 rows, max difference 0**.
+- `A_w` — arrivals: week `T` drawn from the hazard head, fraction `f` from the fill head's 22-cell CDF.
 - `C_w` — consumption, from the forward requirement plan.
 
-Shortfall is measured against the safety stock floor, not zero. All 1,000 paths are retained so
-percentiles are taken at the end and never summed from below — summing quantiles is a classic and
-silent error.
-
-**Why simulation rather than a formula.** Shortage is a *joint* event: late arrival AND partial fill
-AND high demand, interacting through a stock level that carries state week to week. There is no
-closed form. Sampling handles the interaction correctly and produces exactly what a planner needs —
-*"85% chance of covering week 7; the shortfall, if it happens, is around 400 units."*
+All paths are retained so percentiles are taken at the end and never summed from below.
 
 > **In plain terms — playing the board game a thousand times.**
 >
-> Suppose you want the odds of losing a particular board game. You could try to derive them
-> algebraically — and for anything with interacting rules, you will fail. Or you can play it a thousand
-> times and count.
+> You cannot derive the odds of losing a game with interacting rules algebraically. You play it a
+> thousand times and count. Each "game" is one possible future: this order lands in week 5 at 90%
+> fill; that one in week 8 at 60%; demand comes in above plan. Walk the ledger forward and see
+> whether you drop below safety stock.
 >
-> **Each "game" here is one possible future.** Roll the dice: this order lands in week 5 at 90% fill;
-> that one in week 8 at 60%; demand comes in slightly above plan. Walk the stock ledger forward week
-> by week and see whether you drop below safety stock, and by how much. Play a thousand times. The
-> fraction of games you dipped is your probability; the size of the dips is your magnitude.
+> **Two rules of playing matter more than they sound.** *Play whole games and count at the end* —
+> combining the "90th percentile arrival" with the "90th percentile fill" is not a real game, it is
+> two bad days stapled together. And *play with the real rules*.
 >
-> **Two rules of playing that matter more than they sound.**
->
-> *Play whole games and count at the end.* It is tempting to take the "90th percentile arrival" and the
-> "90th percentile fill" and combine them — but that is not a real game, it is two separate bad days
-> stapled together, and it usually gives an answer no actual future produces. We keep all thousand
-> paths intact and take percentiles only at the finish.
->
-> *Play with the real rules.* **This is where the simulation currently fails.** Our player is
-> restocking by a rough guess — "buy roughly what you'll need" — instead of following the actual rules
-> written on the board: reorder at this level, buy in lots of this size, never less than this minimum.
-> Under the guess, arrivals replace only 85% of what gets consumed, so the player's stock trends
-> downward every single game. Play a thousand games that way and almost all of them end in trouble —
-> which is precisely our result: shortage predicted five times more often than it actually happened.
->
-> **The board, the dice and the scorekeeping are all correct.** One player instruction is wrong.
+> **v1.0 said one player instruction was wrong. It was four, and they are now fixed** — the reorder
+> trigger double-counted, the lead time came from a quantity that is not a lead time, jitter was
+> applied where the real world has none, and the stock already ordered and in transit was omitted
+> entirely. **The remaining problem is different in kind: the game is watching the wrong weeks.**
 
-### 6.2 Performance — the machinery is sound and the output is not
+### 6.2 Performance — the arc, and where it stopped
 
-**Sound:**
-
-| | |
+| stage | ratio to observed |
 |---|---|
-| full grid | 4,340 part-plants × 61 snapshots × 13 weeks × 1,000 paths = 3.44 billion cells |
-| wall-clock | **5.16 minutes** |
-| identity gate | passes on correct replay; **fires on all five constructed failures**, including one unit wrong in one row of two million |
-| as-of discipline | the assertion correctly dropped the 2016 snapshots where no label snapshot exists at or before them |
-| orphan part-plants | the 113 with no channel are **carried with zero arrivals, not dropped** |
+| original (v1.0 of this document) | **5.29×** over |
+| after the order-policy fix (Phase 12 B2) | **1.475×** [1.464, 1.487] |
+| against the **pre-rescue** reference (Phase 13 S1) | **1.129×** [1.121, 1.139] |
 
-**Not sound:**
+Phase 12 B2 closed **77% of the log-scale gap**: replacement rate 82.5% → 100.3%, shortfall 564 → 298
+against 91 observed. Attribution: 5.29 → 2.78 from the order rule, lead and jitter; 2.78 → 1.49 from
+adding the open pipeline.
 
-| | simulated | observed 2025 | ratio |
-|---|---|---|---|
-| part-plant-weeks below safety stock | **44.36%** | 8.38% | **5.29× over** |
-| mean shortfall when short | 564 units | 95 units | — |
+**The S1 result, and its label.** Planners move stock between plants to prevent shortages, so the
+observed record is *post-rescue*. Rebuilding the reference as "what would have happened without
+intervention" gives **1.129×** — and the reference builder was falsified three ways:
 
-### 6.3 Why it fails — diagnosed precisely
+| falsification | result |
+|---|---|
+| identity (add back zero transfers) | reproduces Phase 12 B2 **exactly**, per seed |
+| wrong sign (subtract instead of add) | **6.55×** — moves away, as required |
+| shuffled (permute transfers, total preserved) | **1.38–1.40×, never in band** — so attribution to specific rescued weeks is real |
 
-**The order quantity is a placeholder.** The simulation currently guesses "order roughly the
-horizon's requirement" instead of using the reorder point, minimum order quantity and lot size that
-`part_plant` already carries. Over 13 weeks, arrivals replace only **85.4%** of consumption against
-an opening level of 1,238 units. **The horizon drains by construction** — every path trends down, so
-by the later weeks almost everything is below safety stock.
+**This is the most thoroughly verified result in the project.** It is also a statement about *what the
+simulation represents*, not a better forecast: the observed world is still 1.475× over, and the
+added-back transfers are future information relative to every t0.
 
-**Arrivals beyond week 13 are dropped** rather than carried, which compounds the drain.
+### 6.3 As a decision — and the diagnosis that matters
 
-**Demand is treated as near-certain.** Consumption is the plan's point forecast with a
-`uniform(0.85, 1.15)` jitter — standard deviation 0.0865 — against a measured actual/planned
-dispersion of **0.1265**. The placeholder **understates real plan error by 1.46×**. And because no
-demand head exists in the shipped set, every interval the simulation emits reflects **supply
-uncertainty only**.
+*"Will this part-plant-week fall below safety stock?"* Base rate 0.080.
 
-**Consequence: no quantity from this simulation is usable as a forecast.** The gate, the ledger and
-the as-of discipline are all correct; the draws are not.
+| | against observed | against pre-rescue |
+|---|---|---|
+| precision | 0.205 | **0.238** |
+| recall | 0.469 | 0.491 |
+| F1 | 0.286 | **0.321** (disjoint) |
 
-### 6.4 Planned fix
+**The cells the planners' transfers moved.** Of **12,401** part-plant-weeks that planners rescued:
 
-1. **Replace the order heuristic with the real policy.** Trigger on `reorder_point_qty`; size with
-   `min_order_qty` and `lot_size`; respect `planning_lead_time_days` when placing the order.
-2. **Carry arrivals beyond the horizon** instead of discarding them.
-3. **Widen consumption dispersion** to the measured sd 0.1265 as an interim, and label it as still
-   representing plan error rather than demand uncertainty.
-4. **Re-run the held-out validation.** If 5.29× closes toward 1.0, this becomes the first real
-   forecast in the project. If it does not, the residual gap identifies precisely what else is
-   missing — a far more informative failure than the present one.
-5. **Build a demand head** before any interval is presented as total uncertainty.
+- **34%** the simulation *had* flagged — these flip from false alarms to hits once the rescue is
+  credited, which is why precision rises;
+- **66%** it had **not flagged at all** — which is why recall barely moves.
+
+> **S1 said the simulation's magnitude is right for the pre-rescue world. This says its *week
+> selection* is the bigger problem.** Two-thirds of the weeks planners felt compelled to act on, the
+> simulation never saw.
+
+**And there is no threshold that rescues it.** Phase 15 found precision peaks at about 0.28 at 2–4%
+coverage and then **falls** to 0.25 at the tightest coverage. The simulation's most confident weeks
+are not its most accurate. Ceiling **0.284** — no operating point exists at any usable bar.
+
+Coarsening helps here more than anywhere else (part × plant × month lifts 3.23 → 4.31 at 1% coverage)
+and still tops out at 0.54–0.63.
+
+### 6.4 Planned fix — one item, and it is structural
+
+**Restate the simulation at channel granularity.** Four independent findings point at the same place:
+
+1. Phase 12 **B3** added inter-plant transfers at **part-plant** granularity and overshot badly
+   (298 → 20 against 91 observed) — part-plant state provably cannot represent the dynamics.
+2. Phase 13 **S1** localised the entire residual gap to planner transfers.
+3. Phase 14 showed **66% of rescues are on weeks the simulation never flags** — a week-selection
+   problem, not a magnitude one.
+4. Phase 15 measured the precision ceiling at 0.28 and showed coarsening cannot lift it.
+
+Stage 0 of Phase 13 also confirmed the key: **a channel is exactly (part, supplier, plant)**, 16,072
+of them, verified 1:1. The granularity this needs is already a first-class object in the graph.
+
+**This is the only remaining modelling item in the project with a case behind it.**
 
 ### 6.5 The correlated-failure extension, deliberately deferred
 
-The design calls for a copula so that suppliers in a group fail together. **It is deferred, and the
-reason is a measurement, not a schedule:** on v8, within-group correlation is +0.2101 against
-cross-group +0.2055 — a separation of **0.0046**, an order of magnitude inside the acceptance gate's
-own ±0.05 tolerance. A per-group ρ and a single global ρ are statistically indistinguishable here,
-so the copula's central claim cannot be validated on this world.
+On v8, within-group correlation is +0.2101 against cross-group +0.2055 — a separation of **0.0046**,
+an order of magnitude inside the acceptance gate's own ±0.05 tolerance. A per-group ρ and a single
+global ρ are statistically indistinguishable here, so the copula's central claim cannot be validated
+on this world. Building it would produce a component whose correctness cannot be demonstrated.
 
-Building it would produce a component whose correctness cannot be demonstrated. And correlated
-sampling layered on marginals that over-project by 5.29× would make the output worse, not better.
-**Fix the marginals first.**
+### 6.6 Reproducibility defect — open
+
+**Phase 12 B3's block regrouping silently changed the default simulation's random stream**
+(deviation 122). Phase 14 had to load `order_policy.py` from git at `9e2d59d` to reproduce Phase 12
+B2's numbers; with today's HEAD they do not reproduce. **A published headline result is not
+reproducible from main.** Paths were also never stored — only aggregates. Both must be fixed before
+any further simulation work.
 
 ---
 
@@ -694,50 +778,37 @@ sampling layered on marginals that over-project by 5.29× would make the output 
 
 ### 7.1 The method
 
-A mixed-integer linear program over a weekly horizon:
-
 ```
 minimise   Σ_w [ c_hold·I_w + c_order·y_w + c_freight·⌈x_w / truck_cap⌉ ]
 
 subject to I_w = I_{w−1} + x_w − d_w        stock balance
            I_w ≥ SS                          safety-stock floor
            x_w ≥ MOQ · y_w                   minimum order quantity
-           x_w ≤ M · y_w                     linking (M a valid big-M)
+           x_w ≤ M · y_w                     linking
            x_w ≡ 0  (mod L)                  lot-size multiple
            y_w ∈ {0,1}                       order placed indicator
 ```
 
-The integrality is essential: `y_w` makes "place an order at all" a discrete decision, which is what
-creates the ordering-cost-versus-holding-cost trade-off. Without it the problem is a linear program
-and the answer degenerates to just-in-time.
-
-**Real-world relevance.** This is the question a buyer actually faces every week — order now and
-carry stock, or wait and risk the floor. It needs no learned model, only correct constraints.
+The integrality is essential: `y_w` makes "place an order at all" discrete, which creates the
+ordering-cost-versus-holding-cost trade-off. Without it the answer degenerates to just-in-time.
 
 > **In plain terms — grocery shopping with a small fridge.**
 >
-> Every trip to the shop costs you an hour of your Saturday — that is the ordering cost. Stocking up
-> means food sitting in the fridge going off — the holding cost. The shop sells eggs only by the dozen
-> — the lot size. And they won't deliver for under ₹500 — the minimum order quantity. You also can't
-> let the fridge run empty, because someone has to eat on Wednesday — the safety stock floor.
+> Every trip costs an hour of your Saturday (ordering cost). Stocking up means food going off
+> (holding cost). Eggs come by the dozen (lot size). They won't deliver under ₹500 (minimum order).
+> You can't let the fridge run empty (safety stock floor).
 >
-> The MILP is the timetable that answers: **how many trips this month, and how much on each one.**
+> **The "integer" part is the trip itself.** You either go or you don't; there is no two-thirds of a
+> trip. That yes/no is the entire source of the trade-off.
 >
-> **The "integer" part is the trip itself.** You either go to the shop or you don't — there is no
-> two-thirds of a trip. That yes/no is the whole source of the trade-off: if trips were free and
-> divisible you would simply buy each item the moment you needed it. Make going to the shop cost
-> something discrete and suddenly consolidating becomes worth it. Remove the integrality and the answer
-> collapses to just-in-time.
->
-> **Why it currently cannot advise you on timing.** Nobody has told us what the fridge costs. With
-> holding cost at zero, food never goes off — so buying everything on the first trip and buying
-> everything on the last trip cost *exactly the same*, and the solver picks between them arbitrarily.
-> It can still tell you *how much* to buy (it knows about dozens and minimum deliveries). It cannot tell
-> you *when*. That is not a solver limitation; it is a missing price, and only Rane has it.
+> **Why it cannot advise you on timing.** Nobody has told us what the fridge costs. With holding cost
+> at zero, food never goes off — so buying everything on the first trip and everything on the last
+> cost *exactly the same*, and the solver picks arbitrarily. It can tell you *how much*. It cannot
+> tell you *when*. That is a missing price, not a solver limitation.
 
 ### 7.2 Status — blocked, and not on the solver
 
-Built and verified on v6/v7. The MILP solves in milliseconds. What it lacks is an objective:
+Built and verified on v6/v7; solves in milliseconds. It lacks an objective:
 
 | needed | present in any dataset? |
 |---|---|
@@ -745,25 +816,22 @@ Built and verified on v6/v7. The MILP solves in milliseconds. What it lacks is a
 | ordering / setup cost per PO | **no** |
 | truck capacity and freight tariff | **no** |
 
-With `c_hold = 0` the objective is **indifferent to timing** — ordering everything in the first week
-and everything in the last cost exactly the same. The guide's own verification gate ("a part with no
-capacity constraint and zero holding cost must order in the last feasible week") is therefore
-**vacuous**: its premise is true of every part. It was replaced with five gates, each demonstrated
-failing on constructed input.
+With `c_hold = 0` the objective is **indifferent to timing**. The guide's own verification gate was
+therefore **vacuous** — its premise is true of every part. It was replaced with five gates, each
+demonstrated failing on constructed input.
 
-On v6/v7 the horizon was also single-period, because the plan held one week 30 days out. **v8 fixes
-that** — 12 to 26 forward periods per plan version, refreshed every 56 days, 100% forward. The
-multi-period schedule is now buildable and has not yet been rebuilt on v8.
+v8 fixes the single-period limitation: 12–26 forward periods per plan version, refreshed every 56
+days, 100% forward. The multi-period schedule is buildable and has not been rebuilt on v8.
 
-### 7.3 Planned
-
-- Rebuild multi-period on v8 now that the forward horizon exists.
-- The three cost parameters are **client asks**. No generator can supply them without inventing the
-  answer.
+**Not scoreable in Phase 14 or 15.** No synthetic cost was constructed, and none should be.
 
 ---
 
 ## 8. Use case 7 — Supplier allocation
+
+> **⚠ v1.0 correction.** Version 1.0 named the shortage cost as the blocker. **Phase 12 A4 proved on
+> data that it is not: across ₹100–10,000, 0 of 183 part-plants change winner.** The real blockers
+> are a qualification rule and the seed bands. §8.2 is rewritten.
 
 ### 8.1 The method
 
@@ -775,111 +843,192 @@ score(s) = requirement · Σ_v share_v · (1 − E[fill_v]) · strain_penalty_v 
          + Σ_v share_v · requirement · price_v
 ```
 
-subject to constraints that decide whether a move is possible at all: tooling transferability,
+subject to constraints deciding whether a move is possible at all: tooling transferability,
 qualification lead time, ramp-rate limit, minimum-volume commitment.
 
-**The constraints are the product, not the objective.** A recommendation to move volume to a
-supplier who does not hold the tooling and cannot be qualified for six months is worse than no
-recommendation — it destroys trust in everything else the system says.
+**The constraints are the product, not the objective.**
 
 > **In plain terms — splitting the wedding order between three tailors.**
 >
-> Six weeks to the wedding, forty outfits, three tailors. You could give everything to the cheapest,
-> split it evenly, or shift a portion to the most reliable one. Score each plan by what it costs plus
-> what it costs you if something isn't ready on the day.
+> Six weeks to the wedding, forty outfits, three tailors. Score each plan by what it costs plus what
+> it costs you if something isn't ready.
 >
 > **But some plans are impossible at any price, and that is the real work.** Tailor A holds the only
-> pattern for the embroidery, and it cannot be copied — so that portion cannot move, full stop.
-> Tailor B can take on at most 20% more work per month without dropping quality. Tailor C has never
-> made this design and needs a trial garment approved first, which takes three weeks you do not have.
+> pattern. Tailor B can take at most 20% more work. Tailor C needs a trial garment approved, which
+> takes three weeks you don't have. **Those facts decide whether the recommendation is usable; the
+> pricing only decides which usable one is best.**
 >
-> **Those three facts decide whether the recommendation is usable. The pricing only decides which of
-> the usable ones is best.** A system that recommends Tailor C because they are cheapest, without
-> knowing about the trial garment, is worse than a system that recommends nothing — you will never
-> trust its next suggestion.
->
-> **And the one number that decides everything is the one nobody has given us.** How bad is it, really,
-> if an outfit isn't ready? If the answer is "mildly embarrassing", go with cheapest. If it is "the
-> wedding is ruined", pay for the reliable tailor. We swept that number across a hundredfold range and
-> the recommended split *changed* for a fifth of cases — with the flips clustered right around the
-> figure we had invented. **Choosing that number ourselves is choosing the answer**, which is why it is
-> a client ask and not a parameter we should be tuning.
+> **v1.0 ended this analogy by saying the decisive missing number was how bad it is if an outfit isn't
+> ready. We then measured it, and it isn't.** Across a hundredfold range of that cost, **the
+> recommended split never changed for a single one of 183 part-plants.** The thing actually stopping
+> us is duller and more fixable: for half the part-plants, our own rules say **no tailor is allowed
+> to take the work — including the one already doing it.**
 
-### 8.2 Status — blocked on one number
+### 8.2 Status — the recommender is currently worse than doing nothing
 
-On v6/v7, only **25% of part-plants** produced a recommendation stable across a shortage-cost sweep
-and distinguishable from the runner-up; nine of those thirty said "change nothing". About 18%
-actionable.
+**Feasibility first (deviation 91):** on v8, **57 of 120 part-plants (47.5%) have no feasible
+candidate at all**, because the qualification check rejects share held by a supplier marked
+unqualified — the incumbent included.
 
-**The shortage cost is the blocker and it is not a tuning constant.** It sets the exchange rate
-between unmet demand and purchase price — the entire trade-off the allocator exists to make. Swept
-across two orders of magnitude, the recommended split *changed* for a fifth of part-plants, and the
-flips clustered around the assumed ₹1,000. **Choosing that number ourselves means choosing the
-answer.**
+**Precision against what actually happened (Phase 14):**
 
-v8 improved the inputs substantially — allocation coverage from 19.5% to **97.05%**, capacity
-ceilings populated, contract terms with real variation, a genuine 16.7% of alternate sources
-unqualified so the qualification constraint can finally bind. But `is_approved` is still constant,
-the minimum-volume commitment still carries no period, and the penalty still has no basis.
+| | n | precision@1 | precision@2 |
+|---|---|---|---|
+| recommendation, **conditional on feasible** | 63 | 0.667 | 0.873 |
+| incumbent's top supplier, same 63 | 63 | **0.651** | 0.873 |
+| recommendation, **unconditional** | 120 | **0.350** | 0.458 |
+| incumbent's top supplier, all 120 | 120 | **0.692** | 0.925 |
+
+Conditional on feasibility it is indistinguishable from the status quo — and **92% of its "winners"
+are "keep the incumbent"** (42 of 63). Unconditionally, **doing nothing beats the recommender by
+almost 2×.**
+
+**The shortage-cost blocker is closed, and the unlock was small.** A4 proved invariance on data (the
+check fires on 38 part-plants at weight 1, so it is not vacuous). Quotable moved 25% → 31.7% on v6/v7
+and 4.8% → 9.5% on v8; **actionable moved 17.5% → 19.2% and 3.2% → 7.9%** — two part-plants in 120.
+The binding limit was always the seed bands. *(Deviation 90: v1.0's "25%" counted duplicate candidate
+splits as runners-up; every exact top-two tie was the winner under another name.)*
+
+Phase 15 could not curve this use case at all: 63 feasible part-plants leaves every coverage cell
+under 50 alerts.
 
 ### 8.3 Planned
 
-- Re-run on v8 with the real constraint data.
-- Escalate the shortage cost from "assumption" to **blocking client ask**.
-- Obtain the commitment period and penalty basis — the numbers vary now, but a quantity with no
-  window cannot be enforced and a penalty with no basis cannot be priced.
+- **Settle the qualification semantics.** Until an incumbent can hold share it already holds, no v8
+  allocation output is quotable. This is an hour's conversation, not a modelling task.
+- Then re-measure. There may be no product underneath.
+- The commitment period and penalty basis remain open: a quantity with no window cannot be enforced,
+  and a penalty with no basis cannot be priced.
 
 ---
 
-## 9. Consolidated status and plan
+## 9. Use case 8 — Transfer recommendation *(new in v2.0)*
 
-### 9.1 Where each use case stands
+### 9.1 What it does
+
+For each projected-short part-plant-week, propose an inter-plant transfer from a same-part plant with
+surplus, recommending only if the donor's simulated shortage chance stays under a fitted threshold.
+
+### 9.2 Status — retire as an alert
+
+**Donor choice** (base rate 0.504): policy **0.557** precision, naive nearest-surplus 0.528, random
+0.520. The policy is disjointly best at every θ — but **"always yes" scores F1 0.670 against the
+policy's 0.270**, because half of all candidate plants shipped out that week anyway. **This is a
+precision@1 claim and nothing more** (deviation 130). Phase 15: **NOT TUNABLE** on validation — lift
+0.03, the confidence score carries no information about correctness.
+
+**Recipient choice**: no rule has skill. Naive and random recommend on essentially every short week,
+so their precision *is* the base rate, and the policy's filter never raises precision above it.
+
+**Ground truth is inferred** (deviation 119): `inventory_transactions.from_plant_id` records the
+**receiving** plant on all 1,482,011 transfer-in rows. The donor is never stored. Every donor figure
+is measured against a same-week transfer-out proxy and cannot be tightened without a generator fix.
+
+**Also: the quantity rule lifts recipients only to the median**, so post-transfer shortage chance is
+≈0.5 by construction. The layer names *who*, not *how much*.
+
+**Recommendation:** retire as an alert; keep only as a tie-break suggestion, labelled *"freight cost
+and transfer lead time not weighed; validated against planner action, not planner intent; inherits an
+uncalibrated simulation."*
+
+---
+
+## 10. Consolidated status and plan
+
+### 10.1 Where each use case stands
 
 | use case | works | does not | blocked by |
 |---|---|---|---|
-| Arrival timing | lateness ranking, disjoint at 5 seeds | week-level calibration at depth 4 | — |
-| Fill rate | exact CRPS | marginal calibration (3.4× worse than a naive histogram) | serving-path loader |
-| Supplier strain | median, pinball | intervals (coverage 0.72–0.81) | needs level-aware recalibration |
-| Shortage ranking | ROC-AUC 0.816 | any probability | synthetic base rate 8× reality |
-| Shortage quantity | mechanism, gate, ledger | **calibration (5.29× over)** | order policy — **ours to fix** |
+| Arrival timing | ranking, disjoint at 5 seeds | any yes/no — the contract term matches the model | nothing; it is at its ceiling |
+| Fill rate | ranking; recalibration closes most of the calibration gap | any yes/no; head-shape programme closed | serving-path loader (config misdescribes what runs) |
+| **Supplier strain** | **alert at 81% precision / 19% recall** | absolute probabilities (level lag) | — **this one ships** |
+| Shortage ranking | ordering | any probability | base rate 8× reality — re-measure first |
+| Shortage quantity | mechanism, gate, ledger; **1.129× pre-rescue, falsified 3 ways** | week selection: 66% of rescues unflagged | **channel granularity — ours to fix** |
 | Delivery schedule | solver, constraints | objective | 3 cost parameters — **client** |
-| Allocation | enumeration, constraints | recommendation stability | shortage cost — **client** |
+| Allocation | enumeration, constraints | beats doing nothing | qualification rule — **one conversation** |
+| Transfer recommendation | donor precision@1 | detection of any kind | retire |
 
-### 9.2 The plan, in order
+### 10.2 The plan, in order
 
-**Ours to fix:**
+**Ship:**
 
-1. **Order policy in the simulation** (reorder point, MOQ, lot size, carry beyond horizon, widen
-   demand dispersion), then re-validate against held-out outcomes. *Everything downstream waits on
-   this.*
-2. **Fill's serving path** — build the LightGBM loader or revert the config, and add an assertion
-   that refuses to serve when the loaded model does not match the configured one.
-3. **Capacity intervals** — conformal widening keyed to recent drift, or trailing-window
-   recalibration. ~3 h.
-4. **A demand head** — until one exists, every simulation interval is supply-only.
-5. **Reword Phase 8's arrival row** to the comparison actually measured.
-6. **Re-band the remaining 16 tight comparisons** at five seeds. Nineteen of twenty held in the
-   sample already run, so this is expected to confirm rather than overturn — but that is an
-   expectation, not a measurement.
+1. **Capacity as an alert** at the validation-chosen point, labelled *"81% right, catches 19%, flags
+   about 10% of supplier-horizons."* Everything else goes out as a ranked watchlist or not at all.
 
-**Rane's to supply** — no amount of work on our side closes these, and they have been open across
-three datasets:
+**Fix (ours):**
+
+2. **Reproducibility (deviation 122).** Main cannot reproduce Phase 12 B2. Pin or restore the random
+   stream and store simulation paths. Everything downstream rests on this.
+3. **Channel-granularity transfer model.** The only remaining modelling item with a case behind it,
+   aimed at *week selection* rather than magnitude.
+4. **Fill's serving loader** — so configuration determines what runs. **Do not swap the model.**
+5. **Settle the allocation qualification rule.** One conversation; unblocks 47.5% of part-plants.
+6. **Re-measure the shortage head at a realistic base rate** before investing in it.
+
+**Do NOT fund** — each was tested and closed, not merely deprioritised:
+
+- ~~Capacity level-tracking retrain~~ — the level lag costs calibration, not discrimination. Even a
+  perfect per-period tracker (using future information) leaves the frontier unchanged.
+- ~~Conformal interval widening~~ — exact on its own window, worse on the next.
+- ~~Further fill head reparameterisation~~ — four arms, one disjoint gain of +0.002.
+- ~~Coarser-grain reframing~~ — raises base rates, not lift.
+- ~~Model-family agreement filtering~~ — dominated by tightening the best model's own threshold.
+
+**Rane's to supply** — open across three datasets, and no work on our side closes them:
 
 7. Inventory carrying cost.
 8. Ordering / setup cost per purchase order.
 9. Freight structure — truck capacity and tariff shape.
-10. **Cost of running short of a critical part.** The single most sensitive number in the system.
-    A rough figure with a stated basis is entirely sufficient; what matters is that it is theirs.
+10. Shortage cost. *(Still needed for the MILP objective. Note it is now proven **not** to change
+    allocation winners — that use of it is closed.)*
+
+**Data defects to report to the generator's authors:**
+
+11. `from_plant_id` records the receiving plant on all 1,482,011 transfer rows — the donor is never
+    stored.
+12. `purchase_orders.status` holds a single value (`OPEN`) on all 1,063,256 rows — a field that
+    silently invites everyone to build on it.
 
 ---
 
-## 10. Standing caveat
+## 11. What the honest scope is now
+
+Fifteen phases in, ChainPilot is:
+
+- **one alert product** — supplier capacity strain, at a measured and defensible operating point;
+- **a set of ranked watchlists** — arrival lateness, material shortfall, shortage risk — each real as
+  an ordering and none of them a yes/no;
+- **one open modelling question** — restating the simulation at channel granularity;
+- **two things blocked on Rane** — the cost parameters, and the allocation qualification rule.
+
+That is much smaller than where this document started. It is also the first version of the scope that
+survives measurement.
+
+**The two claims that can go in front of a client today**, each with its label attached:
+
+> *"The simulation reproduces what would happen without your planners' intervention to within about
+> 13%. The gap to what actually happened is the value your planners add."*
+
+> *"For supplier capacity, we alert on about one horizon in ten and are right roughly 8 times in 10,
+> against a background rate of 4 in 10."*
+
+---
+
+## 12. Standing caveat
 
 Every figure in this document is measured **within a synthetic world**: one generator produced both
-the training and the test data, separated only by time. These are an optimistic upper bound on a
-real extract, not a forecast of it.
+the training and the test data, separated only by time. These are an optimistic upper bound on a real
+extract, not a forecast of it.
 
-The findings that transfer are the **mechanisms** — that censoring must be modelled rather than
-dropped, that point masses matter for fill, that quantile intervals do not survive a level shift,
-that the graph's edges carry information — not the numbers. The only evidence that would support a
-production figure is a rolling-origin backtest on Rane's own data.
+The findings that transfer are the **mechanisms**, not the numbers:
+
+- censoring must be modelled, not dropped — **and how it is resolved moves the headline by 2×**;
+- point masses matter for fill, and the ruler must be able to see them;
+- quantile intervals do not survive a level shift, **and widening them does not help**;
+- the graph's edges carry information, concentrated in the supplier and plant relations;
+- **smooth persistent quantities are predictable; lumpy one-off events are much less so, and
+  aggregating them does not change that**;
+- a system measured in metric space and a system measured in decision space are not the same system.
+
+The only evidence that would support a production figure is a rolling-origin backtest on Rane's own
+data.
