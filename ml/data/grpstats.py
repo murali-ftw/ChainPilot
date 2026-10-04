@@ -465,6 +465,7 @@ def config_hash():
 
 
 def build(world, kinds=("snap", "place")):
+    sys.path.insert(0, os.path.join(HERE, "..", "eval"))
     import phase12_common as C
     st = C.require_clean()
     os.makedirs(OUT, exist_ok=True)
