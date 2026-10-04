@@ -83,8 +83,9 @@ def test_identities():
 def test_no_privileged_input():
     T18.FORBIDDEN_STR = T18.FORBIDDEN_STR + ("PRIVILEGED__", "phase19/PRIVILEGED", "phase19/preds", "phase20/PRIVILEGED",
                                              "phase20/preds", "phase21/PRIVILEGED", "phase22/PRIVILEGED")
-    dirs_saved = getattr(T18, "SCAN_DIRS", None)
+    T18.SCANNED = list(T18.SCANNED) + ["ml/serve"]              # constraint 4 adds ml/serve to the scanned directories
     r = T18.test_no_privileged_input_in_ml()
+    r["scanned_dirs"] = T18.SCANNED
     hits = {m: T18.violations(os.path.join(REPO, m)) for m in ("ml/serve/order_time.py",)}
     assert not any(hits.values()), hits
     for off in ("p = 'reports/part2/phase22/PRIVILEGED__x.npz'\n", "z = np.load(D + '/_sim.npz')\n"):
