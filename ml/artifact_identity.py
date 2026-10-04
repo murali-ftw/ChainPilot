@@ -36,7 +36,44 @@ def config_name(cfg) -> str:
         name += f"_{cfg.get('ratio_est', 'ros')}"   # ratio_of_sums | mean_of_ratios
         name += "_shrink" if cfg.get("shrink") else "_raw"
         name += f"_use{cfg.get('ratio_use', 'input')}"   # alone | input | centre
+    # Phase 16: encoder-variant axes. Each appears ONLY when non-default, so no Phase 0-15 name changes (S4 gate).
+    for k, v in encoder_axes(cfg).items():
+        name += f"_{ENCODER_TAGS[k]}{_fmt(v)}"
+    # Phase 17 axes -- each OMITTED at its default, so every pre-Phase-17 identity is unchanged (phase17_identity_check)
+    if cfg.get("cap_target") not in (None, "level"):
+        name += {"delta": "_tgtdelta", "level_delta": "_tgtlvldelta"}[cfg["cap_target"]]   # B2b / B2c
+    if cfg.get("lean_encoder"):
+        name += "_lean"                             # B4b: part relation and its dead parameters removed (new class)
     return name
+
+
+# ------------------------------------------------------------------ Phase 16: encoder-variant axes
+# encoder_variant: the incumbents (share_lite for arch lite, heteromp for arch mp) are the DEFAULT and are omitted,
+# as is None. traj_delta='zeroed' is Candidate A's control arm (Delta zeroed at forward time) -- an axis the brief did
+# not list, but without it A1 and A2 would share one identity (deviation 143).
+ENCODER_AXES = ("encoder_variant", "traj_depths", "traj_delta", "pna_aggregators", "low_degree_k")
+ENCODER_TAGS = dict(encoder_variant="enc", traj_depths="td", traj_delta="tdelta", pna_aggregators="pna",
+                    low_degree_k="ldk")
+INCUMBENT_ENCODER = {"lite": "share_lite", "mp": "heteromp"}
+ENCODER_VARIANTS = ("share_lite", "share_traj", "share_pna", "heteromp", "heteromp_pna")
+
+
+def _fmt(v):
+    return "".join(str(x) for x in v) if isinstance(v, (list, tuple)) else str(v)
+
+
+def encoder_axes(cfg) -> dict:
+    """The NON-DEFAULT Phase 16 axes of cfg, in fixed order. Empty for every artifact written before Phase 16."""
+    out = {}
+    v = cfg.get("encoder_variant")
+    if v is not None:
+        assert v in ENCODER_VARIANTS, f"unknown encoder_variant {v!r}"
+        if v != INCUMBENT_ENCODER.get(cfg.get("arch")):
+            out["encoder_variant"] = v
+    for k in ENCODER_AXES[1:]:
+        if cfg.get(k) is not None:
+            out[k] = cfg[k]
+    return out
 
 
 def bundle_name(cfg) -> str:
@@ -63,7 +100,14 @@ def identity_of(cfg) -> dict:
     keys = ("task", "world", "origin", "arch", "depth", "lr", "seed", "train_snapshots", "max_epochs",
             "row_features", "graph_shuffle", "drop_relation",
             "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use", "fill_loss")
-    return {k: cfg.get(k) for k in keys}
+    ident = {k: cfg.get(k) for k in keys}
+    ident.update(encoder_axes(cfg))                 # Phase 16: present only when non-default
+    # Phase 17 axes enter only when set away from their default, so pre-Phase-17 identities compare equal
+    if cfg.get("cap_target") not in (None, "level"):
+        ident["cap_target"] = cfg["cap_target"]
+    if cfg.get("lean_encoder"):
+        ident["lean_encoder"] = True
+    return ident
 
 
 class CollisionError(AssertionError):
@@ -119,10 +163,12 @@ def score_name(ident: dict) -> str:
 
     Deviation 73: a .done marker keyed on a partial identity collided across three arms and silently skipped two.
     Every axis in SCORE_AXES appears, including absent ones as '-', so no two identities can share a name."""
-    unknown = set(ident) - set(SCORE_AXES)
+    unknown = set(ident) - set(SCORE_AXES) - set(ENCODER_AXES)
     assert not unknown, f"identity carries axes score_name does not name: {sorted(unknown)}"
     assert ident.get("calib") in (None, "raw", "recal"), f"calibration state must be raw|recal, got {ident.get('calib')}"
-    return "__".join(f"{k}={ident.get(k, '-') if ident.get(k) is not None else '-'}" for k in SCORE_AXES)
+    name = "__".join(f"{k}={ident.get(k, '-') if ident.get(k) is not None else '-'}" for k in SCORE_AXES)
+    # Phase 16: encoder axes are appended only when non-default, so every Phase 13-15 score name is unchanged
+    return name + "".join(f"__{k}={_fmt(v)}" for k, v in encoder_axes(ident).items())
 
 
 def marker_name(cfg: dict) -> str:

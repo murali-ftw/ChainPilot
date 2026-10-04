@@ -38,7 +38,7 @@ from heads import HazardHead, fill_cell, fill_to_legacy
 from phase5_recal import fit_mm, apply_mm, fit_vs, apply_vs, log_score
 from metrics import cindex
 from config import WORLDS, ARTIFACTS, REPO
-from device import DTYPE, peak_rss_gb
+from device import DTYPE, TF32, peak_rss_gb
 
 DEV = P5.DEV
 W12 = P5.HORIZON_WEEKS
@@ -94,6 +94,15 @@ def bundle_dir(cfg):
     if cfg.get("origin"):
         return os.path.join(BACKTEST_BUNDLES, cfg["task"], f"o{cfg['origin']}", name)
     return os.path.join(BUNDLES, cfg["task"], name)
+
+
+def _net(cfg):
+    """The model constructor. P5.HeadNet itself for every pre-Phase-16 configuration; a Phase 16 encoder variant only
+    when a non-default Phase 16 axis is set (ml/train/phase16_heads.py)."""
+    if not AI.encoder_axes(cfg):
+        return P5.HeadNet
+    import phase16_heads as P16
+    return lambda d_in, task, arch, depth, **kw: P16.build(cfg, d_in, **kw)
 
 
 def n_row_feats_of(cfg):
@@ -152,6 +161,17 @@ def resolve(args):
     if getattr(args, "drop_relation", None):
         cfg["drop_relation"] = args.drop_relation           # Phase 12 C3: relation ablation at fixed depth
         assert cfg["depth"] and cfg["depth"] > 0, "drop_relation is meaningless at depth 0"
+    # Phase 16: encoder variants -- set only when non-default, so every earlier configuration resolves unchanged
+    ev = getattr(args, "encoder_variant", None)
+    if ev and ev != AI.INCUMBENT_ENCODER.get(cfg["arch"]):
+        cfg["encoder_variant"] = ev
+        assert cfg["depth"] > 0 and cfg["arch"] in ("lite", "mp")
+        for k in ("traj_depths", "traj_delta", "pna_aggregators", "low_degree_k"):
+            if getattr(args, k, None) is not None:
+                cfg[k] = getattr(args, k)
+    else:
+        assert not any(getattr(args, k, None) is not None for k in ("traj_depths", "traj_delta", "pna_aggregators",
+                                                                    "low_degree_k")), "variant axes need --encoder-variant"
     return cfg
 
 
@@ -180,9 +200,9 @@ def train(cfg, verbose=False):
     if task == "capacity_strain":
         ymu = float(lb.label_value[tr].mean()); ysd = float(lb.label_value[tr].std())
     seed_all(cfg["seed"])                                   # init independent of the data path, as in Phase 5
-    model = P5.HeadNet(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
-                       gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
-                       n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV).to(DTYPE)
+    model = _net(cfg)(D["X"].shape[2], task, cfg["arch"], cfg["depth"],
+                      gate_cols=D["gate_cols"] if cfg["gate"] else None, fill_loss=cfg["fill_loss"],
+                      n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV).to(DTYPE)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=TS.HP["wd"])
     train_b = P5.batches(task, lb, tr, D["W"], ymu, ysd)
     n_train = int(tr.sum())
@@ -403,7 +423,10 @@ def finish_bundle(cfg, model, D, lb, split, log, trained_by):
     json.dump(metrics, open(os.path.join(out, "metrics.json"), "w"), indent=1,
               default=lambda o: o.item() if hasattr(o, "item") else str(o))
     json.dump({**log, "trained_by": trained_by, "nondeterministic_ops_warned": sorted(NONDET_OPS),
-               "peak_rss_gb": peak_rss_gb()}, open(os.path.join(out, "train_log.json"), "w"), indent=1)
+               "peak_rss_gb": peak_rss_gb(),
+               "device": str(DEV), "tf32": TF32, "panel_host": P5.PANEL_HOST, "tcn_checkpoint_chunk": P5.TCN_CHUNK,
+               "peak_cuda_alloc_gb": torch.cuda.max_memory_allocated() / (1 << 30) if torch.cuda.is_available() else None},
+              open(os.path.join(out, "train_log.json"), "w"), indent=1)
     json.dump({**cfg, "stamps": stmp, "split": FO.describe_origin(cfg["origin"]) if cfg.get("origin") else FO.describe_fixed(), "HP": TS.HP,
                "files": ["checkpoint.pt", "normaliser.npz", "preds_val.npz", "preds_test.npz", "recalibration.json",
                          "drift_baseline.json", "model_outputs.csv.gz", "metrics.json", "train_log.json"],
@@ -422,6 +445,9 @@ def run_train(cfg):
     out = finish_bundle(cfg, model, D, lb, split, log, trained_by="ml/train/loop.py")
     print(f"  [{log['stop']}] best_ep {log['best_epoch']} of {log['epochs_run']}  val {log['best_val']:.5f}  "
           f"{time.time() - t0:.0f}s  {log['sec_per_epoch']:.1f}s/ep  RSS {peak_rss_gb():.2f} GB  -> {out}", flush=True)
+    if AI.encoder_axes(cfg):
+        import phase16_heads as P16
+        P16.teardown(model)                                 # Phase 16 S2: share_traj's TCN hooks removed
     del model
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
@@ -468,7 +494,7 @@ def load_bundle(path):
 
 def _materialise(B, D):
     cfg = B["cfg"]
-    m = P5.HeadNet(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
+    m = _net(cfg)(D["X"].shape[2], cfg["task"], cfg["arch"], cfg["depth"], fill_loss=cfg["fill_loss"],
                    n_row_feats=n_row_feats_of(cfg), fill_head=cfg.get("fill_head", "cells22")).to(DEV)
     m.load_state_dict(torch.load(os.path.join(B["path"], "checkpoint.pt"), map_location="cpu"))
     return m.eval()
@@ -608,7 +634,7 @@ if __name__ == "__main__":
     ap.add_argument("--origin", type=int, default=None, help="Phase 8.2 rolling origin 1-8; omit for the fixed split")
     ap.add_argument("--from-preds", default=None)
     ap.add_argument("--bundle", default=None); ap.add_argument("--h0-bundle", default=None); ap.add_argument("--fold", default="test")
-    ap.add_argument("--fill-head", default=None, choices=["cells22", "beta3", "beta3c", "reg"])
+    ap.add_argument("--fill-head", default=None, choices=["cells22", "beta3", "beta3c", "reg", "band5"])
     ap.add_argument("--fill-loss", default=None, help="rps | rps_bw{w} (Phase 13 F1 arm 5)")
     ap.add_argument("--ratio-key", default=None, choices=["ps", "sp", "psp", "hier"])
     ap.add_argument("--ratio-est", default="ros", choices=["ros", "mor"])
@@ -617,6 +643,11 @@ if __name__ == "__main__":
     ap.add_argument("--graph-shuffle", type=int, default=None,
                     help="Phase 11A Stage 1: train against a degree-preserving PERMUTED neighbourhood "
                          "(the control arm). Omit for the real graph.")
+    ap.add_argument("--encoder-variant", dest="encoder_variant", default=None, choices=list(AI.ENCODER_VARIANTS))
+    ap.add_argument("--traj-depths", dest="traj_depths", default=None)
+    ap.add_argument("--traj-delta", dest="traj_delta", default=None, choices=["zeroed"])
+    ap.add_argument("--pna-aggregators", dest="pna_aggregators", default=None, choices=["mmms", "sum"])
+    ap.add_argument("--low-degree-k", dest="low_degree_k", type=int, default=None)
     ap.add_argument("--max-epochs", type=int, default=None, help="smoke runs only; shipped runs use the config's cap")
     ap.add_argument("--bundle-root", default=None, help="write bundles elsewhere (smoke tests must not occupy real bundle paths)")
     a = ap.parse_args()
