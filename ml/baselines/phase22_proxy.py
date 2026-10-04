@@ -106,6 +106,8 @@ def snap_family(arm, world, lb, seed):
 
 def placement(world):
     pw = parent(world)
+    if not os.path.exists(os.path.join(GS.OUT, f"grpstats_{pw}_place.npz")):      # world 2's store was built by Phase 22
+        GS.OUT = os.path.join(ARTIFACTS, "phase22")
     Z, _ = GS.load(pw, "place")
     src = GS.Source(pw)
     li = Z["line"].astype(np.int64)
