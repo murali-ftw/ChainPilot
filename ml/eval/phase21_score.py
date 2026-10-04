@@ -250,7 +250,7 @@ def compact(summ):
 
 # ================================================================== importances / resolved level
 def importances(world, task, arm, k):
-    log = json.load(open(os.path.join(C.ART, "phase21", "proxy_fit.json")))
+    log = json.load(open(os.path.join(C.ART, "phase21", f"proxy_fit_{world}_{task}.json")))
     t = TASKS[task]; agg = {}
     for s in SEEDS:
         imp = log[f"{world}|{t}|p21_{arm}_k{k}_s{s}"]["gain_importance"]

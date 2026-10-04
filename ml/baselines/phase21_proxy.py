@@ -40,7 +40,7 @@ from config import ARTIFACTS
 assert "torch" not in sys.modules, "torch must not be imported in the LightGBM process"
 
 OUT = os.path.join(ARTIFACTS, "phase21", "preds")
-LOG = os.path.join(ARTIFACTS, "phase21", "proxy_fit.json")
+LOG_FMT = os.path.join(ARTIFACTS, "phase21", "proxy_fit_{world}_{task}.json")   # one log per process (deviation 198)
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "place": "arrival_place"}
 ARMS = {"arrival": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "grp_only", "sc", "sc_L5"),
         "fill": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc_L5"),
@@ -145,8 +145,12 @@ def fit(world, task, arms, seeds, log, stamp):
     for arm in arms:
         for s in ([7] if arm == "base" and task != "place" else seeds):
             name = f"p21_{arm}_s{s}" if arm == "base" else f"p21_{arm}_k{k}_s{s}"
-            if all(os.path.exists(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test")):
+            exists = all(os.path.exists(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test"))
+            if exists and "gain_importance" in log.get(f"{world}|{t_task}|{name}", {}):
                 print(f"  {world} {task} {name}: exists, skipped", flush=True); continue
+            if exists:          # the record was lost (deviation 198): refit, assert bit-identical, record it
+                stored = {f: np.load(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test")}
+                P7.OUT = os.path.join(OUT, "_refit"); os.makedirs(P7.OUT, exist_ok=True)
             F, use_base = family(task, arm, world, lb, Z, k, s, groups, masks)
             X = Xflat if F is None else (pd.concat([Xflat, F], axis=1) if use_base else F).astype(np.float32)
             meta = dict(seed=s, arm=arm, world=world, k=k, n_features=X.shape[1], commit=stamp)
@@ -163,8 +167,16 @@ def fit(world, task, arms, seeds, log, stamp):
                 P7.emit(world, t_task, name, lb, va, te, lambda o: (m.predict_proba(X.iloc[o]), None), log,
                         dict(best_iter=int(m.best_iteration_ or 400), **meta))
             log[f"{world}|{t_task}|{name}"]["gain_importance"] = imp
+            if exists:
+                for f in ("val", "test"):
+                    r = np.load(os.path.join(P7.OUT, f"{world}_{t_task}_{name}_{f}.npz"))
+                    assert np.array_equal(r["P"], stored[f]["P"]) and (r["entity"] == stored[f]["entity"]).all(), \
+                        f"{name} {f}: refit differs from the stored predictions -- STOP"
+                    os.remove(os.path.join(P7.OUT, f"{world}_{t_task}_{name}_{f}.npz"))
+                log[f"{world}|{t_task}|{name}"]["refit_bit_identical_to_stored"] = True
+                P7.OUT = OUT
             print(f"  {world} {task} {name}: {time.time() - t:.0f}s ({X.shape[1]} features)", flush=True)
-            json.dump(log, open(LOG, "w"), indent=1)
+            json.dump(log, open(LOG_FMT.format(world=world, task=task), "w"), indent=1)
             if arm == "base" and task != "place":
                 ref = (os.path.join(P7.ARTIFACTS, "phase7_preds", f"v8_{t_task}_{P20.P19.STORED[task]}_s7_{{f}}.npz") if world == "v8"
                        else os.path.join(ARTIFACTS, "phase20", "preds", f"{world}_{t_task}_p20_base_s7_{{f}}.npz"))
@@ -174,7 +186,7 @@ def fit(world, task, arms, seeds, log, stamp):
                     assert d == 0.0 and (a["entity"] == b["entity"]).all() and np.array_equal(a["Y"], b["Y"]), \
                         f"{world} {task} {f}: BASE does not reproduce the stored predictions bit-exactly ({d}) -- STOP"
                 log[f"{world}|{t_task}|{name}|reproduction"] = dict(reference=ref, bit_exact=True)
-                json.dump(log, open(LOG, "w"), indent=1)
+                json.dump(log, open(LOG_FMT.format(world=world, task=task), "w"), indent=1)
                 print(f"  REPRODUCTION {world} {task}: bit-exact vs {ref}", flush=True)
 
 
@@ -189,6 +201,7 @@ if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     P7.OUT = OUT
     st = C.require_clean()
+    LOG = LOG_FMT.format(world=a.world, task=a.task)
     log = json.load(open(LOG)) if os.path.exists(LOG) else {}
     log.setdefault("_stamps", []).append(dict(world=a.world, task=a.task, arms=a.arms, data=PP.register(), **st))
     arms = a.arms.split(",")
