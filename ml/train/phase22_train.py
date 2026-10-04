@@ -165,6 +165,8 @@ def queue(cells, deadline):
             if not_run or datetime.datetime.now() + datetime.timedelta(minutes=est) > dl:
                 not_run.append(f"{cell} s{s}"); continue
             import subprocess
+            while C.stamp()["code_dirty"]:            # never start a cell on a dirty tree; wait for the commit instead
+                time.sleep(20)
             cmd = [sys.executable, os.path.abspath(__file__), kind, "--task", task, "--seed", str(s)] + (["--families", fams] if fams else [])
             r = subprocess.run(cmd)                       # one process per cell: no state carried between cells
             if r.returncode != 0:
