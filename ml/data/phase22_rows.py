@@ -85,15 +85,15 @@ def block(fam, world, lb, seed, perm=None):
     """-> DataFrame for lb's rows (snapshot_date, key). perm: None | 'sperm' (snapshot derangement within split, same
     channel) | 'xsh' (another channel, same snapshot)."""
     if fam in ("season", "cadence"):
-        import fwd_season as FS, cadence as CD, phase19_proxy as P19
+        import fwd_season as FS, cadence as CD          # NOT phase19_proxy: it imports lightgbm, and this runs in torch processes
         if fam == "season":
             X, snaps, cols = FS.load(world)
             if perm == "sperm":
-                X = X[P19.derangement_within_split(snaps, seed)]
-            si, _ = P19.rows_index(lb, snaps)
+                X = X[derangement_within_split(snaps, seed)]
+            si, _ = rows_index(lb, snaps)
             return pd.DataFrame(X[si], columns=cols)
         X, snaps, chans, cols = CD.load(world)
-        si, ci = P19.rows_index(lb, snaps, chans)
+        si, ci = rows_index(lb, snaps, chans)
         return pd.DataFrame(X[si, ci], columns=cols)
     R = load(world)
     X = R["ack"] if fam == "ack" else R["l4"]
@@ -110,6 +110,32 @@ def block(fam, world, lb, seed, perm=None):
         rng = np.random.default_rng(80_000 + seed)
         ci = (ci + rng.integers(1, len(R["channels"]), len(ci))) % len(R["channels"])
     return pd.DataFrame(X[si, ci], columns=[f"{c}" for c in cols])
+
+
+def derangement_within_split(snaps, seed):
+    """phase19_proxy.derangement_within_split, copied (that module imports lightgbm): rng(30000 + seed), no fixed point."""
+    rng = np.random.default_rng(30_000 + seed)
+    grp = split_of(snaps); donor = np.arange(len(snaps))
+    for g in (0, 1, 2):
+        idx = np.flatnonzero(grp == g)
+        while True:
+            p = rng.permutation(len(idx))
+            if not (p == np.arange(len(idx))).any():
+                break
+        donor[idx] = idx[p]
+    return donor
+
+
+def rows_index(lb, snaps, chans=None):
+    """phase19_proxy.rows_index, copied."""
+    snap = pd.to_datetime(lb.snapshot_date).dt.strftime("%Y-%m-%d").to_numpy()
+    si = pd.Series(range(len(snaps)), index=[str(x) for x in snaps]).reindex(snap).to_numpy()
+    assert not np.isnan(si.astype(float)).any(), "rows with no snapshot in the feature store"
+    if chans is None:
+        return si.astype(np.int64), None
+    ci = pd.Series(range(len(chans)), index=chans).reindex(lb.key.to_numpy()).to_numpy()
+    assert not np.isnan(ci.astype(float)).any(), "rows with no channel in the feature store"
+    return si.astype(np.int64), ci.astype(np.int64)
 
 
 class RowStore22:
