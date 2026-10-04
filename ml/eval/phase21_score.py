@@ -48,6 +48,8 @@ def ksel(world):
 
 def fmt(world, task, arm, k):
     t = TASKS[task]
+    if arm == "base_nl":
+        return os.path.join(PR21, f"{world}_{t}_p21_base_nl_s{{s}}_{{f}}.npz")
     if arm == "base":
         if task == "place":
             return os.path.join(PR21, f"{world}_{t}_p21_base_s{{s}}_{{f}}.npz")
@@ -289,6 +291,17 @@ def stage_snap(world, out):
         g["control (c): L5 vs L4"] = cmp("arrival", A["L5"][0], A["L4"][0])
     if "grp_only" in A:
         g["grp_only vs BASE"] = cmp("arrival", A["grp_only"][0], base_b)
+    # DIAGNOSTIC (deviation 199): the same comparison with the leaking panel columns removed from BASE
+    NL = {}
+    for arm in ("base_nl", "L4_nl", "L5_nl"):
+        if have(world, "arrival", arm, kA):
+            NL[arm] = bands(world, "arrival", arm, kA)[0]
+    diag_nl = {}
+    if len(NL) == 3:
+        diag_nl = dict(bands=NL, L4_nl_vs_base_nl=cmp("arrival", NL["L4_nl"], NL["base_nl"]),
+                       L5_nl_vs_base_nl=cmp("arrival", NL["L5_nl"], NL["base_nl"]), L5_nl_vs_L4_nl=cmp("arrival", NL["L5_nl"], NL["L4_nl"]),
+                       base_nl_vs_base=cmp("arrival", NL["base_nl"], base_b),
+                       gain_L5_nl=gain(NL["L5_nl"], NL["base_nl"], "lateness_auc", True), gain_L4_nl=gain(NL["L4_nl"], NL["base_nl"], "lateness_auc", True))
     # the standalone rule (D9) and seed ensembles, block bootstrap
     a_off = ks["snap"]["arrival"][str(kA)]["offset_a_weeks"] if str(kA) in ks["snap"]["arrival"] else ks["snap"]["arrival"][kA]["offset_a_weeks"]
     rule = {f: GS.standalone_arrival_weeks(Zf, kA) + a_off for f, Zf in (("val", Zv), ("test", Zt))}
@@ -299,7 +312,8 @@ def stage_snap(world, out):
     pairs = [("rule", "base_ens")] + [(f"{a}_ens", "base_ens") for a in A if a != "base"]
     det = det_compare("arrival", preds, Yt, EVt, Rt, blocks, 21, pairs)
     res["arrival"] = dict(k=kA, offset_a_weeks=a_off, bands={a: b for a, (b, _) in A.items()}, per_seed={a: p for a, (_, p) in A.items()},
-                          unreachable={a: u for a, u in UN.items() if u}, gates=g, deterministic=det)
+                          unreachable={a: u for a, u in UN.items() if u}, gates=g, deterministic=det,
+                          diagnostic_no_leak_columns=diag_nl)
     if "L5" in A:
         res["arrival"]["importance_L5"] = importances(world, "arrival", "L5", kA)
         # which resolved level do the rows that gain sit at? (ensembles, test, observed rows)
@@ -401,15 +415,16 @@ def cmp_slice(a, b, higher):
     return S18.compare(a, b, higher)
 
 
-def stage_place(world, out):
+def stage_place(world, out, sfx=""):
     ks = ksel(world); kP = ks["k"]["place"]
     Z, idx, tau = fold_rows(world, "place")
     Zv, Zt = sub(Z, idx["val"]), sub(Z, idx["test"])
     P = {}; UN = {}
-    for arm in ("base", "L4", "L5", "L5_perm"):
+    for arm0 in ("base", "L4", "L5", "L5_perm"):
+        arm = arm0 + sfx
         if have(world, "place", arm, kP):
-            b, p, u = bands(world, "place", arm, kP); P[arm] = (b, p); UN[arm] = u
-    z0 = load(world, "place", "base", kP, 7)
+            b, p, u = bands(world, "place", arm, kP); P[arm0] = (b, p); UN[arm0] = u
+    z0 = load(world, "place", "base" + sfx, kP, 7)
     for f, Zf in (("val", Zv), ("test", Zt)):
         assert (np.asarray(z0[f]["entity"]).astype(str) == Zf["entity"]).all(), f"placement store rows != BASE rows ({f})"
     base_b = P["base"][0]
@@ -425,7 +440,7 @@ def stage_place(world, out):
     EVt = EVt.astype(bool)
     tau_t = tau[idx["test"]]
     blocks = [np.flatnonzero(tau_t == u) for u in np.unique(tau_t)]
-    ens = {arm: np.mean([np.asarray(load(world, "place", arm, kP, s)["test"]["P"], float) for s in SEEDS], 0) for arm in P}
+    ens = {arm: np.mean([np.asarray(load(world, "place", arm + sfx, kP, s)["test"]["P"], float) for s in SEEDS], 0) for arm in P}
     preds = {"rule": rule["test"], **{f"{a}_ens": v for a, v in ens.items()}}
     det = det_compare("place", preds, Yt, EVt, Rt, blocks, 23, [("rule", "base_ens")] + [(f"{a}_ens", "base_ens") for a in P if a != "base"]
                       + ([("L5_ens", "L4_ens")] if "L5" in P and "L4" in P else []))
@@ -434,21 +449,21 @@ def stage_place(world, out):
     br = dict(test_rows=int(len(Yt)), observed_share=float(EVt.mean()), late_vs_contract_observed=float((Yt[EVt] > Rt[EVt]).mean()),
               uc1p_base_rate=float(yl[keep].mean()), blocks_creation_weeks=len(blocks))
     month_t = pd.DatetimeIndex(tau_t).month.to_numpy()      # per-"snapshot" spread read per creation MONTH (12 blocks)
-    per_seed = {"BASE (flat at creation)": [load(world, "place", "base", kP, s) for s in SEEDS]}
+    per_seed = {"BASE (flat at creation)" + sfx: [load(world, "place", "base" + sfx, kP, s) for s in SEEDS]}
     for arm in ("L4", "L5"):
         if arm in P:
-            per_seed[f"BASE + {arm}"] = [load(world, "place", arm, kP, s) for s in SEEDS]
+            per_seed[f"BASE + {arm}{sfx}"] = [load(world, "place", arm + sfx, kP, s) for s in SEEDS]
     detd = {f"standalone group rule (k={kP})": dict(val=rule["val"], test=rule["test"], zv=z0["val"], zt=z0["test"])}
     summ, _ = decision_arrival(world, per_seed, detd, month_t, place=True)
-    imp = importances(world, "place", "L5", kP) if "L5" in P else None
+    imp = importances(world, "place", "L5" + sfx, kP) if "L5" in P else None
     # month slices at placement (true month)
     mres = {}
     for mo in range(1, 13):
         m = month_t == mo
         if m.sum():
-            mres[mo] = {arm: S18.band([lateness(np.asarray(load(world, "place", arm, kP, s)["test"]["P"], float)[m], Yt[m], EVt[m], Rt[m])[0]
+            mres[mo] = {arm: S18.band([lateness(np.asarray(load(world, "place", arm + sfx, kP, s)["test"]["P"], float)[m], Yt[m], EVt[m], Rt[m])[0]
                                        for s in SEEDS]) for arm in P if arm in ("base", "L4", "L5")} | dict(rows=int(m.sum()))
-    out["place"] = dict(k=kP, offset_a_weeks=a_off, base_rates=br, bands={a: b for a, (b, _) in P.items()},
+    out["place" + sfx] = dict(k=kP, suffix=sfx, offset_a_weeks=a_off, base_rates=br, bands={a: b for a, (b, _) in P.items()},
                         per_seed={a: p for a, (_, p) in P.items()}, unreachable={a: u for a, u in UN.items() if u}, gates=g,
                         deterministic=det, decisions_UC1P=compact(summ), importance_L5=imp, by_creation_month=mres)
 
@@ -457,17 +472,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("stage", choices=["snap", "place"])
     ap.add_argument("--world", default="v8")
+    ap.add_argument("--suffix", default="")
     a = ap.parse_args()
     PP.register()
     st = C.require_clean()
     out = dict(stamp=st, world=a.world)
-    (stage_snap if a.stage == "snap" else stage_place)(a.world, out)
-    C.dump(out, f"phase21/score_{a.stage}_{a.world}.json")
-    for task in ("arrival", "fill", "place"):
+    if a.stage == "snap":
+        stage_snap(a.world, out)
+    else:
+        stage_place(a.world, out, a.suffix)
+    C.dump(out, f"phase21/score_{a.stage}{a.suffix}_{a.world}.json")
+    for task in ("arrival", "fill", "place", "place_nl"):
         if task in out:
             print(f"== {task}")
             for arm, b in out[task]["bands"].items():
-                print(f"  {arm:10s}", {k: [round(x, 4) for x in v] if v else None for k, v in b.items() if k in DIR[task]})
+                print(f"  {arm:10s}", {k: [round(x, 4) for x in v] if v else None for k, v in b.items() if k in DIR[task[:5] if task.startswith("place") else task]})
             for fam, gg in out[task]["gates"].items():
                 print(f"  GATE {fam}: {gg.get('verdict', '')} {gg.get('why', gg)}")
             print("  DET", json.dumps(out[task]["deterministic"]["point"]))

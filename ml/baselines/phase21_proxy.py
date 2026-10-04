@@ -42,9 +42,13 @@ assert "torch" not in sys.modules, "torch must not be imported in the LightGBM p
 OUT = os.path.join(ARTIFACTS, "phase21", "preds")
 LOG_FMT = os.path.join(ARTIFACTS, "phase21", "proxy_fit_{world}_{task}.json")   # one log per process (deviation 198)
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "place": "arrival_place"}
-ARMS = {"arrival": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "grp_only", "sc", "sc_L5"),
+# DIAGNOSTIC suffix "_nl" (deviation 199): the arm with the three channel_performance_weekly columns REMOVED from the
+# BASE features that the generator builds from each line's EVENTUAL lead, bucketed on the line's ORDER week
+# (generator_v8.py: leadw[pch, vw_ord] = pl_, forward-filled) -- future information at any t0 / tau in that week or later.
+LEAK = ["lead_time_actual_days", "lead_time_ratio", "otd_rate_last13"]
+ARMS = {"arrival": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "grp_only", "sc", "sc_L5", "base_nl", "L4_nl", "L5_nl"),
         "fill": ("base", "L4", "L4_xsh", "L5", "L5_perm", "L5_xsh", "ack", "ack_xsh", "L5_ack", "sc_L5"),
-        "place": ("base", "L4", "L5", "L5_perm")}
+        "place": ("base", "L4", "L5", "L5_perm", "base_nl", "L4_nl", "L5_nl", "L5_perm_nl")}
 
 
 def k_of(world, task):
@@ -144,15 +148,18 @@ def fit(world, task, arms, seeds, log, stamp):
     k = k_of(world, task)
     for arm in arms:
         for s in ([7] if arm == "base" and task != "place" else seeds):
-            name = f"p21_{arm}_s{s}" if arm == "base" else f"p21_{arm}_k{k}_s{s}"
+            name = f"p21_{arm}_s{s}" if arm in ("base", "base_nl") else f"p21_{arm}_k{k}_s{s}"
             exists = all(os.path.exists(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test"))
             if exists and "gain_importance" in log.get(f"{world}|{t_task}|{name}", {}):
                 print(f"  {world} {task} {name}: exists, skipped", flush=True); continue
             if exists:          # the record was lost (deviation 198): refit, assert bit-identical, record it
                 stored = {f: np.load(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test")}
                 P7.OUT = os.path.join(OUT, "_refit"); os.makedirs(P7.OUT, exist_ok=True)
-            F, use_base = family(task, arm, world, lb, Z, k, s, groups, masks)
-            X = Xflat if F is None else (pd.concat([Xflat, F], axis=1) if use_base else F).astype(np.float32)
+            nl = arm.endswith("_nl")
+            F, use_base = family(task, arm[:-3] if nl else arm, world, lb, Z, k, s, groups, masks)
+            Xb = Xflat.drop(columns=LEAK) if nl else Xflat
+            assert not nl or not any(c in Xb.columns for c in LEAK)
+            X = Xb if F is None else (pd.concat([Xb, F], axis=1) if use_base else F).astype(np.float32)
             meta = dict(seed=s, arm=arm, world=world, k=k, n_features=X.shape[1], commit=stamp)
             t = time.time()
             if task in ("arrival", "place"):
