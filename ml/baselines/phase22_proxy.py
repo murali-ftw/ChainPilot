@@ -48,7 +48,7 @@ OUT = os.path.join(ARTIFACTS, "phase22", "preds")
 LOGS = os.path.join(ARTIFACTS, "phase22", "logs")
 MODELS = os.path.join(ARTIFACTS, "phase22", "models")
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "capacity": "capacity_strain", "place": "arrival_place"}
-SNAP_ARMS = ("base", "nl", "lag1", "fwdload", "sc", "ack", "L4", "sc_ack", "sc_ack_L4", "sc_ctrl", "ack_sperm", "ack_xsh", "L4_xsh")
+SNAP_ARMS = ("base", "nl", "lag1", "fwdload", "sc_L5", "sc", "ack", "L4", "sc_ack", "sc_ack_L4", "sc_ctrl", "ack_sperm", "ack_xsh", "L4_xsh")
 PLACE_ARMS = ("base", "base_lag1", "L4", "L4_xsh", "latedays", "flag", "leaked")
 K_PLACE = 10
 
@@ -79,6 +79,10 @@ def snap_family(arm, world, lb, seed):
     pw = parent(world)
     if arm == "fwdload":
         return P20.block("fwd_load", pw, lb, seed)
+    if arm == "sc_L5":                      # Phase 21's hybrid LightGBM half: season + cadence + the L5 group block (k = 300)
+        Z, _ = GS.load(pw, "snap")
+        assert (lb.entity_id.to_numpy().astype(str) == Z["entity"]).all()
+        return pd.concat([R22.block("season", pw, lb, seed), R22.block("cadence", pw, lb, seed), GS.assemble_arrival(Z, 300, "L5")], axis=1)
     parts = {"sc": ["season", "cadence"], "ack": ["ack"], "L4": ["L4"], "sc_ack": ["season", "cadence", "ack"],
              "sc_ack_L4": ["season", "cadence", "ack", "L4"]}
     if arm in parts:
