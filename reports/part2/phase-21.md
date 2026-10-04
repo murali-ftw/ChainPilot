@@ -8,7 +8,7 @@
 No PRIVILEGED file.
 **Branch / base:** `phase21`, cut from `HADES-v4-ml-pipeline` at `124be5b`, in a separate worktree
 (`../HADES_v4_phase21`). Not merged, not pushed. The user's working tree was not touched (deviation 203).
-**Status:** complete, CPU only, 23:37 → ~01:00 IST of an 8-hour window (stop 07:37). No STOPPED file.
+**Status:** complete, CPU only, 23:37 → 00:35 IST of an 8-hour window (stop 07:37). No STOPPED file.
 **Deviations** start at **197** (the integration report ends at 196).
 
 ## Header
@@ -30,7 +30,7 @@ No PRIVILEGED file.
 | LightGBM arms: v8 arrival, place, fill / `_nl` diagnostics / fill season + cadence controls / world 2 | `6248fae` / `cbb1167` / `7169503` / `cbb1167`, `7169503` |
 | scores (`score_snap_*.json`, `score_place*_v8.json`) | `676ae0c` |
 | hybrid (`stage6_hybrid.json`) / replication (`stage7_replication.json`) | `d31947a` / `dc0ad62` |
-| isolation audit | §6 |
+| isolation audit | run at `204c233` (all reports committed), all PASS (§7) |
 
 ---
 
@@ -153,8 +153,7 @@ Nothing ships from this phase automatically. **Recommend only.**
 
 ## 7. Isolation audit
 
-`ml/tests/test_phase21_isolation.py` → `ml/artifacts/phase21/isolation_audit.json`, run with every report committed (the
-commit after this report): every check PASS.
+`ml/tests/test_phase21_isolation.py` → `ml/artifacts/phase21/isolation_audit.json`, run at `204c233`, with every report committed: every check PASS.
 
 | check | result |
 |---|---|
