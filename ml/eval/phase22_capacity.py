@@ -215,12 +215,16 @@ def summarise(per_snap):
     q = {}
     for d, r in per_snap.items():
         q.setdefault(str(pd.Period(pd.Timestamp(d), freq="Q")), []).append(r)
-    qp = {k: float(np.nansum([x["precision"] * x["n_flag"] for x in v]) / max(sum(x["n_flag"] for x in v), 1)) for k, v in q.items()}
+    # a quarter with no flag has NO precision (NaN, counted below), never 0 -- a first version scored it 0, which made a
+    # comparator that could not reach the bar on the short validation history look like a collapse
+    qp = {k: (float(np.nansum([x["precision"] * x["n_flag"] for x in v]) / sum(x["n_flag"] for x in v))
+              if sum(x["n_flag"] for x in v) > 0 else float("nan")) for k, v in q.items()}
     vals = [v for v in qp.values() if np.isfinite(v)]
     return dict(per_quarter_precision=qp, worst_quarter=min(vals) if vals else float("nan"), mean_quarter=float(np.mean(vals)) if vals else float("nan"),
                 spread=(max(vals) - min(vals)) if vals else float("nan"), share_flagged=float(np.mean([r["share"] for r in per_snap.values()])),
                 recall=float(np.mean([r["recall"] for r in per_snap.values()])),
-                dec2025=next((r["precision"] for d, r in per_snap.items() if d.startswith("2025-12")), None), n_snapshots=len(per_snap))
+                dec2025=next((r["precision"] for d, r in per_snap.items() if d.startswith("2025-12")), None), n_snapshots=len(per_snap),
+                quarters_without_flags=[k for k, v in qp.items() if not np.isfinite(v)])
 
 
 def purge_selftest(zs, S):
@@ -272,8 +276,9 @@ def main():
     for name in SCHEMES:
         for w in WINDOWS:
             per = [summarise(run_scheme(name, z, S, w, "val", None)) for z in zs]
-            if any(p is None for p in per):
-                val_res[f"{name}|w{w}"] = "INFEASIBLE (fewer than w resolved validation snapshots before any scored one)"; continue
+            if any(p is None for p in per) or any(not np.isfinite(p["worst_quarter"]) for p in per):
+                val_res[f"{name}|w{w}"] = ("INFEASIBLE (fewer than w resolved validation snapshots before any scored one)" if any(p is None for p in per)
+                                           else "NO FLAG on some seed's scored validation quarters: precision undefined"); continue
             val_res[f"{name}|w{w}"] = dict(worst=S18.band([p["worst_quarter"] for p in per]), mean=S18.band([p["mean_quarter"] for p in per]),
                                            share=float(np.mean([p["share_flagged"] for p in per])), n_snapshots=per[0]["n_snapshots"])
     out["validation_walk_forward"] = val_res
@@ -289,6 +294,8 @@ def main():
         if name == "fixed" or name not in chosen:
             continue
         w = chosen[name]
+        if not isinstance(val_res.get(f"fixed|w{w}"), dict):
+            adoption[name] = dict(verdict="REJECTED", reason=f"no defined fixed comparator at w{w} on validation: {val_res.get(f'fixed|w{w}')}"); continue
         adoption[name] = adopt(val_res[f"{name}|w{w}"], val_res[f"fixed|w{w}"])
     out["adoption_on_validation"] = adoption
     # test
