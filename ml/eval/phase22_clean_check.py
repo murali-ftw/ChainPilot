@@ -56,13 +56,17 @@ def main():
         V = clean[c][:, weeks]
         fin = np.isfinite(V) & (np.asarray(miss[:, weeks, meta["nullable"].index(c)]) > 0)
         noleak = (load_ok if c == "load_ratio" else ~pend) & fin
-        tol = 0.5 if c == "lead_time_actual_days" else (0.5 / S.contracted[:, None] if c == "lead_time_ratio" else 1e-6)
+        # tolerances = the stored column's own rounding (generator: lead 2 dp but the CSV lead is whole days; load / ratio 4 dp; fill 6 dp)
+        tol = 0.5 if c == "lead_time_actual_days" else (0.5 / S.contracted[:, None] if c == "lead_time_ratio" else 5e-5 if c == "load_ratio" else 1e-6)
         tol = np.broadcast_to(tol, P.shape)
         d = np.abs(P - V)
         out[c] = dict(no_leak_rows=int(noleak.sum()), equal_on_no_leak=float((d[noleak] <= tol[noleak] + 1e-9).mean()) if noleak.any() else None,
                       leak_rows=int((~noleak & fin).sum()), mean_abs_diff_on_leak_rows=float(d[~noleak & fin].mean()) if (~noleak & fin).any() else None,
                       mean_abs_diff_on_no_leak_rows=float(d[noleak].mean()) if noleak.any() else None)
     res = dict(stamp=st, weeks_sampled=len(weeks), columns=out,
+               rolled_columns_note="fill_rate_last4/13/52 and otd_rate_last13 roll over 4-52 past weeks; where the order-week keying "
+                                   "and the receipt-week keying place a value in different weeks, a past week differs even when week t is "
+                                   "no-leak, so exact equality is expected only for the point-in-time columns",
                note="lead: the stored value is the LAST-ORDERED line's float lead, the clean one the LAST-RECEIVED line's whole-day lead; "
                     "on rows with no pending line they are the same line unless receipts arrive out of order")
     C.dump(res, "phase22/clean_check_v8.json")
