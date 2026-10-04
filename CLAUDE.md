@@ -1,3 +1,5 @@
+...
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -65,6 +67,7 @@ Multi-cell runs go through queue scripts (`ml/train/phase*_*.sh`, `phase*_queue.
 3. **Select on validation, never on an evaluation/test window.** If validation can't separate two options, report that as the finding.
 
 Generator discipline (`docs/specs/synthetic_rules.md` §13, §15):
+
 - Set **mechanism** parameters and **measure** outcomes. Never write a target outcome (fill mass, late rate, staleness, seasonality ratio, …) into a generator as a literal, clip or post-hoc adjustment. When an outcome misses its band, change a mechanism and regenerate.
 - As-of gating is on `recorded_ts`, never `event_ts`. Weekly stores bucket on `max(event_week, recorded_week)`.
 - `validator_v8.py` is **frozen**. Don't widen a band so a dataset passes. Only path discovery may change.
