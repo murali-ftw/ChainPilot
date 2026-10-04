@@ -39,6 +39,11 @@ def config_name(cfg) -> str:
     # Phase 16: encoder-variant axes. Each appears ONLY when non-default, so no Phase 0-15 name changes (S4 gate).
     for k, v in encoder_axes(cfg).items():
         name += f"_{ENCODER_TAGS[k]}{_fmt(v)}"
+    # Phase 17 axes -- each OMITTED at its default, so every pre-Phase-17 identity is unchanged (phase17_identity_check)
+    if cfg.get("cap_target") not in (None, "level"):
+        name += {"delta": "_tgtdelta", "level_delta": "_tgtlvldelta"}[cfg["cap_target"]]   # B2b / B2c
+    if cfg.get("lean_encoder"):
+        name += "_lean"                             # B4b: part relation and its dead parameters removed (new class)
     return name
 
 
@@ -97,6 +102,11 @@ def identity_of(cfg) -> dict:
             "fill_head", "ratio_key", "ratio_est", "shrink", "ratio_use", "fill_loss")
     ident = {k: cfg.get(k) for k in keys}
     ident.update(encoder_axes(cfg))                 # Phase 16: present only when non-default
+    # Phase 17 axes enter only when set away from their default, so pre-Phase-17 identities compare equal
+    if cfg.get("cap_target") not in (None, "level"):
+        ident["cap_target"] = cfg["cap_target"]
+    if cfg.get("lean_encoder"):
+        ident["lean_encoder"] = True
     return ident
 
 

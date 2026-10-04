@@ -142,6 +142,40 @@ class FillCDFHead(nn.Module):
         return torch.softmax(z, -1)
 
 
+class FillBand5Head(nn.Module):
+    """Phase 17 B3b: five ordered bands {0} | (0, 0.50) | [0.50, 0.95) | [0.95, 1) | {1}.
+
+    The bands sit exactly on the 22-cell partition (cells 0 | 1-10 | 11-19 | 20 | 21), so `probs` spreads each band's
+    mass evenly over its cells and every 22-cell scorer, recalibrator and invariant applies unchanged. Trained ORDINALLY:
+    the RPS over the 4 band boundaries, so one band off costs less than four bands off. The targets are the 22-cell
+    indices `fill_cell` already gives, mapped to bands inside the loss; the partition of the labels is not changed.
+    """
+    BAND_OF_CELL = (0,) + (1,) * 10 + (2,) * 9 + (3,) + (4,)
+    K = 5
+
+    def __init__(self, d_in: int):
+        super().__init__()
+        self.net = _trunk(d_in, self.K)
+        self.register_buffer("band_of_cell", torch.tensor(self.BAND_OF_CELL, dtype=torch.long), persistent=False)
+
+    def forward(self, h):
+        return self.net(h)                                      # logits [N, 5]
+
+    def loss(self, z, cell, kind="rps"):
+        assert kind == "rps", "the 5-band head is trained with the ordinal RPS only"
+        band = self.band_of_cell.to(cell.device)[cell]
+        Fhat = torch.cumsum(torch.softmax(z, -1), -1)[:, :-1]  # [N, 4]
+        step = (torch.arange(self.K - 1, device=z.device).unsqueeze(0) >= band.unsqueeze(1)).to(Fhat.dtype)
+        return ((Fhat - step) ** 2).sum(-1).mean()
+
+    @staticmethod
+    def probs(z):
+        P5b = torch.softmax(z, -1)
+        width = torch.tensor([1, 10, 9, 1, 1], device=z.device, dtype=P5b.dtype)
+        idx = torch.tensor(FillBand5Head.BAND_OF_CELL, device=z.device)
+        return (P5b / width)[:, idx]                            # [N, 22], each band spread evenly over its cells
+
+
 def rps_on_probs(P, cell, boundary_weight=1.0):
     """RPS over the 21 boundaries of a 22-cell distribution; the last boundary (between [0.95, 1) and the
     atom at 1.0) optionally weighted. boundary_weight=1 is exactly FillCDFHead's 'rps'."""
