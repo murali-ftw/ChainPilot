@@ -205,8 +205,12 @@ def fit(world, task, arms, seeds, stamp, persist):
                 models = ms
             log[f"{world}|{t_task}|{name}"]["seconds_fit"] = time.time() - t
             log[f"{world}|{t_task}|{name}"]["gain_importance"] = {c: float(v) for c, v in zip(X.columns, models[0].booster_.feature_importance("gain"))}
-            if persist:
-                save_model(world, t_task, name, models, X.columns, dict(seed=s, arm=arm, commit=stamp["code_commit"]))
+            if persist:                 # the refit's predictions went to preds_persist/: they must equal the stored ones bit for bit
+                for f in ("val", "test"):
+                    r = np.load(os.path.join(P7.OUT, f"{world}_{t_task}_{name}_{f}.npz")); o = np.load(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz"))
+                    assert np.array_equal(r["P"], o["P"]) and (r["entity"] == o["entity"]).all(), f"{name} {f}: persisted refit != stored -- STOP"
+                save_model(world, t_task, name, models, X.columns, dict(seed=s, arm=arm, commit=stamp["code_commit"],
+                                                                       refit_bit_identical_to_stored=True))
             print(f"  {world} {task} {name}: {time.time() - t:.0f}s ({X.shape[1]} features){' LEAK-FLAGGED ' + str(flagged) if flagged else ''}", flush=True)
             json.dump(log, open(log_path, "w"), indent=1)
 
@@ -221,7 +225,8 @@ if __name__ == "__main__":
     a = ap.parse_args()
     register()
     os.makedirs(OUT, exist_ok=True); os.makedirs(LOGS, exist_ok=True)
-    P7.OUT = OUT
+    P7.OUT = os.path.join(ARTIFACTS, "phase22", "preds_persist") if a.persist else OUT     # never overwrite a stored file
+    os.makedirs(P7.OUT, exist_ok=True)
     st = C.require_clean()
     arms = a.arms.split(",")
     assert all(x in (PLACE_ARMS if a.task == "place" else SNAP_ARMS) for x in arms), arms
