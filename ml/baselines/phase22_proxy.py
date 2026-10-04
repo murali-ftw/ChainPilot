@@ -49,7 +49,8 @@ LOGS = os.path.join(ARTIFACTS, "phase22", "logs")
 MODELS = os.path.join(ARTIFACTS, "phase22", "models")
 TASK = {"arrival": "arrival_week", "fill": "fill_rate", "capacity": "capacity_strain", "place": "arrival_place"}
 SNAP_ARMS = ("base", "nl", "lag1", "fwdload", "sc_L5", "sc", "ack", "L4", "sc_ack", "sc_ack_L4", "sc_ctrl", "ack_sperm", "ack_xsh", "L4_xsh")
-PLACE_ARMS = ("base", "base_lag1", "L4", "L4_xsh", "latedays", "flag", "leaked")
+PLACE_ARMS = ("base", "base_lag1", "L4", "L4_xsh", "latedays", "flag", "leaked", "flag_lag1", "L4_lag1")
+# *_lag1 at placement: the panel row of the week BEFORE tau (strictly before the day the line is raised; D1 H_date)
 K_PLACE = 10
 
 
@@ -142,7 +143,7 @@ def fit(world, task, arms, seeds, stamp, persist):
         log = json.load(open(log_path)) if os.path.exists(log_path) else {}
         log.setdefault("_stamps", []).append(dict(world=world, task=task, arm=arm, **stamp))
         for s in seeds:
-            k = K_PLACE if task == "place" and arm in ("L4", "L4_xsh", "latedays", "flag", "leaked") else None
+            k = K_PLACE if task == "place" and arm in ("L4", "L4_xsh", "latedays", "flag", "leaked", "flag_lag1", "L4_lag1") else None
             name = f"p22_{arm}" + (f"_k{k}" if k else "") + f"_s{s}"
             if all(os.path.exists(os.path.join(OUT, f"{world}_{t_task}_{name}_{f}.npz")) for f in ("val", "test")) and not persist:
                 print(f"  {world} {task} {name}: exists, skipped", flush=True); continue
@@ -150,10 +151,10 @@ def fit(world, task, arms, seeds, stamp, persist):
             if task == "place":
                 fw = "v8" if arm == "leaked" else world
                 Wf = Wd if fw == world else P7.World(fw)
-                lbf = lag_lb(lb, 7) if arm == "base_lag1" else lb
+                lbf = lag_lb(lb, 7) if arm.endswith("lag1") else lb
                 X = pd.concat([Wf.channel_features(lbf, with_ids=False, flat=True),
                                pd.DataFrame({"log1p_qty_ordered": lq.astype(np.float32)})], axis=1)
-                if arm in ("L4", "latedays", "flag", "leaked"):
+                if arm in ("L4", "latedays", "flag", "leaked", "flag_lag1", "L4_lag1"):
                     X = pd.concat([X, GS.assemble_arrival(Z, K_PLACE, "L4")], axis=1)
                 elif arm == "L4_xsh":
                     F = GS.assemble_arrival(Z, K_PLACE, "L4")
@@ -172,7 +173,7 @@ def fit(world, task, arms, seeds, stamp, persist):
             X = X.astype(np.float32)
             meta = dict(seed=s, arm=arm, world=world, n_features=X.shape[1], commit=stamp["code_commit"], leak_flagged=flagged)
             t = time.time()
-            if task in ("arrival", "place") and arm != "flag":
+            if task in ("arrival", "place") and arm not in ("flag", "flag_lag1"):
                 y = lb.label_value.to_numpy(float); ev = ~lb.label_censored.to_numpy(bool)
                 if arm == "latedays":
                     y = 7 * (y - lb.promise_week.to_numpy(float))          # lateness in days vs contract
@@ -184,7 +185,7 @@ def fit(world, task, arms, seeds, stamp, persist):
                     pred = lambda o: (m.predict(X.iloc[o]), None)
                 P7.emit(world, t_task, name, lb, va, te, pred, log, dict(best_iter=int(m.best_iteration_ or 400), **meta))
                 models = [m]
-            elif arm == "flag":
+            elif arm in ("flag", "flag_lag1"):
                 Y = lb.label_value.to_numpy(float); EV = ~lb.label_censored.to_numpy(bool); R = lb.promise_week.to_numpy(float)
                 late = (Y > R).astype(int); keep = EV | (Y > R)                    # UC1-P label, censoring resolved
                 m = P7.lgbm_fit("binary", X, late, tr, va, s, rows_tr=tr & keep, rows_va=va & keep)

@@ -41,7 +41,7 @@ DIR = {"lateness_auc": True, "a3_median_abs_err_days": False, "week_hit_rate": T
 
 
 def fmt(world, arm, s, f):
-    k = f"_k{K}" if arm in ("L4", "L4_xsh", "latedays", "flag", "leaked") else ""
+    k = f"_k{K}" if arm in ("L4", "L4_xsh", "latedays", "flag", "leaked", "flag_lag1", "L4_lag1") else ""
     return os.path.join(PR22, f"{world}_arrival_place_p22_{arm}{k}_s{s}_{f}.npz")
 
 
@@ -63,7 +63,7 @@ def band_of(world, arm, fold="test"):
     for s in SEEDS:
         z = load(world, arm, s)[fold]
         P, Y, EV, R = (np.asarray(z[k], float) for k in ("P", "Y", "EV", "AUX")); EV = EV.astype(bool)
-        if arm == "flag":
+        if arm in ("flag", "flag_lag1"):
             yl, keep = S21.uc1p_label(Y, EV, R)
             per.append(dict(lateness_auc=float(roc_auc((Y[EV] > R[EV]).astype(int), P[EV]))))
         else:
@@ -156,7 +156,7 @@ def main():
     a_off = float(np.median(Yf["val"][EVf["val"]] - km_raw["val"][EVf["val"]]))
     km = {f: km_raw[f] + a_off for f in ("val", "test")}
     # ---- 5-seed arms
-    arms = [x for x in ("base", "base_lag1", "L4", "L4_xsh", "latedays", "flag", "leaked") if have(world, x)]
+    arms = [x for x in ("base", "base_lag1", "L4", "L4_xsh", "latedays", "flag", "leaked", "flag_lag1", "L4_lag1") if have(world, x)]
     bands = {x: band_of(world, x) for x in arms}
     out["bands"] = {x: b for x, (b, _) in bands.items()}
     out["gates"] = {}
@@ -231,6 +231,14 @@ def main():
             yt_, kt_ = S21.uc1p_label(np.asarray(z["test"]["Y"], float), np.asarray(z["test"]["EV"], bool), np.asarray(z["test"]["AUX"], float))
             flag_arms["flag P(late), per seed"].append((np.asarray(z["val"]["P"], float)[kv_], yv_[kv_], np.asarray(z["test"]["P"], float)[kt_], yt_[kt_], month_start[kt_]))
         summ.update(P20D.summarise(flag_arms))
+    if "flag_lag1" in arms:                    # STRICT (row tau - 1): what a planner could have on the day the line is raised
+        fa = {"flag_lag1 P(late) STRICT, per seed": []}
+        for s in SEEDS:
+            z = load(world, "flag_lag1", s)
+            yv_, kv_ = S21.uc1p_label(np.asarray(z["val"]["Y"], float), np.asarray(z["val"]["EV"], bool), np.asarray(z["val"]["AUX"], float))
+            yt_, kt_ = S21.uc1p_label(np.asarray(z["test"]["Y"], float), np.asarray(z["test"]["EV"], bool), np.asarray(z["test"]["AUX"], float))
+            fa["flag_lag1 P(late) STRICT, per seed"].append((np.asarray(z["val"]["P"], float)[kv_], yv_[kv_], np.asarray(z["test"]["P"], float)[kt_], yt_[kt_], month_start[kt_]))
+        summ.update(P20D.summarise(fa))
     out["decisions_UC1P"] = S21.compact(summ)
     out["phase21_class_reference"] = "UC1-P (Phase 21, no-leak BASE_nl): ALERT, PARTIAL at 0.80, lift 2.22"
     name = f"phase22/order_time_{world}.json"
