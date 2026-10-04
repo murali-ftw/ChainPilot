@@ -316,6 +316,16 @@ def placement_rows(world, src):
     return li[o], tau[o]
 
 
+def placement_labels(src, li):
+    """D10 label for the at-placement rows: lead in weeks from creation to the first receipt; censored (EV False) if the
+    line has no receipt anywhere in the world, observed then up to the world's last receipt date."""
+    end = np.nanmax(src.g_event.astype("datetime64[ns]").astype("int64")[~np.isnat(src.g_event)]).astype("datetime64[ns]")
+    ev = ~np.isnat(src.g_event[li])
+    t_end = np.where(ev, src.g_event[li], end)
+    Y = ((t_end - src.created[li]) / DAY).astype(float) / 7.0
+    return Y, ev, src.contract[li] / 7.0, src.qty[li]
+
+
 # ================================================================== gather for rows
 def build_rows(B: Builder, taus, chan, month, own_lines, want_fill):
     """Rows grouped by tau. Returns dict of arrays aligned to the input order."""
