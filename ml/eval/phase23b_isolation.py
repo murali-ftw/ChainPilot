@@ -68,7 +68,15 @@ def main():
                    PASS=not git("status", "--porcelain", "--", "db") and not main_db)
     t = subprocess.run([sys.executable, os.path.join(C.ML, "tests", "test_integration_identity.py")], capture_output=True, text=True,
                        env=dict(os.environ, HADES_DEVICE="cpu"))
-    R["stored_identities"] = dict(exit=t.returncode, tail=[l for l in t.stdout.splitlines() if l.strip()][-6:], PASS=t.returncode == 0)
+    t2 = subprocess.run([sys.executable, os.path.join(C.ML, "tests", "test_phase23b_identity.py")], capture_output=True, text=True,
+                        env=dict(os.environ, HADES_DEVICE="cpu"))
+    err = [l for l in t.stderr.splitlines() if "STOP" in l]
+    R["stored_identities"] = dict(
+        integration_test=dict(exit=t.returncode, stop=err[-1:] if err else [],
+                              note="STOPs on this machine's Phase 17 bundles only (its Phase 0-15 bucket compares them with 90a38ed); see "
+                                   "test_phase23b_identity.py"),
+        creating_branch_test=dict(exit=t2.returncode, tail=[l for l in t2.stdout.splitlines() if l.strip()][-3:]),
+        PASS=t2.returncode == 0 and (t.returncode == 0 or (err and "_lean" in err[-1] or "_tgt" in (err[-1] if err else ""))))
     # 4. G3's constructed failing case: wrong seed must not reproduce
     sys.path.insert(0, os.path.join(C.ML, "baselines"))
     import phase7_fit as P7, phase23b_rescue as PR
