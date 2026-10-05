@@ -35,7 +35,8 @@ def main():
                   hatch=["//" if bool(l) else "" for l in df["leaky"]], yerr=err, capsize=7, error_kw=dict(lw=1.6))
     base = float(df["base_rate"].iloc[0])
     ax.axhline(base, color=OI["black"], ls="--", lw=1.6)
-    ax.text(len(df) - 0.5, base + 0.012, f"base rate {base:.3f} (a transfer-in that week)", ha="right", va="bottom", fontsize=12)
+    ax.text(-0.45, base - 0.02, f"base rate {base:.3f}\n(a transfer-in that week)", ha="left", va="top", fontsize=12,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=2))
     for i, (b, r) in enumerate(zip(bars, df.itertuples())):
         ax.text(b.get_x() + b.get_width() / 2, r.hi + 0.015, f"{r.value:.3f}" + (" (Q)" if r.status == "QUOTED" else ""),
                 ha="center", va="bottom", fontsize=13)
