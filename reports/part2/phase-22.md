@@ -32,7 +32,7 @@ pushed. The user's working tree was not touched.
 | neural fill season + cadence (5 cells) | `2cee433` |
 | order-time scores / product bundle / serve tests | `2b602b5` (v8), `f2e1f85` (w2) / `ml/artifacts/phase22/serve/order_time_v8clean/` / `serve_tests.json` |
 | restatement / fill / capacity | `e79327f` / `2cee433` / `5f9fc7d` (clean), `f2e1f85` (published) |
-| isolation audit | §7 |
+| isolation audit | run at `4131271` (all reports committed), all PASS (§7) |
 
 ---
 
@@ -100,7 +100,7 @@ pushed. The user's working tree was not touched.
 | **218** | D7: neural bound with the passing families; the clean Phase 19 fill arm | only season + cadence passed, so both are the same five cells | 3 |
 | **219** | Stage 3e: persist the best fill model | declared **not servable**: the season family's as-of builder reads `part_demand_weekly`, which constraint 4 forbids in model / serve code. The season family itself comes from Phase 18's stored arrays (`fwd_load.py`, deviation 162's as_of + 2 d bound), a pre-existing reader | 3 |
 | **220** | 1c: "verify equality with the stored columns where no leak applies" | point-in-time columns agree on 95–100% of no-leak rows; the rolled columns (4–52-week windows) cannot, because order- and receipt-keying place past values in different weeks | 1 |
-| **221** | "402 / 371 identities expected" | **real count in §7** | 7 |
+| **221** | "402 / 371 identities expected" | **371 / 371** stored configs recompute identically (the 371 already include the 31 Phase 16 variants, deviation 189); plus 15 Phase 19 and **25 Phase 22** bundles at their identity names (15 clean incumbents, 5 season-only diagnostic, 5 season + cadence) | 7 |
 | **222** | Stage 3a: ack-gap control "permuted across snapshots" | implemented exactly as the same channel at a donor snapshot of the same split (a derangement), which keeps channel identity; this is the control that fails it | 3 |
 
 ## 4. Every `inventory_position_weekly` / `part_demand_weekly` read
@@ -179,5 +179,16 @@ the arrives-in-full list. No, for the materially-short list.**
 
 ## 7. Isolation audit
 
-`ml/tests/test_phase22_isolation.py` → `ml/artifacts/phase22/isolation_audit.json`: *(run below; result recorded in the
-commit that follows this report)*.
+`ml/tests/test_phase22_isolation.py` → `ml/artifacts/phase22/isolation_audit.json`, run at `4131271` with every report
+committed: **every check PASS.**
+
+| check | result |
+|---|---|
+| `git diff cbc7088 HEAD` and the working tree on db/gen_v6, gen_v7, gen_v8, db/validator.py, docs/specs/**, db/dataset_structure.md, ml/configs/shipped.json, results/**, reports/part1, **every report at the base**, ml/models/share.py, ml/models/tcn.py, ml/artifact_identity.py, ml/train/phase19_identity.py, docs/decisions, **every existing file under ml/serve/** | **empty** |
+| db/ | worktree clean (tracked and untracked). The main checkout's db/ clean; `db/gen_v8` holds exactly seed_1001…seed_1005; world 2's four recorded hashes equal Phase 20's |
+| stored configs recomputed | **371 / 371 identical**, all nameable; 15 Phase 19 bundles at their names; **25 Phase 22 bundles** at the names `phase19_identity` gives them (world `v8clean` in each), none sharing a name with a stored bundle |
+| AST scan, ml/train / models / data / baselines / **serve** | **0 violations**. Forbidden strings extended to Phase 22 privileged paths; constructed offenders flagged; a docstring passes. The only `_sim.npz` readers are the audit instruments in `ml/eval/` |
+| `inventory_position_weekly` / `part_demand_weekly` in Phase 22 modules | **0** (scanner self-tested on a constructed read) |
+| new feature modules | clean_panel poison + self-exclusion **PASS on both worlds**, offenders flagged; grpstats tests PASS |
+| serving | bit-exact on 200 test lines; wrong name, tampered model and missing bundle each raise; AST scan of the new serve file clean |
+| constructed failing cases (every gate) | all fire: leak scan (3 known columns), handshake (+0.05), family gates (equal bands; control also better), neural verdict (incumbent vs itself = TIE), leak gate (leaked arm flagged), purge (unresolved window), stability rule (identical scheme rejected) |
