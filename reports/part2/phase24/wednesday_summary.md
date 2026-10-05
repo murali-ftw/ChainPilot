@@ -73,6 +73,11 @@ on the same cases.
 | predict-the-rescue (right in 10) | 8.2 | 8.6 (2 of 5 runs) | **7.3** |
 | simulation vs pre-rescue stock (times) | 1.13 | 1.13 | **1.14** |
 
+**Update after Phase 24 Stage 6** (added after the table above was committed). The neural version of predict-the-rescue,
+retrained on clean data with all five runs, is right **8.0 in 10** (7.9–8.2), against the LightGBM's 7.3. It clears 7 in 10
+in every test period (R6). It is **not servable yet**: it needs a serving module and the owner's decision. Four of five
+runs were still improving when they stopped, so this is a floor.
+
 ---
 
 **Sources.**
@@ -81,5 +86,6 @@ on the same cases.
 - **Q3:** `reports/part2/phase-17.md` §1.1, measured on the leaky inputs and not re-measured (retired).
 - **Q4:** `reports/part2/phase-23b.md` §1 (`535361d`): clean B1a 0.733 at recall 0.254, ensemble range 0.697–0.773.
 - **R5:** `reports/part2/phase24/stage2_simulation.md` (Phase 24, `cda8074`): 1.137×; 0.612 (range 0.572–0.643).
+- **R6:** `reports/part2/phase24/stage6_b1b_clean.md` (`632eeb8`): five-run ensemble 0.805 (0.791–0.824).
 - **Progress row:** `reports/part2/phase23ac/t4/progress.md` and `reports/part2/phase24/progress_v2.md`. Leaky figures are
   "LEAKY (superseded, Phase 22)", shown only as history.
