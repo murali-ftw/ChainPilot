@@ -10,7 +10,7 @@ validation only. TEST, RAW.
 **Machine:** Windows 11, RTX 3050 Ti Laptop (4 GB), **CPU only**: no neural training, no GPU use (`HADES_DEVICE=cpu`).
 Python 3.10.11, LightGBM 4.7.0, torch 2.14.0+cu126 (imported, never on CUDA). One CPU job at a time, except the three cache builds,
 which ran beside the Stage 1 audit. Every artifact carries its commit SHA; every run refused a dirty `ml/`.
-**Wall-clock:** started 21:19, finished 22:05 on 2026-10-05, inside the 6 h stop (03:19).
+**Wall-clock:** started 21:19, finished 21:48 on 2026-10-05, inside the 6 h stop (03:19).
 
 ## 1. Decisions
 
