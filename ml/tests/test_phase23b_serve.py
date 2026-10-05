@@ -26,11 +26,19 @@ FORBIDDEN = ["inventory_position_weekly", "part_demand_weekly"] + list(LEAKING)
 
 
 def forbidden_names(source):
-    """Every string constant or identifier in `source` that names a forbidden table or a LEAKING column."""
+    """Every string constant or identifier in `source` that names a forbidden table or a LEAKING column. Docstrings (the
+    leading string expression of a module, class or function) are documentation, not reads, and are skipped."""
+    tree = ast.parse(source)
+    docs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                docs.add(id(first.value))
     hits = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         vals = []
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs:
             vals.append(node.value)
         elif isinstance(node, ast.Name):
             vals.append(node.id)
