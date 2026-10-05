@@ -13,7 +13,7 @@
               else it and every later cell are listed in reports/part2/phase22/STOPPED.json.
 
   HADES_DATA_ROOT=<main checkout> python ml/train/phase22_train.py handshake
-  ... python ml/train/phase22_train.py queue --cells clean:arrival,clean:capacity,clean:fill --deadline "2026-10-05 14:53"
+  ... python ml/train/phase22_train.py queue --cells "clean:arrival;clean:capacity;bind:fill:season,cadence" --deadline "2026-10-05 14:53"
 """
 from __future__ import annotations
 import os, sys, json, time, argparse, datetime
@@ -197,4 +197,4 @@ if __name__ == "__main__":
     elif a.mode == "bind":
         bind(a.task, a.seed, a.families)
     else:
-        queue(a.cells.split(","), a.deadline)
+        queue(a.cells.split(";"), a.deadline)          # ';' between cells: a bind cell's families are comma-separated
