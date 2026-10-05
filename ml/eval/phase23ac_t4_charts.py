@@ -67,8 +67,17 @@ def chart1(data, out):
         dd = _bars(ax, d)
         b = pd.to_numeric(d["base_rate"], errors="coerce").dropna()
         if len(b):
-            ax.axhline(float(b.iloc[0]), color=OI["black"], ls="--", lw=1.6, label=f"base rate {float(b.iloc[0]):.2f}")
-            ax.legend(loc="upper right", bbox_to_anchor=(1.0, 1.0), frameon=True, fontsize=11)
+            ax.axhline(float(b.iloc[0]), color=OI["black"], ls="--", lw=1.6)
+            # labelled on the line itself (a legend box hid the clean column's value label)
+            ax.annotate(f"base rate {float(b.iloc[0]):.2f}", (len(d) - 0.5, float(b.iloc[0])), textcoords="offset points",
+                        xytext=(-4, -16), ha="right", fontsize=11, color=OI["black"],
+                        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.85))
+        top = np.nanmax(pd.to_numeric(d[["value", "hi"]].stack(), errors="coerce").to_numpy())
+        ax.set_ylim(0, top * 1.18)                       # headroom for the value labels
+        if uc == "FILL":
+            ax.annotate("bars: absolute CRPS, which varies by snapshot;\nclean vs Phase 19 recipe, paired: +0.0013 [0.0003, 0.0025] better",
+                        (0.02, 0.03), xycoords="axes fraction", fontsize=10, color=OI["black"],
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.9))
         hib = int(d["higher_is_better"].iloc[0]) == 1
         cls = [str(c) for c in dd["phase15_class"].fillna("")]
         ax.set_title(f"{uc}\n{d['metric'].iloc[0]} ({'higher' if hib else 'lower'} = better)", fontsize=14)
@@ -118,6 +127,7 @@ def chart3(data, out):
     snaps = sorted(set(df["snapshot"]))
     x = np.arange(len(snaps))
     mk = {"INCUMBENT": "o", "BEST PUBLISHED": "s", "CLEAN": "D"}
+    worst = {}
     for c in COLS:
         d = df[df["column"] == c].set_index("snapshot").reindex(snaps)
         if d["precision_at_5pct"].notna().sum() == 0:
@@ -127,8 +137,12 @@ def chart3(data, out):
         for s_, r in w.iterrows():
             xi = snaps.index(s_)
             ax.scatter([xi], [r["precision_at_5pct"]], s=320, facecolors="none", edgecolors=OI["vermillion"], linewidths=2.6, zorder=5)
-            ax.annotate(f"worst: {s_}\n{r['precision_at_5pct']:.2f}", (xi, r["precision_at_5pct"]), textcoords="offset points",
-                        xytext=(-10, -46) if c == "CLEAN" else (-10, 18), ha="right", fontsize=12, color=OI["vermillion"])
+            worst.setdefault(s_, []).append((TICK[c].replace("\n", " "), r["precision_at_5pct"]))
+    for s_, items in worst.items():              # one combined note per worst snapshot (separate notes overlapped)
+        xi = snaps.index(s_); y = min(v for _, v in items)
+        txt = f"worst snapshot {s_}:\n" + "\n".join(f"{n} {v:.2f}" for n, v in items)
+        ax.annotate(txt, (xi, y), textcoords="offset points", xytext=(-24, -10), ha="right", va="top", fontsize=12,
+                    color=OI["vermillion"])
     ax.set_xticks(x); ax.set_xticklabels(snaps, rotation=30, ha="right")
     ax.set_ylim(0, 1.05); ax.set_ylabel("precision in the top 5% of the snapshot")
     ax.set_title("Capacity precision in the top 5%, by test snapshot (worst snapshot circled)")
