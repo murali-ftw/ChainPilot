@@ -244,12 +244,24 @@ def band(v):
     v = [float(x) for x in v]; return [min(v), float(np.mean(v)), max(v)]
 
 
+def reachable_and_class_unchanged():
+    """phase20_decisions.reachable_and_class, its SOURCE TEXT taken from the committed file and executed unchanged. The module
+    itself cannot be imported here: at import it loads ml/artifacts/phase19/stage4b_block.json, which exists only on the Mac."""
+    import ast, phase15 as P15
+    path = os.path.join(C.ML, "eval", "phase20_decisions.py"); src = open(path, encoding="utf-8").read()
+    fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "reachable_and_class")
+    ns = dict(PS=P15.PS, MIN_ALERTS=P15.MIN_ALERTS)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), path, "exec"), ns)
+    return ns["reachable_and_class"], hashlib.sha1(ast.get_source_segment(src, fn).encode()).hexdigest()[:12]
+
+
 def score():
     import phase15 as P15
-    from phase20_decisions import reachable_and_class
+    reachable_and_class, rc_sha = reachable_and_class_unchanged()
     register()
     st = C.require_clean()
-    out = dict(stamp=st, machine="Windows 11, CPU only", concurrency="1 CPU job", worlds={})
+    out = dict(stamp=st, machine="Windows 11, CPU only", concurrency="1 CPU job", worlds={},
+               class_rule="phase20_decisions.reachable_and_class, source executed unchanged (sha1 of source %s)" % rc_sha)
     # G5's constructed failing case
     try:
         require_five([None] * 4, "constructed: one seed dropped"); g5 = False
