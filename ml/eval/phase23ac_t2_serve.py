@@ -148,11 +148,15 @@ def main():
                  offender_on_unpoisoned_plan_changed=rows_changed(A, season_rows(off_c, n)),
                  offender_max_abs_diff=float(np.nanmax(np.abs(off_p.astype(float) - clean.astype(float)))),
                  n_plan_rows_asserted=svc.block(t0)["n_plan_rows_asserted"])
-        r["pass"] = r["bounded_changed"] == 0 and r["offender_changed"] == n
+        # A snapshot with NO plan version recorded after t0 (the end of the data) gives the offender nothing to read: the
+        # constructed failing case cannot fire there, so that snapshot is "n/a", not a failure (deviation 228). The bounded
+        # reader must still change 0 rows on it.
+        r["applicable"] = r["plan_rows_poisoned"] > 0
+        r["pass"] = r["bounded_changed"] == 0 and (r["offender_changed"] == n if r["applicable"] else True)
         poison.append(r)
         log(f"poison {r['t0']}: {n_poisoned} plan rows poisoned; bounded reader changed {r['bounded_changed']} of {n}; "
             f"offender changed {r['offender_changed']} of {n} (on the unpoisoned plan: {r['offender_on_unpoisoned_plan_changed']})")
-    poison_pass = all(r["pass"] for r in poison)
+    poison_pass = all(r["pass"] for r in poison) and any(r["applicable"] for r in poison)   # the offender must fire at least once
 
     # ---------------------------------------------------------------- write
     res = dict(stamp=st, device=out["device"], seconds=round(time.time() - t_start, 1),
